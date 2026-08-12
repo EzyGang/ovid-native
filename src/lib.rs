@@ -1,8 +1,10 @@
 mod ast;
+mod search;
+mod workspace;
 
 use pyo3::prelude::*;
 
-const API_VERSION: u16 = 2;
+const API_VERSION: u16 = 3;
 
 #[pyfunction]
 #[must_use]
@@ -19,6 +21,7 @@ fn runtime_info() -> (&'static str, &'static str, u16, Option<&'static str>) {
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(runtime_info, module)?)?;
     ast::register_module(module)?;
+    search::register_module(module)?;
 
     Ok(())
 }

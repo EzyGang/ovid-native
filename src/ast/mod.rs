@@ -1,16 +1,12 @@
 mod language;
 mod python;
 mod rewrite;
-mod scanner;
 mod search;
 #[cfg(test)]
 mod tests;
 mod types;
 
-use std::path::{Path, PathBuf};
-
 use pyo3::prelude::*;
-use sha2::{Digest, Sha256};
 
 pub use python::register;
 
@@ -26,33 +22,22 @@ pub enum AstError {
     Cancelled,
 }
 
-pub fn canonical_root(value: &str) -> Result<PathBuf, AstError> {
-    if value.contains('\0') {
-        return Err(AstError::Configuration(
-            "workspace root contains a NUL byte".to_owned(),
-        ));
+impl From<crate::workspace::WorkspaceError> for AstError {
+    fn from(error: crate::workspace::WorkspaceError) -> Self {
+        match error {
+            crate::workspace::WorkspaceError::Configuration(message) => {
+                Self::Configuration(message)
+            }
+            crate::workspace::WorkspaceError::Path(message) => Self::Path(message),
+            crate::workspace::WorkspaceError::Read(message) => Self::Path(message),
+            crate::workspace::WorkspaceError::Stale(message) => Self::Stale(message),
+            crate::workspace::WorkspaceError::Write(message) => Self::Write(message),
+            crate::workspace::WorkspaceError::Cancelled => Self::Cancelled,
+            crate::workspace::WorkspaceError::Deadline => {
+                Self::Limit("workspace operation reached its deadline".to_owned())
+            }
+        }
     }
-    let root = Path::new(value).canonicalize().map_err(|error| {
-        AstError::Configuration(format!("cannot resolve workspace root: {error}"))
-    })?;
-    if !root.is_dir() {
-        return Err(AstError::Configuration(
-            "workspace root must be a directory".to_owned(),
-        ));
-    }
-    Ok(root)
-}
-
-pub fn sha256(contents: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-
-    let digest = Sha256::digest(contents);
-    let mut encoded = String::with_capacity(digest.len() * 2);
-    for byte in digest {
-        encoded.push(HEX[usize::from(byte >> 4)] as char);
-        encoded.push(HEX[usize::from(byte & 0x0f)] as char);
-    }
-    encoded
 }
 
 pub fn source_range(source: &str, range: std::ops::Range<usize>) -> types::Range {

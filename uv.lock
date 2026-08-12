@@ -849,7 +849,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [{ name = "ovid-core", editable = "../ovid-core" }]
-provides-extras = ["ast", "all"]
+provides-extras = ["ast", "search", "all"]
 
 [package.metadata.requires-dev]
 dev = [

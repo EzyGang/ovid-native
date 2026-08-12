@@ -1,14 +1,16 @@
 use std::collections::HashMap;
-use std::fs;
 
 use ast_grep_core::Pattern;
 use ast_grep_core::meta_var::MetaVariable;
 use ast_grep_language::{LanguageExt, SupportLang};
 
 use crate::ast::language::{canonical_name, infer_language, resolve_language, strictness};
-use crate::ast::scanner::{Candidate, discover};
-use crate::ast::types::{Capture, Issue, Match, SearchRequest, SearchResult};
+use crate::ast::types::{Capture, Issue, Match, ScanOptions, SearchRequest, SearchResult};
 use crate::ast::{AstError, source_range};
+use crate::workspace::{
+    MetadataLevel, ReadExtent, ScanFileKind, ScanOrder, ScanRequest, WorkCompletion, WorkControl,
+    Workspace, WorkspaceEntry, read_content,
+};
 
 pub fn search(root: &std::path::Path, request: SearchRequest) -> Result<SearchResult, AstError> {
     if request.pattern.is_empty() || request.pattern.contains('\0') {
@@ -27,7 +29,12 @@ pub fn search(root: &std::path::Path, request: SearchRequest) -> Result<SearchRe
         .map(resolve_language)
         .transpose()?;
     let strictness = strictness(&request.strictness)?;
-    let selected = discover(root, &request.scan, request.limits.max_files)?;
+    let selected = discover_files(
+        root,
+        &request.scan,
+        request.limits.max_files,
+        &request.cancellation,
+    )?;
     let (files, unsupported_files) = classify_files(selected, explicit);
     let mut patterns = HashMap::new();
     for (_, language) in &files {
@@ -56,9 +63,16 @@ pub fn search(root: &std::path::Path, request: SearchRequest) -> Result<SearchRe
         if request.cancellation.is_cancelled() {
             return Err(AstError::Cancelled);
         }
-        let source = match read_source(&candidate, request.limits.max_file_bytes) {
+        let source = match read_source(
+            &candidate,
+            request.limits.max_file_bytes,
+            &request.cancellation,
+        ) {
             Ok(source) => source,
             Err(issue) => {
+                if request.cancellation.is_cancelled() {
+                    return Err(AstError::Cancelled);
+                }
                 issues.push(issue);
                 continue;
             }
@@ -115,9 +129,9 @@ pub fn search(root: &std::path::Path, request: SearchRequest) -> Result<SearchRe
 }
 
 pub(crate) fn classify_files(
-    selected: Vec<Candidate>,
+    selected: Vec<WorkspaceEntry>,
     explicit: Option<SupportLang>,
-) -> (Vec<(Candidate, SupportLang)>, usize) {
+) -> (Vec<(WorkspaceEntry, SupportLang)>, usize) {
     let mut files = Vec::new();
     let mut unsupported = 0;
     for candidate in selected {
@@ -129,29 +143,65 @@ pub(crate) fn classify_files(
     (files, unsupported)
 }
 
-pub(crate) fn read_source(candidate: &Candidate, max_bytes: usize) -> Result<String, Issue> {
-    let bytes = fs::read(&candidate.path).map_err(|error| {
-        issue(
-            candidate,
-            "read_error",
-            format!("cannot read file: {error}"),
-        )
-    })?;
-    if bytes.len() > max_bytes {
+pub(crate) fn discover_files(
+    root: &std::path::Path,
+    options: &ScanOptions,
+    max_files: usize,
+    cancellation: &crate::workspace::Cancellation,
+) -> Result<Vec<WorkspaceEntry>, AstError> {
+    let workspace = Workspace::from_canonical(root);
+    let control = WorkControl::new(cancellation.clone(), None);
+    let result = workspace.scan(
+        &ScanRequest {
+            selections: options.paths.clone(),
+            include_hidden: options.include_hidden,
+            respect_gitignore: options.respect_gitignore,
+            include_node_modules: options.include_node_modules,
+            file_kind: ScanFileKind::Files,
+            metadata: MetadataLevel::Size,
+            order: ScanOrder::Path,
+            max_files,
+        },
+        &control,
+    )?;
+    if result.completion != WorkCompletion::Complete {
+        return Err(AstError::Limit(format!(
+            "workspace selection exceeds the {max_files} file limit"
+        )));
+    }
+
+    Ok(result.entries)
+}
+
+pub(crate) fn read_source(
+    candidate: &WorkspaceEntry,
+    max_bytes: usize,
+    cancellation: &crate::workspace::Cancellation,
+) -> Result<String, Issue> {
+    let control = WorkControl::new(cancellation.clone(), None);
+    let content = read_content(
+        &candidate.path,
+        ReadExtent::Complete {
+            max_bytes: max_bytes as u64,
+        },
+        &control,
+    )
+    .map_err(|error| issue(candidate, "read_error", workspace_read_message(error)))?;
+    if !content.complete {
         return Err(issue(
             candidate,
             "limit_reached",
             format!("file exceeds the {max_bytes} byte limit"),
         ));
     }
-    if bytes.contains(&0) {
+    if content.binary {
         return Err(issue(
             candidate,
             "read_error",
             "file contains a NUL byte".to_owned(),
         ));
     }
-    String::from_utf8(bytes).map_err(|_| {
+    String::from_utf8(content.bytes).map_err(|_| {
         issue(
             candidate,
             "read_error",
@@ -161,7 +211,7 @@ pub(crate) fn read_source(candidate: &Candidate, max_bytes: usize) -> Result<Str
 }
 
 fn build_match<D>(
-    candidate: &Candidate,
+    candidate: &WorkspaceEntry,
     language: SupportLang,
     source: &str,
     matched: &ast_grep_core::NodeMatch<'_, D>,
@@ -222,7 +272,7 @@ where
     captures
 }
 
-pub(crate) fn parse_issue(candidate: &Candidate, language: SupportLang) -> Issue {
+pub(crate) fn parse_issue(candidate: &WorkspaceEntry, language: SupportLang) -> Issue {
     (
         Some(candidate.relative.clone()),
         Some(canonical_name(language).to_owned()),
@@ -231,13 +281,24 @@ pub(crate) fn parse_issue(candidate: &Candidate, language: SupportLang) -> Issue
     )
 }
 
-fn issue(candidate: &Candidate, kind: &str, message: String) -> Issue {
+fn issue(candidate: &WorkspaceEntry, kind: &str, message: String) -> Issue {
     (
         Some(candidate.relative.clone()),
         None,
         kind.to_owned(),
         message,
     )
+}
+
+fn workspace_read_message(error: crate::workspace::WorkspaceError) -> String {
+    match error {
+        crate::workspace::WorkspaceError::Read(message) => message,
+        crate::workspace::WorkspaceError::Cancelled => "AST operation cancelled".to_owned(),
+        crate::workspace::WorkspaceError::Deadline => {
+            "AST operation reached its deadline".to_owned()
+        }
+        other => format!("{other:?}"),
+    }
 }
 
 fn limit_issue(max_matches: usize) -> Issue {

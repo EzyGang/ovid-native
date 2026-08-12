@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use pyo3::prelude::*;
+
+pub(crate) use crate::workspace::Cancellation;
 
 pub type Position = (usize, usize, usize);
 pub type Range = (Position, Position);
@@ -21,17 +22,6 @@ pub type PreviewResult = (
     Vec<Issue>,
 );
 pub type ApplyResult = (Vec<FileChange>, usize);
-
-#[derive(Clone)]
-pub struct Cancellation {
-    cancelled: Arc<AtomicBool>,
-}
-
-impl Cancellation {
-    pub fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::Relaxed)
-    }
-}
 
 #[derive(Clone, Copy)]
 pub struct Limits {
@@ -99,19 +89,17 @@ impl NativeAstCancellation {
     #[new]
     pub fn new() -> Self {
         Self {
-            inner: Cancellation {
-                cancelled: Arc::new(AtomicBool::new(false)),
-            },
+            inner: Cancellation::new(),
         }
     }
 
     pub fn cancel(&self) {
-        self.inner.cancelled.store(true, Ordering::Relaxed);
+        self.inner.cancel();
     }
 }
 
 impl NativeAstCancellation {
-    pub fn token(&self) -> Cancellation {
+    pub(crate) fn token(&self) -> Cancellation {
         self.inner.clone()
     }
 }

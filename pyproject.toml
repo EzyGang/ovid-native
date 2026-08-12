@@ -13,6 +13,7 @@ dependencies = [
 [project.optional-dependencies]
 # Native operations ship in every wheel; extras select Python-only dependencies.
 ast = []
+search = []
 all = []
 
 [build-system]
@@ -39,6 +40,7 @@ bindings = "pyo3"
 module-name = "ovid_native._native"
 python-source = "python"
 strip = true
+include = [{ path = ".cargo/config.toml", format = "sdist" }]
 
 [tool.taskipy.tasks]
 format-and-lint = "task ruff && task lint && rust-lint && task rust-format"

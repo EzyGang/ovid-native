@@ -6,12 +6,12 @@ use ast_grep_core::Pattern;
 use ast_grep_language::{LanguageExt, SupportLang};
 
 use crate::ast::language::{canonical_name, resolve_language, strictness};
-use crate::ast::scanner::discover;
-use crate::ast::search::{classify_files, parse_issue, read_source};
+use crate::ast::search::{classify_files, discover_files, parse_issue, read_source};
 use crate::ast::types::{
     FileChange, FileComputation, PreviewResult, RewriteComputation, RewriteRequest,
 };
-use crate::ast::{AstError, sha256, source_range};
+use crate::ast::{AstError, source_range};
+use crate::workspace::{WorkspaceEntry, sha256};
 
 struct Edit {
     range: ByteRange<usize>,
@@ -27,7 +27,12 @@ pub fn preview(root: &Path, request: RewriteRequest) -> Result<PreviewResult, As
         .map(resolve_language)
         .transpose()?;
     let strictness = strictness(&request.strictness)?;
-    let selected = discover(root, &request.scan, request.limits.max_files)?;
+    let selected = discover_files(
+        root,
+        &request.scan,
+        request.limits.max_files,
+        &request.cancellation,
+    )?;
     let (files, _) = classify_files(selected, explicit);
     let patterns = compile_patterns(&files, &request.operations, strictness)?;
     let mut computation_files = Vec::new();
@@ -40,9 +45,16 @@ pub fn preview(root: &Path, request: RewriteRequest) -> Result<PreviewResult, As
         if request.cancellation.is_cancelled() {
             return Err(AstError::Cancelled);
         }
-        let source = match read_source(&candidate, request.limits.max_file_bytes) {
+        let source = match read_source(
+            &candidate,
+            request.limits.max_file_bytes,
+            &request.cancellation,
+        ) {
             Ok(source) => source,
             Err(issue) => {
+                if request.cancellation.is_cancelled() {
+                    return Err(AstError::Cancelled);
+                }
                 issues.push(issue);
                 continue;
             }
@@ -144,7 +156,7 @@ fn validate_operations(operations: &[(String, String)]) -> Result<(), AstError> 
 }
 
 fn compile_patterns(
-    files: &[(crate::ast::scanner::Candidate, SupportLang)],
+    files: &[(WorkspaceEntry, SupportLang)],
     operations: &[(String, String)],
     strictness: ast_grep_core::MatchStrictness,
 ) -> Result<HashMap<SupportLang, Vec<(Pattern, String)>>, AstError> {

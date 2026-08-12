@@ -2,6 +2,7 @@ use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 
+use crate::ast::AstError;
 use crate::ast::language::{LanguageInfo, supported_languages};
 use crate::ast::rewrite::{apply, preview};
 use crate::ast::search::search;
@@ -9,7 +10,7 @@ use crate::ast::types::{
     ApplyResult, Limits, NativeAstCancellation, NativeAstRewriteComputation, PreviewResult,
     RewriteRequest, ScanOptions, SearchRequest, SearchResult,
 };
-use crate::ast::{AstError, canonical_root};
+use crate::workspace::Workspace;
 
 create_exception!(_native, NativeAstConfigurationError, PyException);
 create_exception!(_native, NativeAstPathError, PyException);
@@ -154,8 +155,8 @@ fn ast_search(
 ) -> PyResult<SearchResult> {
     let request = request.inner.clone();
     py.detach(move || {
-        let root = canonical_root(&root)?;
-        search(&root, request)
+        let workspace = Workspace::new(&root).map_err(AstError::from)?;
+        search(workspace.root(), request)
     })
     .map_err(to_python_error)
 }
@@ -168,8 +169,8 @@ fn ast_preview_rewrite(
 ) -> PyResult<PreviewResult> {
     let request = request.inner.clone();
     py.detach(move || {
-        let root = canonical_root(&root)?;
-        preview(&root, request)
+        let workspace = Workspace::new(&root).map_err(AstError::from)?;
+        preview(workspace.root(), request)
     })
     .map_err(to_python_error)
 }
@@ -184,8 +185,8 @@ fn ast_apply_rewrite(
     let computation = computation.inner.clone();
     let cancellation = cancellation.token();
     py.detach(move || {
-        let root = canonical_root(&root)?;
-        apply(&root, computation, &cancellation)
+        let workspace = Workspace::new(&root).map_err(AstError::from)?;
+        apply(workspace.root(), computation, &cancellation)
     })
     .map_err(to_python_error)
 }
