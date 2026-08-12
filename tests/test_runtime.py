@@ -1,10 +1,20 @@
-from ovid_native.runtime import runtime_info
+import pytest
+from pytest_mock import MockerFixture
+
+from ovid_native import _native
+from ovid_native.runtime import NativeCompatibilityError, ensure_native_compatibility, runtime_info
 
 
 def test_runtime_info_reports_native_build() -> None:
     info = runtime_info()
 
-    assert info.api_version == 3
+    assert info.api_version == 4
     assert info.operating_system in {'linux', 'macos', 'windows'}
     assert info.architecture
-    assert info.ast_grep_version == '0.45.1'
+
+
+def test_native_compatibility_rejects_a_mismatched_extension(mocker: MockerFixture) -> None:
+    mocker.patch.object(_native, 'runtime_info', return_value=('macos', 'arm64', 999))
+
+    with pytest.raises(NativeCompatibilityError, match='expects native API 4, found 999'):
+        ensure_native_compatibility()

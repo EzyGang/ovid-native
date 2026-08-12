@@ -32,6 +32,7 @@ from ovid_native.ast.models import (
     AstSearchRequest,
     AstSearchResult,
 )
+from ovid_native.runtime import ensure_native_compatibility
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +54,7 @@ _NATIVE_ERRORS: tuple[type[Exception], ...] = (
 
 class AstEngine:
     def __init__(self, *, root: Path, limits: AstLimits | None = None) -> None:
+        ensure_native_compatibility()
         try:
             resolved = root.resolve(strict=True)
         except OSError as error:
@@ -180,10 +182,12 @@ class AstEngine:
 
 
 def supported_ast_languages() -> tuple[AstLanguageInfo, ...]:
+    ensure_native_compatibility()
     return tuple(_mapping.language_info(value) for value in _native.ast_supported_languages())
 
 
 def ast_grep_version() -> str:
+    ensure_native_compatibility()
     return _native.ast_grep_version()
 
 

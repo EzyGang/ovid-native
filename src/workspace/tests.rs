@@ -43,6 +43,35 @@ fn workspace_scans_exact_directory_glob_and_multiple_selections() {
 }
 
 #[test]
+fn workspace_prunes_unrelated_selection_subtrees() {
+    let root = tempfile::tempdir().expect("workspace");
+    fs::create_dir_all(root.path().join("selected")).expect("selected directory");
+    fs::create_dir_all(root.path().join("unrelated/nested")).expect("unrelated directory");
+    fs::write(root.path().join("selected/target.txt"), "target").expect("target");
+    for index in 0..100 {
+        fs::write(
+            root.path().join(format!("unrelated/nested/{index}.txt")),
+            "unrelated",
+        )
+        .expect("unrelated file");
+    }
+    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+
+    for selection in ["selected/target.txt", "selected", "selected/*.txt"] {
+        let result = workspace
+            .scan(
+                &scan_request(&[selection]),
+                &WorkControl::new(Cancellation::new(), None),
+            )
+            .expect("scan");
+
+        assert_eq!(result.entries.len(), 1);
+        assert_eq!(result.entries[0].relative, "selected/target.txt");
+        assert!(result.skipped_entries < 10);
+    }
+}
+
+#[test]
 fn workspace_rejects_traversal_and_reports_limits() {
     let root = tempfile::tempdir().expect("workspace");
     fs::write(root.path().join("a.txt"), "a").expect("a");
@@ -101,10 +130,46 @@ fn workspace_preflights_and_atomically_replaces_content() {
     let path = root.path().join("source.txt");
     fs::write(&path, "before").expect("source");
     let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
-    let prepared =
-        preflight_write(workspace.root(), "source.txt", &sha256(b"before")).expect("preflight");
+    preflight_write(workspace.root(), "source.txt", &sha256(b"before")).expect("preflight");
+    fs::write(&path, "changed").expect("concurrent change");
+    assert!(matches!(
+        replace_file(
+            workspace.root(),
+            "source.txt",
+            &sha256(b"before"),
+            b"after",
+            &Cancellation::new(),
+        ),
+        Err(WorkspaceError::Stale(_))
+    ));
+    assert_eq!(fs::read_to_string(&path).expect("stale source"), "changed");
 
-    replace_file(&prepared, b"after").expect("replace");
+    fs::write(&path, "before").expect("restored source");
+    let cancelled = Cancellation::new();
+    cancelled.cancel();
+    assert!(matches!(
+        replace_file(
+            workspace.root(),
+            "source.txt",
+            &sha256(b"before"),
+            b"after",
+            &cancelled,
+        ),
+        Err(WorkspaceError::Cancelled)
+    ));
+    assert_eq!(
+        fs::read_to_string(&path).expect("cancelled source"),
+        "before"
+    );
+
+    replace_file(
+        workspace.root(),
+        "source.txt",
+        &sha256(b"before"),
+        b"after",
+        &Cancellation::new(),
+    )
+    .expect("replace");
 
     assert_eq!(fs::read_to_string(path).expect("updated source"), "after");
 }
@@ -152,4 +217,38 @@ fn workspace_prunes_directory_symlinks_and_rejects_external_file_symlinks() {
         workspace.scan(&scan_request(&["linked-file.txt"]), &control),
         Err(WorkspaceError::Path(_))
     ));
+}
+
+#[cfg(unix)]
+#[test]
+fn workspace_resolves_only_explicit_internal_file_symlinks() {
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().expect("workspace");
+    fs::write(root.path().join("target.txt"), "target").expect("target");
+    symlink(
+        root.path().join("target.txt"),
+        root.path().join("linked.txt"),
+    )
+    .expect("file link");
+    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let control = WorkControl::new(Cancellation::new(), None);
+
+    let explicit = workspace
+        .scan(&scan_request(&["linked.txt"]), &control)
+        .expect("explicit link");
+    let globbed = workspace
+        .scan(&scan_request(&["*.txt"]), &control)
+        .expect("globbed files");
+
+    assert_eq!(explicit.entries[0].relative, "linked.txt");
+    assert_eq!(explicit.entries[0].size, Some(6));
+    assert_eq!(
+        globbed
+            .entries
+            .iter()
+            .map(|entry| entry.relative.as_str())
+            .collect::<Vec<_>>(),
+        ["target.txt"]
+    );
 }

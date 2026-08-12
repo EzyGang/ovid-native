@@ -257,6 +257,7 @@ fn search_file(
         }
         Err(_) => return Ok(FileSearch::Encoding),
     };
+    let line_starts = line_starts(source);
     let collected = match &compiled.matcher {
         CompiledMatcher::Rust(matcher) => {
             collect_matches(matcher, source.as_bytes(), request, control)?
@@ -269,7 +270,7 @@ fn search_file(
         .ranges
         .iter()
         .take(request.matches_per_file)
-        .map(|range| build_match(source, range.clone(), request))
+        .map(|range| build_match(source, &line_starts, range.clone(), request))
         .collect::<Vec<_>>();
     let matches_truncated =
         retained.len() < collected.total_matches || !collected.total_matches_exact;
@@ -443,30 +444,30 @@ fn validate_request(request: &GrepRequest) -> Result<(), SearchError> {
     Ok(())
 }
 
-fn build_match(source: &str, range: Range<usize>, request: &GrepRequest) -> NativeGrepMatch {
-    let line_starts = line_starts(source);
-    let start_line = line_index(&line_starts, range.start);
+fn build_match(
+    source: &str,
+    line_starts: &[usize],
+    range: Range<usize>,
+    request: &GrepRequest,
+) -> NativeGrepMatch {
+    let start_line = line_index(line_starts, range.start);
     let matched_end = if range.end > range.start {
         range.end - 1
     } else {
         range.start
     };
-    let end_line = line_index(&line_starts, matched_end);
-    let (line_text, line_truncated) = display_line(
-        source,
-        &line_starts,
-        start_line,
-        request.max_line_characters,
-    );
+    let end_line = line_index(line_starts, matched_end);
+    let (line_text, line_truncated) =
+        display_line(source, line_starts, start_line, request.max_line_characters);
     let context_before = context_lines(
         source,
-        &line_starts,
+        line_starts,
         start_line.saturating_sub(request.context_before)..start_line,
         request.max_line_characters,
     );
     let context_after = context_lines(
         source,
-        &line_starts,
+        line_starts,
         (end_line + 1)..(end_line + 1 + request.context_after).min(line_starts.len()),
         request.max_line_characters,
     );
@@ -474,8 +475,8 @@ fn build_match(source: &str, range: Range<usize>, request: &GrepRequest) -> Nati
     (
         source[range.clone()].to_owned(),
         (
-            position(source, &line_starts, range.start),
-            position(source, &line_starts, range.end),
+            position(source, line_starts, range.start),
+            position(source, line_starts, range.end),
         ) as NativeGrepRange,
         line_text,
         line_truncated,

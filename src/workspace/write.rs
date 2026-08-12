@@ -5,9 +5,10 @@ use std::path::{Path, PathBuf};
 use sha2::{Digest, Sha256};
 
 use crate::workspace::WorkspaceError;
+use crate::workspace::control::Cancellation;
 use crate::workspace::path::resolve_contained_file;
 
-pub(crate) struct PreparedWrite {
+struct PreparedWrite {
     target: PathBuf,
     permissions: fs::Permissions,
 }
@@ -26,6 +27,32 @@ pub(crate) fn sha256(contents: &[u8]) -> String {
 }
 
 pub(crate) fn preflight_write(
+    root: &Path,
+    relative: &str,
+    expected_sha256: &str,
+) -> Result<(), WorkspaceError> {
+    prepare_write(root, relative, expected_sha256).map(drop)
+}
+
+pub(crate) fn replace_file(
+    root: &Path,
+    relative: &str,
+    expected_sha256: &str,
+    contents: &[u8],
+    cancellation: &Cancellation,
+) -> Result<(), WorkspaceError> {
+    if cancellation.is_cancelled() {
+        return Err(WorkspaceError::Cancelled);
+    }
+    let prepared = prepare_write(root, relative, expected_sha256)?;
+    if cancellation.is_cancelled() {
+        return Err(WorkspaceError::Cancelled);
+    }
+
+    replace_prepared_file(&prepared, contents)
+}
+
+fn prepare_write(
     root: &Path,
     relative: &str,
     expected_sha256: &str,
@@ -49,10 +76,7 @@ pub(crate) fn preflight_write(
     })
 }
 
-pub(crate) fn replace_file(
-    prepared: &PreparedWrite,
-    contents: &[u8],
-) -> Result<(), WorkspaceError> {
+fn replace_prepared_file(prepared: &PreparedWrite, contents: &[u8]) -> Result<(), WorkspaceError> {
     let parent = prepared
         .target
         .parent()

@@ -3,6 +3,7 @@ from pathlib import Path
 
 from ovid_native import _native
 from ovid_native._native_execution import run_native
+from ovid_native.runtime import ensure_native_compatibility
 from ovid_native.search import _mapping
 from ovid_native.search.errors import (
     SearchCancelledError,
@@ -28,6 +29,7 @@ _NATIVE_ERRORS: tuple[type[Exception], ...] = (
 
 class SearchEngine:
     def __init__(self, *, root: Path, limits: SearchLimits | None = None) -> None:
+        ensure_native_compatibility()
         try:
             workspace = _native.search_workspace(str(root))
         except _NATIVE_ERRORS as error:

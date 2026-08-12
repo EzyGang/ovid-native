@@ -15,14 +15,13 @@ pub fn apply(
             "rewrite proposal belongs to a different workspace".to_owned(),
         ));
     }
-    let mut preflight = Vec::with_capacity(computation.files.len());
     let mut stale = Vec::new();
     for file in &computation.files {
         if cancellation.is_cancelled() {
             return Err(AstError::Cancelled);
         }
         match preflight_write(root, &file.path, &file.original_sha256) {
-            Ok(prepared) => preflight.push(prepared),
+            Ok(()) => (),
             Err(WorkspaceError::Stale(_)) => stale.push(file.path.clone()),
             Err(error) => return Err(error.into()),
         }
@@ -38,17 +37,33 @@ pub fn apply(
     }
 
     let mut applied = Vec::new();
-    for (file, prepared) in computation.files.iter().zip(preflight) {
-        if let Err(error) = replace_file(&prepared, file.updated.as_bytes()) {
-            let applied_paths = if applied.is_empty() {
-                "none".to_owned()
-            } else {
-                applied.join(", ")
-            };
-            return Err(AstError::Write(format!(
-                "failed to replace {} after writing {applied_paths}: {error:?}",
-                file.path
-            )));
+    for file in &computation.files {
+        if cancellation.is_cancelled() {
+            return Err(AstError::Cancelled);
+        }
+        let result = replace_file(
+            root,
+            &file.path,
+            &file.original_sha256,
+            file.updated.as_bytes(),
+            cancellation,
+        );
+        match result {
+            Ok(()) => (),
+            Err(WorkspaceError::Stale(message)) if applied.is_empty() => {
+                return Err(AstError::Stale(message));
+            }
+            Err(error) => {
+                let applied_paths = if applied.is_empty() {
+                    "none".to_owned()
+                } else {
+                    applied.join(", ")
+                };
+                return Err(AstError::Write(format!(
+                    "failed to replace {} after writing {applied_paths}: {error:?}",
+                    file.path
+                )));
+            }
         }
         applied.push(file.path.clone());
     }

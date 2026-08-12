@@ -26,10 +26,10 @@ pub(crate) fn read_content(
     control: &WorkControl,
 ) -> Result<ContentRead, WorkspaceError> {
     control.checkpoint().map_err(stopped_error)?;
-    
+
     let file = File::open(path)
         .map_err(|error| WorkspaceError::Read(format!("cannot open file: {error}")))?;
-    
+
     let total_bytes = file
         .metadata()
         .map_err(|error| WorkspaceError::Read(format!("cannot inspect file: {error}")))?

@@ -5,11 +5,16 @@ use globset::{GlobBuilder, GlobMatcher};
 
 use crate::workspace::WorkspaceError;
 
+#[derive(Clone)]
 pub(crate) enum Selection {
     All,
     Exact(String),
     Directory(String),
-    Glob(GlobMatcher),
+    Glob {
+        matcher: GlobMatcher,
+        literal_prefix: String,
+        max_depth: Option<usize>,
+    },
 }
 
 pub(crate) fn canonical_root(value: &str) -> Result<PathBuf, WorkspaceError> {
@@ -51,9 +56,45 @@ pub(crate) fn selected(relative: &str, selections: &[Selection]) -> bool {
     selections.iter().any(|selection| match selection {
         Selection::All => true,
         Selection::Exact(path) => relative == path,
-        Selection::Directory(path) => relative == path || relative.starts_with(&format!("{path}/")),
-        Selection::Glob(glob) => glob.is_match(relative),
+        Selection::Directory(path) => relative == path || is_descendant(relative, path),
+        Selection::Glob { matcher, .. } => matcher.is_match(relative),
     })
+}
+
+pub(crate) fn relevant_directory(relative: &str, selections: &[Selection]) -> bool {
+    if relative.is_empty() {
+        return true;
+    }
+
+    selections.iter().any(|selection| match selection {
+        Selection::All => true,
+        Selection::Exact(path) => is_descendant(path, relative),
+        Selection::Directory(path) => {
+            relative == path || is_descendant(path, relative) || is_descendant(relative, path)
+        }
+        Selection::Glob {
+            matcher,
+            literal_prefix,
+            max_depth,
+        } => {
+            if matcher.is_match(relative) {
+                return true;
+            }
+            let within_prefix = literal_prefix.is_empty()
+                || relative == literal_prefix
+                || is_descendant(literal_prefix, relative)
+                || is_descendant(relative, literal_prefix);
+            let below_maximum_depth =
+                max_depth.is_none_or(|maximum| component_count(relative) < maximum);
+            within_prefix && below_maximum_depth
+        }
+    })
+}
+
+pub(crate) fn explicitly_selected_file(relative: &str, selections: &[Selection]) -> bool {
+    selections
+        .iter()
+        .any(|selection| matches!(selection, Selection::Exact(path) if path == relative))
 }
 
 pub(crate) fn explicitly_includes_node_modules(values: &[String]) -> bool {
@@ -112,8 +153,15 @@ fn build_selection(root: &Path, value: &str) -> Result<Selection, WorkspaceError
             .backslash_escape(false)
             .build()
             .map_err(|error| WorkspaceError::Path(format!("invalid path glob {value}: {error}")))?;
+        let literal_prefix = literal_prefix(&normalized);
+        let max_depth = (!normalized.split('/').any(|component| component == "**"))
+            .then(|| component_count(&normalized));
 
-        return Ok(Selection::Glob(glob.compile_matcher()));
+        return Ok(Selection::Glob {
+            matcher: glob.compile_matcher(),
+            literal_prefix,
+            max_depth,
+        });
     }
 
     let selected_path = root.join(value);
@@ -163,4 +211,27 @@ fn normalize(path: &str) -> String {
     } else {
         trimmed.to_owned()
     }
+}
+
+fn literal_prefix(pattern: &str) -> String {
+    pattern
+        .split('/')
+        .take_while(|component| {
+            !component
+                .chars()
+                .any(|character| "*?[]{}".contains(character))
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn component_count(path: &str) -> usize {
+    path.split('/')
+        .filter(|component| !component.is_empty())
+        .count()
+}
+
+fn is_descendant(path: &str, ancestor: &str) -> bool {
+    path.strip_prefix(ancestor)
+        .is_some_and(|suffix| suffix.starts_with('/'))
 }

@@ -44,9 +44,33 @@ impl WorkControl {
     }
 
     pub(crate) fn checkpoint(&self) -> Result<(), WorkStopped> {
+        self.check_cancellation()?;
+        self.check_deadline()
+    }
+
+    pub(crate) fn checkpoint_periodic(
+        &self,
+        iteration: usize,
+        interval: usize,
+    ) -> Result<(), WorkStopped> {
+        self.check_cancellation()?;
+
+        if iteration.is_multiple_of(interval) {
+            self.check_deadline()?;
+        }
+
+        Ok(())
+    }
+
+    fn check_cancellation(&self) -> Result<(), WorkStopped> {
         if self.cancellation.is_cancelled() {
             return Err(WorkStopped::Cancelled);
         }
+
+        Ok(())
+    }
+
+    fn check_deadline(&self) -> Result<(), WorkStopped> {
         if self
             .deadline
             .is_some_and(|deadline| Instant::now() >= deadline)

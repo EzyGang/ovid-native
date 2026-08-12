@@ -44,7 +44,7 @@ def grep_result(value: _native.NativeGrepResult) -> GrepResult:
         next_file_offset,
         truncated,
     ) = value
-    
+
     return GrepResult(
         files=tuple(_grep_file(file) for file in files),
         pattern_engine=cast('GrepRegexEngine', pattern_engine),
@@ -63,7 +63,7 @@ def grep_result(value: _native.NativeGrepResult) -> GrepResult:
 
 def _glob_match(value: _native.NativeGlobMatch) -> GlobMatch:
     path, file_type, size, modified_at = value
-    
+
     return GlobMatch(
         path=path,
         file_type=cast('GlobFileType', file_type),
@@ -75,7 +75,7 @@ def _glob_match(value: _native.NativeGlobMatch) -> GlobMatch:
 def _grep_file(value: _native.NativeGrepFileMatches) -> GrepFileMatches:
     path, matches, total_matches, matches_truncated, total_matches_exact, coverage = value
     searched_bytes, total_bytes, complete = coverage
-    
+
     return GrepFileMatches(
         path=path,
         matches=tuple(_grep_match(match) for match in matches),
@@ -88,7 +88,7 @@ def _grep_file(value: _native.NativeGrepFileMatches) -> GrepFileMatches:
 
 def _grep_match(value: _native.NativeGrepMatch) -> GrepMatch:
     text, match_range, line_text, line_truncated, context_before, context_after = value
-    
+
     return GrepMatch(
         text=text,
         range=_grep_range(match_range),
