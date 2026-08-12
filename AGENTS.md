@@ -240,6 +240,20 @@ Prefer pure-Rust dependencies. A dependency on a system shared library must incl
 
 Do not use Cargo feature combinations to publish different native surfaces under the same Python version. Features may control development and target-specific compilation only when the public operation set remains coherent and unavailable operations fail explicitly.
 
+## Benchmark Maintenance
+
+Public performance contracts live in `benchmarks/`. Measure through `SearchEngine` and `AstEngine` so timings include validation, PyO3 conversion, native work, and result mapping.
+
+- Use deterministic generated fixtures. Never benchmark the developer's checkout, network services, provider calls, agent loops, or wall-clock-dependent data.
+- Keep scenario IDs stable. Increment `FIXTURE_VERSION` when fixture contents change and `SUITE_VERSION` when scenarios, limits, or measured boundaries change.
+- Put fixture construction, rewrite proposal preparation, file restoration, and cleanup outside measured sections.
+- Run `uv run task benchmark -- --scenario <name>` while developing. Run `uv run task benchmark-record -- --record-version <version>` for accepted release data; the task rebuilds the extension in release mode.
+- Compare only records with matching suite, fixture, machine, Python, and build-profile metadata. Cross-machine results are informational.
+- Treat a change as a regression only when it is statistically significant, at least 10% slower, and at least 2 ms slower. Investigate unstable results; never tune a threshold to hide them.
+- Never overwrite a raw result. Regenerate `benchmarks/results.md` from immutable records with `uv run task benchmark-report`.
+- Shared CI runners may run `uv run --group benchmark task benchmark-check` and upload raw JSON. Performance gates require a fixed self-hosted machine and at least three accepted releases of history.
+- Add Rust microbenchmarks only when profiling identifies a native kernel that public API benchmarks cannot isolate.
+
 ## Testing and QA
 
 Python tests use pytest with 100% branch coverage for the Python integration layer. Rust behavior is covered by Rust unit or integration tests. Tests must defend observable contracts and fail on plausible bugs: boundaries, cancellation, platform availability, native error conversion, ordering, resource cleanup, and Python/Rust version compatibility.

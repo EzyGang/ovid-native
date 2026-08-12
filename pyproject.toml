@@ -32,6 +32,10 @@ dev = [
     "ty>=0.0.65",
 ]
 
+benchmark = [
+    "pyperf>=2.9,<3",
+]
+
 [tool.uv.sources]
 ovid-core = { path = "../ovid-core", editable = true }
 
@@ -45,7 +49,7 @@ include = [{ path = ".cargo/config.toml", format = "sdist" }]
 [tool.taskipy.tasks]
 format-and-lint = "task ruff && task lint && rust-lint && task rust-format"
 
-ruff = "ruff format ./python/ovid_native ./tests && ruff check ./python/ovid_native ./tests --fix --unsafe-fixes"
+ruff = "ruff format ./python/ovid_native ./tests ./benchmarks && ruff check ./python/ovid_native ./tests ./benchmarks --fix --unsafe-fixes"
 tests = "pytest ./tests -v"
 ruff-lint = "ruff check ./src/ovid_core"
 ty-lint = "ty check ./python/ovid_native"
@@ -54,6 +58,11 @@ rust = "cargo fmt --all"
 rust-lint = "cargo fmt --check && cargo clippy --all-targets -- -D warnings"
 rust-tests = "cargo test --all-targets --all-features"
 build = "maturin build --release --compatibility pypi --sdist"
+benchmark = "python -m benchmarks.run --fast"
+benchmark-record = "maturin develop --release && python -m benchmarks.run --rigorous --release-extension"
+benchmark-report = "python -m benchmarks.report"
+benchmark-compare = "python -m benchmarks.compare"
+benchmark-check = "ty check ./benchmarks && python -m benchmarks.run --debug-single-value --scenario glob.exact_file.10k --scenario grep.literal_sparse.10k --scenario ast.search_sparse.2k"
 
 [tool.ruff]
 line-length = 120
