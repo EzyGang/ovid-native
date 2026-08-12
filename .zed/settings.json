@@ -1,0 +1,14 @@
+{
+  "languages": {
+    "Python": {
+     "language_servers": [
+        "!pyright",
+        "!python-refactoring",
+        "!ruff",
+        "!pylsp",
+        "ty",
+        "!basedpyright"
+      ]
+    }
+  }
+}

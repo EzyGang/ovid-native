@@ -12,6 +12,12 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { version = "0.29.0", features = ["abi3-py314"] }
+ast-grep-core = "=0.45.1"
+ast-grep-language = "=0.45.1"
+globset = "=0.4.18"
+ignore = "=0.4.33"
+sha2 = "=0.11.0"
+tempfile = "=3.23.0"
 
 [lints.rust]
 unsafe_code = "forbid"
