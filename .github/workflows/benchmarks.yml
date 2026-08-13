@@ -6,6 +6,7 @@ on:
       - '.github/workflows/benchmarks.yml'
       - 'benchmarks/**'
       - 'python/ovid_native/ast/**'
+      - 'python/ovid_native/fff/**'
       - 'python/ovid_native/search/**'
       - 'src/**'
       - 'pyproject.toml'

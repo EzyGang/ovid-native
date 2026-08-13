@@ -4,18 +4,19 @@ import os
 from pathlib import Path
 
 
-SUITE_VERSION = 1
-FIXTURE_VERSION = 1
+SUITE_VERSION = 2
+FIXTURE_VERSION = 2
 SEARCH_FILE_COUNT = 10_000
+MEDIUM_SEARCH_FILE_COUNT = 1_000
 AST_FILE_COUNT = 2_000
 AST_APPLY_FILE_COUNT = 100
-
 _FIXTURE_CONTRACT = {
     'suite_version': SUITE_VERSION,
     'fixture_version': FIXTURE_VERSION,
     'search_files': SEARCH_FILE_COUNT,
     'search_directories': 100,
     'ast_files': AST_FILE_COUNT,
+    'medium_search_files': MEDIUM_SEARCH_FILE_COUNT,
     'ast_apply_files': AST_APPLY_FILE_COUNT,
     'search_sparse_interval': 100,
     'ast_sparse_interval': 10,
@@ -25,6 +26,7 @@ _FIXTURE_CONTRACT = {
 def build_fixtures(root: Path) -> None:
     root.mkdir(parents=True, exist_ok=True)
     _build_search_fixture(root / 'search')
+    _build_search_source_fixture(root / 'search-medium', 10)
     _build_ast_fixture(root / 'ast')
     manifest = {**_FIXTURE_CONTRACT, 'digest': _fixture_digest(root)}
     (root / 'manifest.json').write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n', encoding='utf-8')
@@ -50,6 +52,8 @@ def validate_fixtures(root: Path) -> str:
     required = (
         root / 'search/src/dir-000/file-000.py',
         root / 'search/src/dir-099/file-099.py',
+        root / 'search-medium/dir-000/file-000.py',
+        root / 'search-medium/dir-009/file-099.py',
         root / 'ast/src/module-0000.py',
         root / 'ast/src/module-1999.py',
         root / 'ast/apply/module-0099.py',
@@ -74,17 +78,7 @@ def _fixture_digest(root: Path) -> str:
 
 
 def _build_search_fixture(root: Path) -> None:
-    source_root = root / 'src'
-    for directory_index in range(100):
-        directory = source_root / f'dir-{directory_index:03d}'
-        directory.mkdir(parents=True)
-        for file_index in range(100):
-            index = directory_index * 100 + file_index
-            sparse = 'needle value\n' if index % 100 == 0 else 'ordinary value\n'
-            contents = f'common token {index}\n{sparse}unicode café {index}\n'
-            path = directory / f'file-{file_index:03d}.py'
-            path.write_text(contents, encoding='utf-8')
-            os.utime(path, (1_700_000_000 + index, 1_700_000_000 + index))
+    _build_search_source_fixture(root / 'src', 100)
 
     hot = root / 'hot/hot.txt'
     hot.parent.mkdir(parents=True)
@@ -102,6 +96,19 @@ def _build_search_fixture(root: Path) -> None:
     dependency.parent.mkdir(parents=True)
     dependency.write_text('needle dependency\n', encoding='utf-8')
     (root / 'binary.bin').write_bytes(b'needle\0binary')
+
+
+def _build_search_source_fixture(root: Path, directory_count: int) -> None:
+    for directory_index in range(directory_count):
+        directory = root / f'dir-{directory_index:03d}'
+        directory.mkdir(parents=True)
+        for file_index in range(100):
+            index = directory_index * 100 + file_index
+            sparse = 'needle value\n' if index % 100 == 0 else 'ordinary value\n'
+            contents = f'common token {index}\n{sparse}unicode café {index}\n'
+            path = directory / f'file-{file_index:03d}.py'
+            path.write_text(contents, encoding='utf-8')
+            os.utime(path, (1_700_000_000 + index, 1_700_000_000 + index))
 
 
 def _build_ast_fixture(root: Path) -> None:

@@ -242,7 +242,7 @@ Do not use Cargo feature combinations to publish different native surfaces under
 
 ## Benchmark Maintenance
 
-Public performance contracts live in `benchmarks/`. Measure through `SearchEngine` and `AstEngine` so timings include validation, PyO3 conversion, native work, and result mapping.
+Public performance contracts live in `benchmarks/`. Measure through `SearchEngine`, `AstEngine`, and `FffEngine` so timings include validation, PyO3 conversion, native work, and result mapping. Complete FFF initial indexing before measured warm-query sections.
 
 - Use deterministic generated fixtures. Never benchmark the developer's checkout, network services, provider calls, agent loops, or wall-clock-dependent data.
 - Keep scenario IDs stable. Increment `FIXTURE_VERSION` when fixture contents change and `SUITE_VERSION` when scenarios, limits, or measured boundaries change.

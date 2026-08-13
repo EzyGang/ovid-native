@@ -47,16 +47,20 @@ def main() -> None:
 
     fixture_root, work_root, fixture_digest = _prepare_workspace(args.fixture_root)
     args.fixture_root = fixture_root
-    selected = select_scenarios(scenarios(fixture_root, work_root), args.scenario)
-    for scenario in selected:
-        metadata = {
-            **current.pyperf_metadata(fixture_digest),
-            'ovid_operation': scenario.operation,
-            'ovid_purpose': scenario.purpose,
-            'ovid_work_items': scenario.work_items,
-            'ovid_work_unit': scenario.work_unit,
-        }
-        runner.bench_time_func(scenario.name, scenario.measure, metadata=metadata)
+    suite = scenarios(fixture_root, work_root)
+    try:
+        selected = select_scenarios(suite.cases, args.scenario)
+        for scenario in selected:
+            metadata = {
+                **current.pyperf_metadata(fixture_digest),
+                'ovid_operation': scenario.operation,
+                'ovid_purpose': scenario.purpose,
+                'ovid_work_items': scenario.work_items,
+                'ovid_work_unit': scenario.work_unit,
+            }
+            runner.bench_time_func(scenario.name, scenario.measure, metadata=metadata)
+    finally:
+        suite.close()
     if destination is not None and pending is not None and not args.worker and pending.exists():
         sanitize_result(pending)
         if destination.exists():

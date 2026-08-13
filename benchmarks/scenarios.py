@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
 
+from benchmarks.fff_scenarios import fff_benchmark_cases
 from benchmarks.fixtures import AST_APPLY_FILE_COUNT
 from ovid_native.ast import (
     AstEngine,
@@ -28,7 +29,13 @@ class Scenario:
     work_unit: str
 
 
-def scenarios(fixture_root: Path, work_root: Path) -> tuple[Scenario, ...]:
+@dataclass(frozen=True, slots=True)
+class ScenarioSuite:
+    cases: tuple[Scenario, ...]
+    close: Callable[[], None]
+
+
+def scenarios(fixture_root: Path, work_root: Path) -> ScenarioSuite:
     search_root = fixture_root / 'search'
     ast_root = fixture_root / 'ast'
     search_engine = SearchEngine(
@@ -287,8 +294,10 @@ def scenarios(fixture_root: Path, work_root: Path) -> tuple[Scenario, ...]:
             'files',
         )
     )
+    fff_cases, close = fff_benchmark_cases(fixture_root, loop, async_measure)
+    benchmark_cases.extend(Scenario(*case) for case in fff_cases)
 
-    return tuple(benchmark_cases)
+    return ScenarioSuite(cases=tuple(benchmark_cases), close=close)
 
 
 def select_scenarios(all_scenarios: Sequence[Scenario], patterns: Sequence[str]) -> tuple[Scenario, ...]:

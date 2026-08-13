@@ -14,6 +14,7 @@ dependencies = [
 # Native operations ship in every wheel; extras select Python-only dependencies.
 ast = []
 search = []
+fff = []
 all = []
 
 [build-system]
@@ -62,7 +63,7 @@ benchmark = "python -m benchmarks.run --fast"
 benchmark-record = "maturin develop --release && python -m benchmarks.run --rigorous --release-extension"
 benchmark-report = "python -m benchmarks.report"
 benchmark-compare = "python -m benchmarks.compare"
-benchmark-check = "ty check ./benchmarks && python -m benchmarks.run --debug-single-value --scenario glob.exact_file.10k --scenario grep.literal_sparse.10k --scenario ast.search_sparse.2k"
+benchmark-check = "ty check ./benchmarks && python -m benchmarks.run --debug-single-value --scenario glob.exact_file.10k --scenario grep.literal_sparse.10k --scenario ast.search_sparse.2k --scenario fff.find_typo.small.100 --scenario fff.grep_plain_sparse.small.100"
 
 [tool.ruff]
 line-length = 120
