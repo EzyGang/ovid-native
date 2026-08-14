@@ -2,19 +2,24 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ovid_core.capabilities.base import BaseCapability, CapabilityContributions
+from ovid_core.services import AgentServiceRequirement, AgentServices
 from ovid_core.tools.base import BaseTool
 
-from ovid_native.fff.engine import FffEngine
 from ovid_native.fff.errors import FffConfigurationError
 from ovid_native.fff.tools import FffFindTool, FffGrepTool, FffMultiGrepTool
-from ovid_native.search.engine import SearchEngine
 from ovid_native.search.tools import GlobTool
+from ovid_native.workspace.models import WorkspaceOperation
+from ovid_native.workspace.service import _workspace_requirement, workspace_ref
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _BoundFffCapability[Deps](BaseCapability[Deps]):
+    pass
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class FffCapability[Deps](BaseCapability[Deps]):
-    engine: FffEngine
-    glob_engine: SearchEngine | None = None
+    workspace: str = 'default'
     include_glob: bool = False
     include_find_files: bool = True
     include_grep: bool = True
@@ -22,28 +27,41 @@ class FffCapability[Deps](BaseCapability[Deps]):
     id: str = field(default='native_fff', init=False)
     description: str = field(default='Warm typo-resistant path and content search', init=False)
     defer_loading: bool = field(default=True, init=False)
-    contributions: CapabilityContributions[Deps] = field(init=False, repr=False)
+    requirements: tuple[AgentServiceRequirement, ...] = field(init=False)
+    contributions: CapabilityContributions[Deps] = field(default=CapabilityContributions(), init=False, repr=False)
 
     def __post_init__(self) -> None:
-        if self.include_glob and self.glob_engine is None:
-            raise FffConfigurationError('include_glob requires glob_engine')
         if not any((self.include_glob, self.include_find_files, self.include_grep, self.include_multi_grep)):
             raise FffConfigurationError('at least one FFF tool must be enabled')
 
-        tools: list[BaseTool[Deps, Any, Any]] = []
-        if self.include_glob and self.glob_engine is not None:
-            tools.append(GlobTool(engine=self.glob_engine))
-        if self.include_find_files:
-            tools.append(FffFindTool(engine=self.engine))
-        if self.include_grep:
-            tools.append(FffGrepTool(engine=self.engine))
-        if self.include_multi_grep:
-            tools.append(FffMultiGrepTool(engine=self.engine))
-
+        operations = [WorkspaceOperation.FFF]
+        if self.include_glob:
+            operations.append(WorkspaceOperation.SEARCH)
         object.__setattr__(
             self,
-            'contributions',
-            CapabilityContributions(
+            'requirements',
+            tuple(_workspace_requirement(operation, name=self.workspace) for operation in operations),
+        )
+
+    def bind(self, services: AgentServices) -> _BoundFffCapability[Deps]:
+        super().bind(services)
+        session = services.resolve(workspace_ref(self.workspace))
+        tools: list[BaseTool[Deps, Any, Any]] = []
+        if self.include_glob:
+            tools.append(GlobTool(provider=session.search))
+        if self.include_find_files:
+            tools.append(FffFindTool(provider=session.fff))
+        if self.include_grep:
+            tools.append(FffGrepTool(provider=session.fff))
+        if self.include_multi_grep:
+            tools.append(FffMultiGrepTool(provider=session.fff))
+
+        return _BoundFffCapability(
+            id=self.id,
+            description=self.description,
+            defer_loading=self.defer_loading,
+            requirements=self.requirements,
+            contributions=CapabilityContributions(
                 instructions=(self._instructions(),),
                 tools=tuple(tools),
             ),

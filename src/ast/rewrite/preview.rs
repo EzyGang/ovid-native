@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::Range as ByteRange;
-use std::path::Path;
 
 use ast_grep_core::Pattern;
 use ast_grep_language::{LanguageExt, SupportLang};
@@ -11,7 +10,7 @@ use crate::ast::types::{
     FileChange, FileComputation, PreviewResult, RewriteComputation, RewriteRequest,
 };
 use crate::ast::{AstError, source_range};
-use crate::workspace::{WorkspaceEntry, sha256};
+use crate::workspace::{Workspace, WorkspaceEntry, sha256};
 
 struct Edit {
     range: ByteRange<usize>,
@@ -19,7 +18,7 @@ struct Edit {
     sequence: usize,
 }
 
-pub fn preview(root: &Path, request: RewriteRequest) -> Result<PreviewResult, AstError> {
+pub fn preview(workspace: &Workspace, request: RewriteRequest) -> Result<PreviewResult, AstError> {
     validate_operations(&request.operations)?;
     let explicit = request
         .language
@@ -28,7 +27,7 @@ pub fn preview(root: &Path, request: RewriteRequest) -> Result<PreviewResult, As
         .transpose()?;
     let strictness = strictness(&request.strictness)?;
     let selected = discover_files(
-        root,
+        workspace,
         &request.scan,
         request.limits.max_files,
         &request.cancellation,
@@ -124,7 +123,8 @@ pub fn preview(root: &Path, request: RewriteRequest) -> Result<PreviewResult, As
 
     let files = computation_files.iter().map(file_change).collect();
     let computation = RewriteComputation {
-        root: root.to_path_buf(),
+        session_id: workspace.id().to_owned(),
+        revision: workspace.revision(),
         files: computation_files,
         total_replacements,
     };

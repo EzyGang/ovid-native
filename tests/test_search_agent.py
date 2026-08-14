@@ -6,11 +6,13 @@ from ovid_core.agents import AgentDefinition, AgentFactory
 from ovid_core.config.models import ModelConfig, OvidConfig
 from ovid_core.routing.factory import ModelFactory
 from ovid_core.routing.models import ModelCapabilities, ModelHandle, ModelRef
+from ovid_core.services import AgentServices
 from pydantic_ai import ModelMessage, ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pytest_mock import MockerFixture
 
-from ovid_native.search import SearchCapability, SearchEngine
+from ovid_native.search import SearchCapability
+from ovid_native.workspace import NativeWorkspaceSession, workspace_binding
 
 
 def handle(model: FunctionModel) -> ModelHandle:
@@ -36,7 +38,7 @@ def test_search_capability_runs_through_real_agent_factory(tmp_path: Path, mocke
     (tmp_path / '.hidden.txt').write_text('needle hidden\n')
     (tmp_path / '.gitignore').write_text('ignored.txt\n')
     (tmp_path / 'ignored.txt').write_text('needle ignored\n')
-    engine = SearchEngine(root=tmp_path)
+    workspace = NativeWorkspaceSession(root=tmp_path)
 
     def model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         tool_returns = [part for message in messages for part in message.parts if isinstance(part, ToolReturnPart)]
@@ -97,7 +99,8 @@ def test_search_capability_runs_through_real_agent_factory(tmp_path: Path, mocke
         model=ModelRef(name='test'),
         deps_type=type(None),
         output_type=str,
-        capabilities=(SearchCapability[None](engine=engine),),
+        capabilities=(SearchCapability[None](),),
+        services=AgentServices((workspace_binding(workspace),)),
     )
 
     async def run() -> str:
@@ -106,6 +109,7 @@ def test_search_capability_runs_through_real_agent_factory(tmp_path: Path, mocke
         return result.output
 
     assert asyncio.run(run()) == 'searched'
+    asyncio.run(workspace.close())
 
 
 def test_omitting_search_capability_contributes_no_search_tools(tmp_path: Path, mocker: MockerFixture) -> None:

@@ -13,7 +13,7 @@ class NativeRuntimeInfo(BaseModel):
     api_version: int
 
 
-_EXPECTED_NATIVE_API_VERSION = 5
+_EXPECTED_NATIVE_API_VERSION = 6
 
 
 def runtime_info() -> NativeRuntimeInfo:

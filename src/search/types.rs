@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use pyo3::prelude::*;
 
 use crate::workspace::Cancellation;
@@ -103,27 +101,5 @@ impl NativeSearchCancellation {
 impl NativeSearchCancellation {
     pub(crate) fn token(&self) -> Cancellation {
         self.inner.clone()
-    }
-}
-
-#[pyclass(frozen, skip_from_py_object)]
-#[derive(Clone)]
-pub(crate) struct NativeWorkspace {
-    pub(crate) inner: Arc<crate::workspace::Workspace>,
-}
-
-impl NativeWorkspace {
-    pub(crate) fn new(workspace: crate::workspace::Workspace) -> Self {
-        Self {
-            inner: Arc::new(workspace),
-        }
-    }
-}
-
-#[pymethods]
-impl NativeWorkspace {
-    #[getter]
-    pub(crate) fn root(&self) -> String {
-        self.inner.root().to_string_lossy().into_owned()
     }
 }

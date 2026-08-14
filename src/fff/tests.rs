@@ -1,4 +1,5 @@
 use std::fs;
+use std::sync::Arc;
 
 use tempfile::TempDir;
 
@@ -8,10 +9,11 @@ use crate::fff::grep::{grep, multi_grep};
 use crate::fff::types::{
     FffConfig, FffConstraints, FffFindRequest, FffGrepRequest, FffLimits, FffMultiGrepRequest,
 };
+use crate::workspace::Workspace;
 
 fn engine(root: &str) -> NativeFffEngine {
     NativeFffEngine::new(
-        root.to_owned(),
+        Arc::new(Workspace::new(root).unwrap()),
         FffConfig {
             watch: false,
             enable_content_indexing: true,

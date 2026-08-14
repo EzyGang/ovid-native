@@ -1,3 +1,4 @@
+import secrets
 from collections.abc import Callable
 from pathlib import Path
 
@@ -24,17 +25,35 @@ _NATIVE_ERRORS: tuple[type[Exception], ...] = (
     _native.NativeSearchLimitError,
     _native.NativeSearchCancelledError,
     _native.NativeSearchReadError,
+    _native.NativeWorkspaceConfigurationError,
+    _native.NativeWorkspacePathError,
+    _native.NativeWorkspaceClosedError,
 )
 
 
 class SearchEngine:
     def __init__(self, *, root: Path, limits: SearchLimits | None = None) -> None:
         ensure_native_compatibility()
+        session_id = secrets.token_urlsafe(24)
         try:
-            workspace = _native.search_workspace(str(root))
+            workspace = _native.workspace_create(str(root), session_id)
         except _NATIVE_ERRORS as error:
             raise _translate_native(error) from error
 
+        self._initialize(workspace, limits=limits)
+
+    @classmethod
+    def _from_workspace(
+        cls,
+        workspace: _native.NativeWorkspace,
+        *,
+        limits: SearchLimits | None,
+    ) -> SearchEngine:
+        engine = cls.__new__(cls)
+        engine._initialize(workspace, limits=limits)
+        return engine
+
+    def _initialize(self, workspace: _native.NativeWorkspace, *, limits: SearchLimits | None) -> None:
         self._workspace = workspace
         self._root = Path(workspace.root)
         self._limits = limits if limits is not None else SearchLimits()
@@ -137,6 +156,9 @@ async def _call_native[Result](
 
 def _translate_native(error: Exception) -> SearchError:
     mappings: tuple[tuple[type[Exception], type[SearchError]], ...] = (
+        (_native.NativeWorkspaceConfigurationError, SearchConfigurationError),
+        (_native.NativeWorkspacePathError, SearchPathError),
+        (_native.NativeWorkspaceClosedError, SearchConfigurationError),
         (_native.NativeSearchConfigurationError, SearchConfigurationError),
         (_native.NativeSearchPathError, SearchPathError),
         (_native.NativeSearchPatternError, SearchPatternError),
@@ -147,5 +169,4 @@ def _translate_native(error: Exception) -> SearchError:
     for native_type, public_type in mappings:
         if isinstance(error, native_type):
             return public_type(str(error))
-
     return SearchError(str(error))

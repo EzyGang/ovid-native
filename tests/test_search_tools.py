@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 from typing import cast
 
+from ovid_core.services import AgentServices
 from ovid_core.tools.base import ToolExecutionContext
 
 from ovid_native.search import (
@@ -13,10 +14,10 @@ from ovid_native.search import (
     GrepToolResult,
     SearchCapability,
     SearchEngine,
-    SearchLimits,
     SearchScanOptions,
 )
 from ovid_native.search.tools import SEARCH_TOOL_INSTRUCTIONS
+from ovid_native.workspace import NativeWorkspaceSession, workspace_binding
 
 
 def context() -> ToolExecutionContext[None]:
@@ -24,24 +25,25 @@ def context() -> ToolExecutionContext[None]:
 
 
 def test_capability_contributes_exact_search_surface(tmp_path: Path) -> None:
-    engine = SearchEngine(root=tmp_path)
-    capability = SearchCapability[None](engine=engine)
+    workspace = NativeWorkspaceSession(root=tmp_path)
+    capability = SearchCapability[None]()
+    bound = capability.bind(AgentServices((workspace_binding(workspace),)))
 
     assert capability.id == 'native_search'
     assert capability.description == 'Fast workspace path discovery and bounded text search'
     assert capability.defer_loading is False
-    assert capability.contributions.instructions == (SEARCH_TOOL_INSTRUCTIONS,)
-    assert [tool.id for tool in capability.contributions.tools] == ['glob', 'grep']
-    assert capability.contributions.toolsets == ()
-    assert engine.root == tmp_path.resolve()
-    assert engine.limits == SearchLimits()
-    assert engine.limits is not SearchEngine(root=tmp_path).limits
+    assert capability.contributions.tools == ()
+    assert bound.contributions.instructions == (SEARCH_TOOL_INSTRUCTIONS,)
+    assert [tool.id for tool in bound.contributions.tools] == ['glob', 'grep']
+    assert bound.contributions.toolsets == ()
+
+    asyncio.run(workspace.close())
 
 
 def test_search_tool_contracts_are_essential_reads(tmp_path: Path) -> None:
     engine = SearchEngine(root=tmp_path)
-    glob = GlobTool[None](engine=engine)
-    grep = GrepTool[None](engine=engine)
+    glob = GlobTool[None](provider=engine)
+    grep = GrepTool[None](provider=engine)
 
     assert glob.args_type is GlobRequest
     assert glob.result_type is GlobToolResult
@@ -60,8 +62,8 @@ def test_search_tool_contracts_are_essential_reads(tmp_path: Path) -> None:
 def test_search_tools_execute_glob_and_auto_mode_grep(tmp_path: Path) -> None:
     (tmp_path / 'sample.py').write_text('value = (\n')
     engine = SearchEngine(root=tmp_path)
-    glob = GlobTool[None](engine=engine)
-    grep = GrepTool[None](engine=engine)
+    glob = GlobTool[None](provider=engine)
+    grep = GrepTool[None](provider=engine)
 
     discovered = asyncio.run(
         glob.execute(

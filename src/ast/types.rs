@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use pyo3::prelude::*;
@@ -73,7 +72,8 @@ pub struct FileComputation {
 }
 
 pub struct RewriteComputation {
-    pub root: PathBuf,
+    pub session_id: String,
+    pub revision: u64,
     pub files: Vec<FileComputation>,
     pub total_replacements: usize,
 }

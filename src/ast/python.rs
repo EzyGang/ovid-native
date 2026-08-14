@@ -10,7 +10,7 @@ use crate::ast::types::{
     ApplyResult, Limits, NativeAstCancellation, NativeAstRewriteComputation, PreviewResult,
     RewriteRequest, ScanOptions, SearchRequest, SearchResult,
 };
-use crate::workspace::Workspace;
+use crate::workspace::{NativeWorkspace, closed_python_error};
 
 create_exception!(_native, NativeAstConfigurationError, PyException);
 create_exception!(_native, NativeAstPathError, PyException);
@@ -150,13 +150,16 @@ fn ast_grep_version() -> &'static str {
 #[pyfunction]
 fn ast_search(
     py: Python<'_>,
-    root: String,
+    workspace: PyRef<'_, NativeWorkspace>,
     request: PyRef<'_, NativeAstSearchRequest>,
 ) -> PyResult<SearchResult> {
-    let request = request.inner.clone();
+    let operation = workspace.inner.begin().ok_or_else(closed_python_error)?;
+    let workspace = workspace.inner.clone();
+    let mut request = request.inner.clone();
+    request.cancellation = request.cancellation.with_parent(workspace.cancellation());
     py.detach(move || {
-        let workspace = Workspace::new(&root).map_err(AstError::from)?;
-        search(workspace.root(), request)
+        let _operation = operation;
+        search(&workspace, request)
     })
     .map_err(to_python_error)
 }
@@ -164,13 +167,16 @@ fn ast_search(
 #[pyfunction]
 fn ast_preview_rewrite(
     py: Python<'_>,
-    root: String,
+    workspace: PyRef<'_, NativeWorkspace>,
     request: PyRef<'_, NativeAstRewriteRequest>,
 ) -> PyResult<PreviewResult> {
-    let request = request.inner.clone();
+    let operation = workspace.inner.begin().ok_or_else(closed_python_error)?;
+    let workspace = workspace.inner.clone();
+    let mut request = request.inner.clone();
+    request.cancellation = request.cancellation.with_parent(workspace.cancellation());
     py.detach(move || {
-        let workspace = Workspace::new(&root).map_err(AstError::from)?;
-        preview(workspace.root(), request)
+        let _operation = operation;
+        preview(&workspace, request)
     })
     .map_err(to_python_error)
 }
@@ -178,15 +184,17 @@ fn ast_preview_rewrite(
 #[pyfunction]
 fn ast_apply_rewrite(
     py: Python<'_>,
-    root: String,
+    workspace: PyRef<'_, NativeWorkspace>,
     computation: PyRef<'_, NativeAstRewriteComputation>,
     cancellation: PyRef<'_, NativeAstCancellation>,
 ) -> PyResult<ApplyResult> {
+    let operation = workspace.inner.begin().ok_or_else(closed_python_error)?;
+    let workspace = workspace.inner.clone();
     let computation = computation.inner.clone();
-    let cancellation = cancellation.token();
+    let cancellation = cancellation.token().with_parent(workspace.cancellation());
     py.detach(move || {
-        let workspace = Workspace::new(&root).map_err(AstError::from)?;
-        apply(workspace.root(), computation, &cancellation)
+        let _operation = operation;
+        apply(&workspace, computation, &cancellation)
     })
     .map_err(to_python_error)
 }

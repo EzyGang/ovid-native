@@ -49,20 +49,38 @@ _NATIVE_ERRORS: tuple[type[Exception], ...] = (
     _native.NativeAstLimitError,
     _native.NativeAstProposalStaleError,
     _native.NativeAstWriteError,
+    _native.NativeAstCancelledError,
+    _native.NativeWorkspaceConfigurationError,
+    _native.NativeWorkspacePathError,
+    _native.NativeWorkspaceClosedError,
 )
 
 
 class AstEngine:
     def __init__(self, *, root: Path, limits: AstLimits | None = None) -> None:
         ensure_native_compatibility()
+        session_id = secrets.token_urlsafe(24)
         try:
-            resolved = root.resolve(strict=True)
-        except OSError as error:
-            raise AstConfigurationError(f'Cannot resolve workspace root: {error}') from error
-        if not resolved.is_dir():
-            raise AstConfigurationError('Workspace root must be a directory')
+            workspace = _native.workspace_create(str(root), session_id)
+        except _NATIVE_ERRORS as error:
+            raise _translate_native(error) from error
 
-        self._root = resolved
+        self._initialize(workspace, limits=limits)
+
+    @classmethod
+    def _from_workspace(
+        cls,
+        workspace: _native.NativeWorkspace,
+        *,
+        limits: AstLimits | None,
+    ) -> AstEngine:
+        engine = cls.__new__(cls)
+        engine._initialize(workspace, limits=limits)
+        return engine
+
+    def _initialize(self, workspace: _native.NativeWorkspace, *, limits: AstLimits | None) -> None:
+        self._workspace = workspace
+        self._root = Path(workspace.root)
         self._limits = limits if limits is not None else AstLimits()
         self._proposals: dict[str, _Proposal] = {}
         self._proposal_lock = asyncio.Lock()
@@ -88,7 +106,7 @@ class AstEngine:
             cancellation,
         )
         result = await _call_native(
-            lambda: _native.ast_search(str(self._root), native_request),
+            lambda: _native.ast_search(self._workspace, native_request),
             cancellation=cancellation,
         )
         return _mapping.search_result(result)
@@ -104,7 +122,7 @@ class AstEngine:
             cancellation,
         )
         native = await _call_native(
-            lambda: _native.ast_preview_rewrite(str(self._root), native_request),
+            lambda: _native.ast_preview_rewrite(self._workspace, native_request),
             cancellation=cancellation,
         )
         computation, changes, files, replacements, files_searched, native_issues = native
@@ -126,7 +144,7 @@ class AstEngine:
             cancellation = _native.NativeAstCancellation()
             proposal = await self._take(request.proposal_id)
             native_files, replacements = await _call_native(
-                lambda: _native.ast_apply_rewrite(str(self._root), proposal.computation, cancellation),
+                lambda: _native.ast_apply_rewrite(self._workspace, proposal.computation, cancellation),
                 cancellation=cancellation,
             )
 
@@ -223,6 +241,9 @@ async def _call_native[Result](
 
 def _translate_native(error: Exception) -> AstError:
     mappings: tuple[tuple[type[Exception], type[AstError]], ...] = (
+        (_native.NativeWorkspaceConfigurationError, AstConfigurationError),
+        (_native.NativeWorkspacePathError, AstPathError),
+        (_native.NativeWorkspaceClosedError, AstConfigurationError),
         (_native.NativeAstConfigurationError, AstConfigurationError),
         (_native.NativeAstPathError, AstPathError),
         (_native.NativeAstLanguageError, AstLanguageError),
@@ -230,9 +251,9 @@ def _translate_native(error: Exception) -> AstError:
         (_native.NativeAstLimitError, AstLimitError),
         (_native.NativeAstProposalStaleError, AstProposalStaleError),
         (_native.NativeAstWriteError, AstWriteError),
+        (_native.NativeAstCancelledError, AstError),
     )
     for native_type, public_type in mappings:
         if isinstance(error, native_type):
             return public_type(str(error))
-
     return AstError(str(error))

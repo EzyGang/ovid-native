@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -11,12 +11,13 @@ use crate::workspace::Workspace;
 
 #[derive(Debug)]
 pub(crate) struct FffEngineState {
-    pub workspace: Workspace,
+    pub workspace: Arc<Workspace>,
     pub picker: SharedFilePicker,
     pub frecency: SharedFrecency,
     pub config: FffConfig,
     pub limits: FffLimits,
     started: AtomicBool,
+    indexed_revision: AtomicU64,
     closed: AtomicBool,
     startup_lock: Mutex<()>,
 }
@@ -29,13 +30,11 @@ pub(crate) struct NativeFffEngine {
 
 impl NativeFffEngine {
     pub(crate) fn new(
-        root: String,
+        workspace: Arc<Workspace>,
         config: FffConfig,
         limits: FffLimits,
     ) -> Result<Self, FffError> {
         validate_config(&config, &limits)?;
-        let workspace = Workspace::new(&root)?;
-
         Ok(Self {
             inner: Arc::new(FffEngineState {
                 workspace,
@@ -45,6 +44,7 @@ impl NativeFffEngine {
                 limits,
                 started: AtomicBool::new(false),
                 closed: AtomicBool::new(false),
+                indexed_revision: AtomicU64::new(u64::MAX),
                 startup_lock: Mutex::new(()),
             }),
         })
@@ -141,6 +141,7 @@ impl FffEngineState {
         self.picker
             .trigger_full_rescan_async(&self.frecency)
             .map_err(|error| FffError::Runtime(error.to_string()))?;
+        self.indexed_revision.store(u64::MAX, Ordering::Release);
         self.status()
     }
 
@@ -166,16 +167,23 @@ impl FffEngineState {
     pub(crate) fn ensure_started(&self) -> Result<(), FffError> {
         self.ensure_open()?;
         self.start()?;
+        let revision = self.workspace.revision();
+        if self.indexed_revision.load(Ordering::Acquire) != revision {
+            self.picker
+                .trigger_full_rescan_async(&self.frecency)
+                .map_err(|error| FffError::Runtime(error.to_string()))?;
+        }
         let status = self.wait_ready(self.config.initial_scan_timeout_seconds)?;
         if status.0 != "ready" {
             return Err(FffError::IndexNotReady);
         }
 
+        self.indexed_revision.store(revision, Ordering::Release);
         Ok(())
     }
 
     pub(crate) fn ensure_open(&self) -> Result<(), FffError> {
-        if self.closed.load(Ordering::Acquire) {
+        if self.closed.load(Ordering::Acquire) || !self.workspace.ensure_open() {
             return Err(FffError::Closed);
         }
 

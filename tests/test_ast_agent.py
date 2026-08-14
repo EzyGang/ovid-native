@@ -6,17 +6,20 @@ from ovid_core.agents import AgentDefinition, AgentFactory
 from ovid_core.config.models import ModelConfig, OvidConfig
 from ovid_core.routing.factory import ModelFactory
 from ovid_core.routing.models import ModelCapabilities, ModelHandle, ModelRef
+from ovid_core.services import AgentServices
 from pydantic_ai import ModelMessage, ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pytest_mock import MockerFixture
 
 from ovid_native.ast import AstCapability, AstEngine, AstRewriteApplyRequest
+from ovid_native.workspace import NativeWorkspaceSession, workspace_binding
 
 
 def test_ast_capability_runs_through_real_agent_factory(tmp_path: Path, mocker: MockerFixture) -> None:
     source = tmp_path / 'sample.py'
     source.write_text("print('x')\n# print('unchanged')\n")
-    engine = AstEngine(root=tmp_path)
+    workspace = NativeWorkspaceSession(root=tmp_path)
+    engine = cast(AstEngine, workspace.ast)
     proposal_id = ''
 
     def model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
@@ -65,7 +68,8 @@ def test_ast_capability_runs_through_real_agent_factory(tmp_path: Path, mocker: 
         model=ModelRef(name='test'),
         deps_type=type(None),
         output_type=str,
-        capabilities=(AstCapability[None](engine=engine),),
+        capabilities=(AstCapability[None](),),
+        services=AgentServices((workspace_binding(workspace),)),
     )
 
     async def run() -> str:
@@ -78,3 +82,4 @@ def test_ast_capability_runs_through_real_agent_factory(tmp_path: Path, mocker: 
     assert source.read_text() == "print('x')\n# print('unchanged')\n"
     asyncio.run(engine.apply_rewrite(AstRewriteApplyRequest(proposal_id=proposal_id)))
     assert source.read_text() == "logger.info('x')\n# print('unchanged')\n"
+    asyncio.run(workspace.close())

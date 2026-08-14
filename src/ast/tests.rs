@@ -1,14 +1,15 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use tempfile::TempDir;
 
 use crate::ast::AstError;
 use crate::ast::rewrite::{apply, preview};
-use crate::ast::search::search;
+use crate::ast::search::search as workspace_search;
 use crate::ast::types::{
     Cancellation, Limits, NativeAstCancellation, RewriteRequest, ScanOptions, SearchRequest,
 };
+use crate::workspace::Workspace;
 
 fn limits() -> Limits {
     Limits {
@@ -53,6 +54,14 @@ fn workspace() -> TempDir {
 
 fn canonical(root: &TempDir) -> PathBuf {
     root.path().canonicalize().expect("canonical workspace")
+}
+
+fn search(
+    root: &Path,
+    request: SearchRequest,
+) -> Result<crate::ast::types::SearchResult, AstError> {
+    let workspace = Workspace::from_canonical(root);
+    workspace_search(&workspace, request)
 }
 
 #[test]
@@ -164,6 +173,7 @@ fn scanner_rejects_symlink_escape() {
 #[test]
 fn preview_deduplicates_edits_and_applies_in_reverse_order() {
     let root = workspace();
+    let native = Workspace::from_canonical(&canonical(&root));
     fs::write(root.path().join("sample.py"), "print(1)\nprint(2)\n").expect("source file");
     let request = RewriteRequest {
         operations: vec![
@@ -176,7 +186,7 @@ fn preview_deduplicates_edits_and_applies_in_reverse_order() {
         limits: limits(),
         cancellation: cancellation(),
     };
-    let result = preview(&canonical(&root), request).expect("preview");
+    let result = preview(&native, request).expect("preview");
     assert_eq!(result.3, 2);
     assert_eq!(result.1.len(), 2);
     assert_eq!(
@@ -184,7 +194,7 @@ fn preview_deduplicates_edits_and_applies_in_reverse_order() {
         "print(1)\nprint(2)\n"
     );
 
-    let applied = apply(&canonical(&root), result.0.inner, &cancellation()).expect("apply");
+    let applied = apply(&native, result.0.inner, &cancellation()).expect("apply");
     assert_eq!(applied.1, 2);
     assert_eq!(
         fs::read_to_string(root.path().join("sample.py")).expect("updated"),
@@ -195,6 +205,7 @@ fn preview_deduplicates_edits_and_applies_in_reverse_order() {
 #[test]
 fn preview_rejects_divergent_overlap_and_limits() {
     let root = workspace();
+    let native = Workspace::from_canonical(&canonical(&root));
     fs::write(root.path().join("sample.py"), "print(1)\n").expect("source file");
     let mut request = RewriteRequest {
         operations: vec![
@@ -208,20 +219,18 @@ fn preview_rejects_divergent_overlap_and_limits() {
         cancellation: cancellation(),
     };
     assert!(matches!(
-        preview(&canonical(&root), request.clone()),
+        preview(&native, request.clone()),
         Err(AstError::Pattern(_))
     ));
     request.operations.pop();
     request.limits.max_replacements = 0;
-    assert!(matches!(
-        preview(&canonical(&root), request),
-        Err(AstError::Limit(_))
-    ));
+    assert!(matches!(preview(&native, request), Err(AstError::Limit(_))));
 }
 
 #[test]
 fn apply_rejects_stale_content_before_writing() {
     let root = workspace();
+    let native = Workspace::from_canonical(&canonical(&root));
     fs::write(root.path().join("one.py"), "print(1)\n").expect("first source");
     fs::write(root.path().join("two.py"), "print(2)\n").expect("second source");
     let request = RewriteRequest {
@@ -232,16 +241,45 @@ fn apply_rejects_stale_content_before_writing() {
         limits: limits(),
         cancellation: cancellation(),
     };
-    let result = preview(&canonical(&root), request).expect("preview");
+    let result = preview(&native, request).expect("preview");
     fs::write(root.path().join("two.py"), "print(3)\n").expect("stale source");
     assert!(matches!(
-        apply(&canonical(&root), result.0.inner, &cancellation()),
+        apply(&native, result.0.inner, &cancellation()),
         Err(AstError::Stale(_))
     ));
     assert_eq!(
         fs::read_to_string(root.path().join("one.py")).expect("unchanged"),
         "print(1)\n"
     );
+}
+
+#[test]
+fn proposals_are_bound_to_session_and_revision() {
+    let root = workspace();
+    fs::write(root.path().join("sample.py"), "print(1)\n").expect("source file");
+    let root_value = root.path().to_string_lossy();
+    let source = Workspace::with_id(&root_value, "source").expect("source workspace");
+    let other = Workspace::with_id(&root_value, "other").expect("other workspace");
+    let request = RewriteRequest {
+        operations: vec![("print($A)".to_owned(), "log($A)".to_owned())],
+        scan: scan(&["sample.py"]),
+        language: Some("python".to_owned()),
+        strictness: "smart".to_owned(),
+        limits: limits(),
+        cancellation: cancellation(),
+    };
+    let first = preview(&source, request.clone()).expect("first preview");
+    assert!(matches!(
+        apply(&other, first.0.inner.clone(), &cancellation()),
+        Err(AstError::Configuration(_))
+    ));
+
+    let second = preview(&source, request).expect("second preview");
+    apply(&source, first.0.inner, &cancellation()).expect("first apply");
+    assert!(matches!(
+        apply(&source, second.0.inner, &cancellation()),
+        Err(AstError::Stale(_))
+    ));
 }
 
 #[test]

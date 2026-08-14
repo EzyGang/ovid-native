@@ -4,7 +4,8 @@ use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug)]
 pub(crate) struct Cancellation {
-    cancelled: Arc<AtomicBool>,
+    own: Arc<AtomicBool>,
+    parents: Vec<Arc<AtomicBool>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -22,16 +23,32 @@ pub(crate) struct WorkControl {
 impl Cancellation {
     pub(crate) fn new() -> Self {
         Self {
-            cancelled: Arc::new(AtomicBool::new(false)),
+            own: Arc::new(AtomicBool::new(false)),
+            parents: Vec::new(),
         }
     }
 
     pub(crate) fn cancel(&self) {
-        self.cancelled.store(true, Ordering::Relaxed);
+        self.own.store(true, Ordering::Relaxed);
     }
 
     pub(crate) fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::Relaxed)
+        self.own.load(Ordering::Relaxed)
+            || self
+                .parents
+                .iter()
+                .any(|signal| signal.load(Ordering::Relaxed))
+    }
+
+    pub(crate) fn with_parent(&self, parent: &Self) -> Self {
+        let mut parents = self.parents.clone();
+        parents.push(parent.own.clone());
+        parents.extend(parent.parents.iter().cloned());
+
+        Self {
+            own: self.own.clone(),
+            parents,
+        }
     }
 }
 

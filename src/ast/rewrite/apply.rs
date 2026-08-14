@@ -1,20 +1,25 @@
-use std::path::Path;
 use std::sync::Arc;
 
 use crate::ast::AstError;
 use crate::ast::types::{ApplyResult, FileChange, RewriteComputation};
-use crate::workspace::{Cancellation, WorkspaceError, preflight_write, replace_file};
+use crate::workspace::{Cancellation, Workspace, WorkspaceError, preflight_write, replace_file};
 
 pub fn apply(
-    root: &Path,
+    workspace: &Workspace,
     computation: Arc<RewriteComputation>,
     cancellation: &Cancellation,
 ) -> Result<ApplyResult, AstError> {
-    if computation.root != root {
+    if computation.session_id != workspace.id() {
         return Err(AstError::Configuration(
-            "rewrite proposal belongs to a different workspace".to_owned(),
+            "rewrite proposal belongs to a different workspace session".to_owned(),
         ));
     }
+    if computation.revision != workspace.revision() {
+        return Err(AstError::Stale(
+            "rewrite proposal belongs to an incompatible workspace revision".to_owned(),
+        ));
+    }
+    let root = workspace.root();
     let mut stale = Vec::new();
     for file in &computation.files {
         if cancellation.is_cancelled() {
@@ -67,6 +72,8 @@ pub fn apply(
         }
         applied.push(file.path.clone());
     }
+
+    workspace.mark_changed();
 
     let files = computation.files.iter().map(file_change).collect();
     Ok((files, computation.total_replacements))

@@ -11,20 +11,35 @@ use crate::fff::python_types::{
 use crate::fff::types::{
     NativeFffCancellation, NativeFffFindResult, NativeFffGrepResult, NativeFffIndexStatus,
 };
+use crate::workspace::{NativeWorkspace, WorkspaceOperationGuard, closed_python_error};
 
 #[pyfunction]
 fn fff_create(
-    root: String,
+    workspace: PyRef<'_, NativeWorkspace>,
     config: PyRef<'_, NativeFffConfig>,
     limits: PyRef<'_, NativeFffLimits>,
 ) -> PyResult<NativeFffEngine> {
-    NativeFffEngine::new(root, config.inner.clone(), limits.inner.clone()).map_err(to_python_error)
+    if !workspace.inner.ensure_open() {
+        return Err(closed_python_error());
+    }
+
+    NativeFffEngine::new(
+        workspace.inner.clone(),
+        config.inner.clone(),
+        limits.inner.clone(),
+    )
+    .map_err(to_python_error)
 }
 
 #[pyfunction]
 fn fff_start(py: Python<'_>, engine: PyRef<'_, NativeFffEngine>) -> PyResult<NativeFffIndexStatus> {
+    let operation = workspace_operation(&engine)?;
     let engine = engine.inner.clone();
-    py.detach(move || engine.start()).map_err(to_python_error)
+    py.detach(move || {
+        let _operation = operation;
+        engine.start()
+    })
+    .map_err(to_python_error)
 }
 
 #[pyfunction]
@@ -33,13 +48,18 @@ fn fff_wait_ready(
     engine: PyRef<'_, NativeFffEngine>,
     timeout_seconds: f64,
 ) -> PyResult<NativeFffIndexStatus> {
+    let operation = workspace_operation(&engine)?;
     let engine = engine.inner.clone();
-    py.detach(move || engine.wait_ready(timeout_seconds))
-        .map_err(to_python_error)
+    py.detach(move || {
+        let _operation = operation;
+        engine.wait_ready(timeout_seconds)
+    })
+    .map_err(to_python_error)
 }
 
 #[pyfunction]
 fn fff_status(engine: PyRef<'_, NativeFffEngine>) -> PyResult<NativeFffIndexStatus> {
+    let _operation = workspace_operation(&engine)?;
     engine.inner.status().map_err(to_python_error)
 }
 
@@ -48,8 +68,13 @@ fn fff_rescan(
     py: Python<'_>,
     engine: PyRef<'_, NativeFffEngine>,
 ) -> PyResult<NativeFffIndexStatus> {
+    let operation = workspace_operation(&engine)?;
     let engine = engine.inner.clone();
-    py.detach(move || engine.rescan()).map_err(to_python_error)
+    py.detach(move || {
+        let _operation = operation;
+        engine.rescan()
+    })
+    .map_err(to_python_error)
 }
 
 #[pyfunction]
@@ -64,10 +89,14 @@ fn fff_find(
     engine: PyRef<'_, NativeFffEngine>,
     request: PyRef<'_, NativeFffFindRequest>,
 ) -> PyResult<NativeFffFindResult> {
+    let operation = workspace_operation(&engine)?;
     let engine = engine.inner.clone();
     let request = request.inner.clone();
-    py.detach(move || find(&engine, request))
-        .map_err(to_python_error)
+    py.detach(move || {
+        let _operation = operation;
+        find(&engine, request)
+    })
+    .map_err(to_python_error)
 }
 
 #[pyfunction]
@@ -77,10 +106,12 @@ fn fff_grep(
     request: PyRef<'_, NativeFffGrepRequest>,
     cancellation: PyRef<'_, NativeFffCancellation>,
 ) -> PyResult<NativeFffGrepResult> {
+    let operation = workspace_operation(&engine)?;
     let engine = engine.inner.clone();
     let request = request.inner.clone();
     let signal = cancellation.signal();
     py.detach(move || {
+        let _operation = operation;
         cancelled(&signal)?;
         let result = grep(&engine, request, signal.clone())?;
         cancelled(&signal)?;
@@ -96,16 +127,26 @@ fn fff_multi_grep(
     request: PyRef<'_, NativeFffMultiGrepRequest>,
     cancellation: PyRef<'_, NativeFffCancellation>,
 ) -> PyResult<NativeFffGrepResult> {
+    let operation = workspace_operation(&engine)?;
     let engine = engine.inner.clone();
     let request = request.inner.clone();
     let signal = cancellation.signal();
     py.detach(move || {
+        let _operation = operation;
         cancelled(&signal)?;
         let result = multi_grep(&engine, request, signal.clone())?;
         cancelled(&signal)?;
         Ok(result)
     })
     .map_err(to_python_error)
+}
+
+fn workspace_operation(engine: &NativeFffEngine) -> PyResult<WorkspaceOperationGuard> {
+    engine
+        .inner
+        .workspace
+        .begin()
+        .ok_or_else(closed_python_error)
 }
 
 #[pyfunction]

@@ -1,5 +1,4 @@
-use std::fs;
-use std::time::Duration;
+use std::{fs, sync::Arc, thread, time::Duration};
 
 use crate::workspace::{
     Cancellation, MetadataLevel, ReadExtent, ScanFileKind, ScanOrder, ScanRequest, WorkCompletion,
@@ -103,6 +102,39 @@ fn workspace_reports_deadline_and_cancellation() {
     cancellation.cancel();
     let cancelled = workspace.scan(&scan_request(&["."]), &WorkControl::new(cancellation, None));
     assert!(matches!(cancelled, Err(WorkspaceError::Cancelled)));
+}
+
+#[test]
+fn workspace_close_cancels_and_waits_for_active_operations() {
+    let root = tempfile::tempdir().expect("workspace");
+    let workspace = Arc::new(Workspace::new(&root.path().to_string_lossy()).expect("workspace"));
+    let operation = workspace.begin().expect("active operation");
+    let closing = workspace.clone();
+    let (started_sender, started_receiver) = std::sync::mpsc::channel();
+    let (finished_sender, finished_receiver) = std::sync::mpsc::channel();
+    let handle = thread::spawn(move || {
+        started_sender.send(()).expect("close started");
+        closing.close();
+        finished_sender.send(()).expect("close finished");
+    });
+
+    started_receiver.recv().expect("close start");
+    while !workspace.cancellation().is_cancelled() {
+        thread::yield_now();
+    }
+    assert!(
+        finished_receiver
+            .recv_timeout(Duration::from_millis(10))
+            .is_err()
+    );
+
+    drop(operation);
+    finished_receiver
+        .recv_timeout(Duration::from_secs(1))
+        .expect("close completion");
+    handle.join().expect("close thread");
+
+    assert!(workspace.begin().is_none());
 }
 
 #[test]

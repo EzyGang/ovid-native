@@ -1,5 +1,4 @@
 from ovid_native import _native
-from ovid_native.fff.backend import select_fff_search_backend as select_fff_search_backend
 from ovid_native.fff.capability import FffCapability as FffCapability
 from ovid_native.fff.engine import FffEngine as FffEngine
 from ovid_native.fff.errors import FffCancelledError as FffCancelledError

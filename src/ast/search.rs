@@ -12,7 +12,7 @@ use crate::workspace::{
     Workspace, WorkspaceEntry, read_content,
 };
 
-pub fn search(root: &std::path::Path, request: SearchRequest) -> Result<SearchResult, AstError> {
+pub fn search(workspace: &Workspace, request: SearchRequest) -> Result<SearchResult, AstError> {
     if request.pattern.is_empty() || request.pattern.contains('\0') {
         return Err(AstError::Pattern(
             "AST patterns must be non-empty and contain no NUL bytes".to_owned(),
@@ -30,7 +30,7 @@ pub fn search(root: &std::path::Path, request: SearchRequest) -> Result<SearchRe
         .transpose()?;
     let strictness = strictness(&request.strictness)?;
     let selected = discover_files(
-        root,
+        workspace,
         &request.scan,
         request.limits.max_files,
         &request.cancellation,
@@ -144,12 +144,11 @@ pub(crate) fn classify_files(
 }
 
 pub(crate) fn discover_files(
-    root: &std::path::Path,
+    workspace: &Workspace,
     options: &ScanOptions,
     max_files: usize,
     cancellation: &crate::workspace::Cancellation,
 ) -> Result<Vec<WorkspaceEntry>, AstError> {
-    let workspace = Workspace::from_canonical(root);
     let control = WorkControl::new(cancellation.clone(), None);
     let result = workspace.scan(
         &ScanRequest {

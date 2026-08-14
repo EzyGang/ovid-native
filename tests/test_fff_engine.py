@@ -7,6 +7,7 @@ from pytest_mock import MockerFixture
 from ovid_native.fff import (
     FffClosedError,
     FffConfig,
+    FffConfigurationError,
     FffEngine,
     FffFindRequest,
     FffGrepRequest,
@@ -72,6 +73,11 @@ def test_context_manager_does_not_block_event_loop(tmp_path: Path) -> None:
         assert ticks == [1]
 
     asyncio.run(run())
+
+
+def test_invalid_workspace_root_is_a_configuration_error(tmp_path: Path) -> None:
+    with pytest.raises(FffConfigurationError):
+        FffEngine(root=tmp_path / 'missing')
 
 
 def test_runtime_errors_map_to_public_type(tmp_path: Path, mocker: MockerFixture) -> None:

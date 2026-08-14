@@ -7,9 +7,8 @@ use crate::search::glob::glob;
 use crate::search::grep::grep;
 use crate::search::types::{
     GlobRequest, GrepRequest, NativeGlobResult, NativeGrepResult, NativeSearchCancellation,
-    NativeWorkspace,
 };
-use crate::workspace::Workspace;
+use crate::workspace::{NativeWorkspace, closed_python_error};
 
 create_exception!(_native, NativeSearchConfigurationError, PyException);
 create_exception!(_native, NativeSearchPathError, PyException);
@@ -95,23 +94,20 @@ impl NativeGrepRequest {
 }
 
 #[pyfunction]
-fn search_workspace(root: String) -> PyResult<NativeWorkspace> {
-    Workspace::new(&root)
-        .map(NativeWorkspace::new)
-        .map_err(SearchError::from)
-        .map_err(to_python_error)
-}
-
-#[pyfunction]
 fn search_glob(
     py: Python<'_>,
     workspace: PyRef<'_, NativeWorkspace>,
     request: PyRef<'_, NativeGlobRequest>,
 ) -> PyResult<NativeGlobResult> {
+    let operation = workspace.inner.begin().ok_or_else(closed_python_error)?;
     let workspace = workspace.inner.clone();
-    let request = request.inner.clone();
-    py.detach(move || glob(&workspace, request))
-        .map_err(to_python_error)
+    let mut request = request.inner.clone();
+    request.cancellation = request.cancellation.with_parent(workspace.cancellation());
+    py.detach(move || {
+        let _operation = operation;
+        glob(&workspace, request)
+    })
+    .map_err(to_python_error)
 }
 
 #[pyfunction]
@@ -120,18 +116,21 @@ fn search_grep(
     workspace: PyRef<'_, NativeWorkspace>,
     request: PyRef<'_, NativeGrepRequest>,
 ) -> PyResult<NativeGrepResult> {
+    let operation = workspace.inner.begin().ok_or_else(closed_python_error)?;
     let workspace = workspace.inner.clone();
-    let request = request.inner.clone();
-    py.detach(move || grep(&workspace, request))
-        .map_err(to_python_error)
+    let mut request = request.inner.clone();
+    request.cancellation = request.cancellation.with_parent(workspace.cancellation());
+    py.detach(move || {
+        let _operation = operation;
+        grep(&workspace, request)
+    })
+    .map_err(to_python_error)
 }
 
 pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
-    module.add_class::<NativeWorkspace>()?;
     module.add_class::<NativeSearchCancellation>()?;
     module.add_class::<NativeGlobRequest>()?;
     module.add_class::<NativeGrepRequest>()?;
-    module.add_function(wrap_pyfunction!(search_workspace, module)?)?;
     module.add_function(wrap_pyfunction!(search_glob, module)?)?;
     module.add_function(wrap_pyfunction!(search_grep, module)?)?;
     add_exceptions(module)?;

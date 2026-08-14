@@ -1,3 +1,4 @@
+import secrets
 from collections.abc import Callable
 from pathlib import Path
 from types import TracebackType
@@ -44,6 +45,9 @@ _NATIVE_ERRORS: tuple[type[Exception], ...] = (
     _native.NativeFffCancelledError,
     _native.NativeFffRuntimeError,
     _native.NativeFffStartupError,
+    _native.NativeWorkspaceConfigurationError,
+    _native.NativeWorkspacePathError,
+    _native.NativeWorkspaceClosedError,
 )
 
 
@@ -56,11 +60,33 @@ class FffEngine:
         limits: FffLimits = FffLimits(),
     ) -> None:
         ensure_native_compatibility()
+        session_id = secrets.token_urlsafe(24)
+        try:
+            workspace = _native.workspace_create(str(root), session_id)
+        except _NATIVE_ERRORS as error:
+            raise _public_error(error) from error
+
+        self._initialize(workspace, config=config, limits=limits)
+
+    @classmethod
+    def _from_workspace(
+        cls,
+        workspace: _native.NativeWorkspace,
+        *,
+        config: FffConfig,
+        limits: FffLimits,
+    ) -> FffEngine:
+        engine = cls.__new__(cls)
+        engine._initialize(workspace, config=config, limits=limits)
+        return engine
+
+    def _initialize(self, workspace: _native.NativeWorkspace, *, config: FffConfig, limits: FffLimits) -> None:
+        self._workspace = workspace
         self._config = config
         self._limits = limits
         self._native = self._call(
             lambda: _native.fff_create(
-                str(root),
+                workspace,
                 _native.NativeFffConfig(
                     config.watch,
                     config.enable_content_indexing,
@@ -185,6 +211,9 @@ class FffEngine:
 
 def _public_error(error: Exception) -> FffError:
     mappings: tuple[tuple[type[Exception], type[FffError]], ...] = (
+        (_native.NativeWorkspaceConfigurationError, FffConfigurationError),
+        (_native.NativeWorkspacePathError, FffPathError),
+        (_native.NativeWorkspaceClosedError, FffClosedError),
         (_native.NativeFffConfigurationError, FffConfigurationError),
         (_native.NativeFffPathError, FffPathError),
         (_native.NativeFffQueryError, FffQueryError),
