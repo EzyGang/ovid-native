@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import cast
 from uuid import uuid4
 
+import pytest
 from ovid_core.adapters.pydantic_ai import PydanticAIToolsetAdapter
 from ovid_core.agents import AgentDefinition, AgentFactory
 from ovid_core.config.models import ModelConfig, OvidConfig
@@ -15,8 +16,6 @@ from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCall
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.usage import RunUsage
-import pytest
-
 from pytest_mock import MockerFixture
 
 from ovid_native.files import (
