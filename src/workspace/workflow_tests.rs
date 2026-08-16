@@ -159,6 +159,20 @@ fn mutations_reject_stale_mode_and_policy_contexts() {
 }
 
 #[test]
+fn cancelled_mutation_does_not_create_a_file() {
+    let root = tempfile::tempdir().expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let mutation = context(&workspace, "apply_patch");
+    mutation.cancellation.cancel();
+
+    assert!(matches!(
+        workspace.create_text_file("cancelled.txt", "content", false, &mutation),
+        Err(WorkspaceError::Cancelled)
+    ));
+    assert!(!root.path().join("cancelled.txt").exists());
+}
+
+#[test]
 fn structured_patch_preflights_every_operation_before_commit() {
     let root = tempfile::tempdir().expect("workspace");
     fs::write(root.path().join("source.txt"), "one\ntwo\n").expect("source");
