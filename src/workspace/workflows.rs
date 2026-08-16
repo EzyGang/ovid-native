@@ -6,7 +6,8 @@ use crate::workspace::content::NormalizedText;
 use crate::workspace::path::{resolve_contained_file, validate_relative};
 use crate::workspace::{
     EditResult, FileChange, LineRange, ObservationReceipt, PolicyGeneration, PostEditSource,
-    Workspace, WorkspaceError, WorkspacePolicy, atomic_replace_path, create_file, sha256,
+    Workspace, WorkspaceError, WorkspacePolicy, atomic_replace_path, create_file,
+    move_file_noclobber, sha256,
 };
 
 #[derive(Clone, Debug)]
@@ -15,16 +16,29 @@ pub(crate) struct MutationContext {
     pub mode_generation: u64,
     pub policy_generation: u64,
     pub policy: WorkspacePolicy,
+    pub cancellation: crate::workspace::Cancellation,
 }
 
 impl MutationContext {
-    pub(crate) fn write(policy: PolicyGeneration) -> Self {
+    pub(crate) fn write(
+        policy: PolicyGeneration,
+        cancellation: crate::workspace::Cancellation,
+    ) -> Self {
         Self {
             mode: "write".to_owned(),
             mode_generation: 1,
             policy_generation: policy.generation,
             policy: policy.policy,
+            cancellation,
         }
+    }
+
+    pub(crate) fn ensure_active(&self) -> Result<(), WorkspaceError> {
+        if self.cancellation.is_cancelled() {
+            return Err(WorkspaceError::Cancelled);
+        }
+
+        Ok(())
     }
 }
 
@@ -61,6 +75,8 @@ impl Workspace {
         create_parents: bool,
         context: &MutationContext,
     ) -> Result<EditResult, WorkspaceError> {
+        context.ensure_active()?;
+
         validate_relative(path)?;
         let _coordinator = self.write_guard()?;
         let text = NormalizedText::from_replacement(content);
@@ -102,6 +118,8 @@ impl Workspace {
         context: &MutationContext,
     ) -> Result<EditResult, WorkspaceError> {
         let _coordinator = self.write_guard()?;
+        context.ensure_active()?;
+
         let (target, current) = load_current(self, path, &context.policy)?;
         let before = sha256(current.source.as_bytes());
         let authorization = self
@@ -109,7 +127,7 @@ impl Workspace {
             .resolve(path, expected_observation, &before)?;
         authorization.require_complete(path)?;
         let replacement = NormalizedText::from_replacement(content);
-        atomic_replace_path(&target, path, &replacement.serialize())?;
+        atomic_replace_path(&target, path, &before, &replacement.serialize())?;
         let (file_generation, revision) = self.mark_file_changed(path)?;
         let after = sha256(replacement.source.as_bytes());
         let post =
@@ -148,6 +166,8 @@ impl Workspace {
             ));
         }
         let _coordinator = self.write_guard()?;
+        self.validate_mutation(context, "replace")?;
+
         let (target, current) = load_current(self, path, &context.policy)?;
         let before = sha256(current.source.as_bytes());
         let authorization = self.observations()?.current(path, &before)?;
@@ -187,9 +207,12 @@ impl Workspace {
         authorization.require_lines(path, &current, &required)?;
         let source = apply_replacements(&current.source, selected, &new);
         let replacement = NormalizedText::from_replacement(&source);
+        context.ensure_active()?;
+
         atomic_replace_path(
             &target,
             path,
+            &before,
             &current.serialize_with_current(&replacement.source),
         )?;
         let (file_generation, revision) = self.mark_file_changed(path)?;
@@ -222,13 +245,14 @@ impl Workspace {
             Some(confidence),
         ))
     }
-
     pub(crate) fn delete_text_file(
         &self,
         path: &str,
         context: &MutationContext,
     ) -> Result<EditResult, WorkspaceError> {
         let _coordinator = self.write_guard()?;
+        context.ensure_active()?;
+
         let (target, current) = load_current(self, path, &context.policy)?;
         let before = sha256(current.source.as_bytes());
         self.observations()?
@@ -268,11 +292,10 @@ impl Workspace {
         self.observations()?
             .current(path, &before)?
             .require_complete(path)?;
+        context.ensure_active()?;
         let destination_path =
             crate::workspace::path::resolve_new_file(self.root(), destination, false)?;
-        fs::rename(&target, &destination_path).map_err(|error| {
-            WorkspaceError::Write(format!("cannot move {path} to {destination}: {error}"))
-        })?;
+        move_file_noclobber(&target, &destination_path, path, destination)?;
         let (file_generation, revision) = self.mark_file_changed(destination)?;
         let post = self.record_post_edit(
             destination,

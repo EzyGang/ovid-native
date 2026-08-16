@@ -168,6 +168,11 @@ class NativeWorkspaceMutation:
     @property
     def policy_generation(self) -> int: ...
 
+class NativeWorkspaceCancellation:
+    def __new__(cls) -> NativeWorkspaceCancellation: ...
+    def cancel(self) -> None: ...
+
+
 
 class NativeSearchCancellation:
     def __new__(cls) -> NativeSearchCancellation: ...
@@ -349,40 +354,45 @@ def workspace_create_file(
     path: str,
     content: str,
     create_parents: bool,
+    cancellation: NativeWorkspaceCancellation,
 ) -> NativeWorkspaceEditResult: ...
 def workspace_replace_file(
     workspace: NativeWorkspace,
     path: str,
     content: str,
     expected_observation: str,
+    cancellation: NativeWorkspaceCancellation,
 ) -> NativeWorkspaceEditResult: ...
 def workspace_replace_text(
     workspace: NativeWorkspace,
     mutation: NativeWorkspaceMutation,
     path: str,
-    old_string: str,
-    new_string: str,
-    replace_all: bool,
+    replacement: tuple[str, str, bool],
+    cancellation: NativeWorkspaceCancellation,
 ) -> NativeWorkspaceEditResult: ...
 def workspace_patch(
     workspace: NativeWorkspace,
     mutation: NativeWorkspaceMutation,
     path: str,
     edits: list[tuple[str, str | None, str | None]],
+    cancellation: NativeWorkspaceCancellation,
 ) -> NativeWorkspaceEditResult: ...
 def workspace_apply_patch(
     workspace: NativeWorkspace,
     mutation: NativeWorkspaceMutation,
     input: str,
+    cancellation: NativeWorkspaceCancellation,
 ) -> NativeWorkspaceEditResult: ...
 def workspace_delete_file(
     workspace: NativeWorkspace,
     path: str,
+    cancellation: NativeWorkspaceCancellation,
 ) -> NativeWorkspaceEditResult: ...
 def workspace_move_file(
     workspace: NativeWorkspace,
     path: str,
     destination: str,
+    cancellation: NativeWorkspaceCancellation,
 ) -> NativeWorkspaceEditResult: ...
 def search_glob(workspace: NativeWorkspace, request: NativeGlobRequest) -> NativeGlobResult: ...
 def search_grep(workspace: NativeWorkspace, request: NativeGrepRequest) -> NativeGrepResult: ...

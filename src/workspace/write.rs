@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
+use crate::workspace::content::NormalizedText;
+
 use crate::workspace::WorkspaceError;
 use crate::workspace::control::Cancellation;
 use crate::workspace::path::resolve_contained_file;
@@ -121,8 +123,16 @@ pub(crate) fn create_file(
 pub(crate) fn atomic_replace_path(
     target: &Path,
     relative: &str,
+    expected_sha256: &str,
     contents: &[u8],
 ) -> Result<(), WorkspaceError> {
+    let current = fs::read(target)
+        .map_err(|_| WorkspaceError::Stale(format!("cannot read rewrite target: {relative}")))?;
+    if sha256(NormalizedText::decode(current)?.source.as_bytes()) != expected_sha256 {
+        return Err(WorkspaceError::Stale(format!(
+            "rewrite target changed: {relative}"
+        )));
+    }
     let permissions = fs::metadata(target)
         .map_err(|error| WorkspaceError::Write(format!("cannot inspect {relative}: {error}")))?
         .permissions();
@@ -138,6 +148,23 @@ pub(crate) fn atomic_replace_path(
             WorkspaceError::Write(format!("cannot replace {relative}: {message}"))
         }
         other => other,
+    })
+}
+
+pub(crate) fn move_file_noclobber(
+    source: &Path,
+    destination: &Path,
+    relative: &str,
+    destination_relative: &str,
+) -> Result<(), WorkspaceError> {
+    fs::hard_link(source, destination).map_err(|error| {
+        WorkspaceError::Write(format!(
+            "cannot move {relative} to {destination_relative}: {error}"
+        ))
+    })?;
+    fs::remove_file(source).map_err(|_| WorkspaceError::PartialCommit {
+        landed: vec![destination_relative.to_owned()],
+        pending: vec![relative.to_owned()],
     })
 }
 

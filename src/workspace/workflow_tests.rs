@@ -2,8 +2,8 @@ use std::fs;
 
 use crate::workspace::patch::{PatchOperation, PatchOperationKind};
 use crate::workspace::{
-    LineRange, MutationContext, Workspace, WorkspaceError, WorkspacePolicy, parse_apply_patch,
-    parse_structured_patch,
+    Cancellation, LineRange, MutationContext, Workspace, WorkspaceError, WorkspacePolicy,
+    parse_apply_patch, parse_structured_patch,
 };
 
 fn context(workspace: &Workspace, mode: &str) -> MutationContext {
@@ -14,6 +14,7 @@ fn context(workspace: &Workspace, mode: &str) -> MutationContext {
         mode_generation: mode.generation,
         policy_generation: policy.generation,
         policy: policy.policy,
+        cancellation: Cancellation::new(),
     }
 }
 
@@ -38,7 +39,7 @@ fn workspace_reads_normalized_source_and_guards_whole_file_writes() {
         "source.txt",
         "replacement",
         &partial_tag,
-        &MutationContext::write(workspace.policy().expect("policy")),
+        &MutationContext::write(workspace.policy().expect("policy"), Cancellation::new()),
     );
     assert!(matches!(replacement, Err(WorkspaceError::UnseenLine(_))));
 
@@ -51,7 +52,7 @@ fn workspace_reads_normalized_source_and_guards_whole_file_writes() {
             "source.txt",
             "replacement\n",
             &tag,
-            &MutationContext::write(workspace.policy().expect("policy")),
+            &MutationContext::write(workspace.policy().expect("policy"), Cancellation::new()),
         )
         .expect("replace");
     assert_eq!(
@@ -66,14 +67,14 @@ fn workspace_reads_normalized_source_and_guards_whole_file_writes() {
             "created.txt",
             "created",
             false,
-            &MutationContext::write(workspace.policy().expect("policy")),
+            &MutationContext::write(workspace.policy().expect("policy"), Cancellation::new()),
         )
         .expect("create");
     let duplicate = workspace.create_text_file(
         "created.txt",
         "duplicate",
         false,
-        &MutationContext::write(workspace.policy().expect("policy")),
+        &MutationContext::write(workspace.policy().expect("policy"), Cancellation::new()),
     );
     assert!(matches!(duplicate, Err(WorkspaceError::Write(_))));
 }
@@ -131,6 +132,33 @@ fn replace_requires_current_seen_lines_and_respects_fuzzy_policy() {
 }
 
 #[test]
+fn mutations_reject_stale_mode_and_policy_contexts() {
+    let root = tempfile::tempdir().expect("workspace");
+    fs::write(root.path().join("source.txt"), "source\n").expect("source");
+    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let stale_mode = context(&workspace, "replace");
+    workspace.set_edit_mode("patch").expect("mode change");
+
+    assert!(matches!(
+        workspace.replace_text("source.txt", "source", "changed", false, &stale_mode),
+        Err(WorkspaceError::EditMode(_))
+    ));
+
+    let stale_policy = context(&workspace, "replace");
+    workspace
+        .set_policy(WorkspacePolicy {
+            allow_fuzzy_replace: true,
+            ..WorkspacePolicy::default()
+        })
+        .expect("policy change");
+
+    assert!(matches!(
+        workspace.replace_text("source.txt", "source", "changed", false, &stale_policy),
+        Err(WorkspaceError::Stale(_))
+    ));
+}
+
+#[test]
 fn structured_patch_preflights_every_operation_before_commit() {
     let root = tempfile::tempdir().expect("workspace");
     fs::write(root.path().join("source.txt"), "one\ntwo\n").expect("source");
@@ -145,7 +173,7 @@ fn structured_patch_preflights_every_operation_before_commit() {
     )
     .expect("parsed patch");
 
-    let failure = workspace.apply_patch_operations(&invalid, &mutation);
+    let failure = workspace.apply_patch_operations(&invalid, &mutation, "patch");
     assert!(matches!(failure, Err(WorkspaceError::Write(_))));
     assert_eq!(
         fs::read_to_string(root.path().join("source.txt")).expect("source"),
@@ -162,7 +190,7 @@ fn structured_patch_preflights_every_operation_before_commit() {
     )
     .expect("structured patch");
     let result = workspace
-        .apply_patch_operations(&valid, &mutation)
+        .apply_patch_operations(&valid, &mutation, "patch")
         .expect("move patch");
     assert_eq!(result.changes[0].operation, "move");
     assert!(!root.path().join("source.txt").exists());
@@ -181,7 +209,11 @@ fn apply_patch_preserves_authored_order_and_requires_valid_envelope() {
     )
     .expect("apply patch");
     let result = workspace
-        .apply_patch_operations(&operations, &context(&workspace, "apply_patch"))
+        .apply_patch_operations(
+            &operations,
+            &context(&workspace, "apply_patch"),
+            "apply_patch",
+        )
         .expect("apply operations");
 
     assert_eq!(result.changes[0].path, "first.txt");
@@ -213,7 +245,7 @@ fn patch_limits_and_destination_conflicts_fail_before_commit() {
         })
         .collect::<Vec<_>>();
     assert!(matches!(
-        workspace.apply_patch_operations(&too_many, &mutation),
+        workspace.apply_patch_operations(&too_many, &mutation, "apply_patch"),
         Err(WorkspaceError::Limit(_))
     ));
     let too_large = [PatchOperation {
@@ -223,7 +255,7 @@ fn patch_limits_and_destination_conflicts_fail_before_commit() {
         body: Some("x".repeat(4 * 1024 * 1024 + 1)),
     }];
     assert!(matches!(
-        workspace.apply_patch_operations(&too_large, &mutation),
+        workspace.apply_patch_operations(&too_large, &mutation, "apply_patch"),
         Err(WorkspaceError::Limit(_))
     ));
 
@@ -232,7 +264,7 @@ fn patch_limits_and_destination_conflicts_fail_before_commit() {
     )
     .expect("conflicting patch");
     assert!(matches!(
-        workspace.apply_patch_operations(&conflicting, &mutation),
+        workspace.apply_patch_operations(&conflicting, &mutation, "apply_patch"),
         Err(WorkspaceError::Patch(_))
     ));
     assert!(!root.path().join("moved.txt").exists());
@@ -251,7 +283,7 @@ fn patch_limits_and_destination_conflicts_fail_before_commit() {
     )
     .expect("structured patch");
     assert!(matches!(
-        workspace.apply_patch_operations(&invalid_destination, &mutation),
+        workspace.apply_patch_operations(&invalid_destination, &mutation, "apply_patch"),
         Err(WorkspaceError::Patch(_))
     ));
 }

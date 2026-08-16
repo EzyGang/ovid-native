@@ -3,9 +3,9 @@ use pyo3::exceptions::{PyException, PyValueError};
 use pyo3::prelude::*;
 
 use crate::workspace::{
-    EditResult, FileChange, LineRange, MutationContext, ObservationReceipt, PolicyGeneration,
-    PostEditSource, RenderedLine, Workspace, WorkspaceDirectoryRead, WorkspaceError,
-    WorkspaceFileRead, WorkspacePolicy, parse_apply_patch, parse_structured_patch,
+    Cancellation, EditResult, FileChange, LineRange, MutationContext, ObservationReceipt,
+    PolicyGeneration, PostEditSource, RenderedLine, Workspace, WorkspaceDirectoryRead,
+    WorkspaceError, WorkspaceFileRead, WorkspacePolicy, parse_apply_patch, parse_structured_patch,
 };
 
 create_exception!(_native, NativeWorkspaceReadError, PyException);
@@ -85,6 +85,32 @@ impl NativeWorkspaceMutation {
     #[getter]
     fn policy_generation(&self) -> u64 {
         self.context.policy_generation
+    }
+}
+
+#[pyclass(frozen, skip_from_py_object)]
+#[derive(Clone, Debug)]
+struct NativeWorkspaceCancellation {
+    inner: Cancellation,
+}
+
+#[pymethods]
+impl NativeWorkspaceCancellation {
+    #[new]
+    fn new() -> Self {
+        Self {
+            inner: Cancellation::new(),
+        }
+    }
+
+    fn cancel(&self) {
+        self.inner.cancel();
+    }
+}
+
+impl NativeWorkspaceCancellation {
+    fn token(&self) -> Cancellation {
+        self.inner.clone()
     }
 }
 
@@ -222,6 +248,7 @@ fn workspace_capture_mutation(
             mode: mode.mode,
             mode_generation: mode.generation,
             policy_generation: policy.generation,
+            cancellation: Cancellation::new(),
             policy: policy.policy,
         },
     })
@@ -306,8 +333,10 @@ fn workspace_create_file(
     path: String,
     content: String,
     create_parents: bool,
+    cancellation: PyRef<'_, NativeWorkspaceCancellation>,
 ) -> PyResult<NativeEditResult> {
     let workspace = workspace.inner.clone();
+    let cancellation = cancellation.token();
     py.detach(move || {
         let policy = workspace.policy().map_err(to_python_error)?;
         workspace
@@ -315,7 +344,7 @@ fn workspace_create_file(
                 &path,
                 &content,
                 create_parents,
-                &MutationContext::write(policy),
+                &MutationContext::write(policy, cancellation),
             )
             .map(edit_result_to_native)
             .map_err(to_python_error)
@@ -329,8 +358,10 @@ fn workspace_replace_file(
     path: String,
     content: String,
     expected_observation: String,
+    cancellation: PyRef<'_, NativeWorkspaceCancellation>,
 ) -> PyResult<NativeEditResult> {
     let workspace = workspace.inner.clone();
+    let cancellation = cancellation.token();
     py.detach(move || {
         let policy = workspace.policy().map_err(to_python_error)?;
         workspace
@@ -338,7 +369,7 @@ fn workspace_replace_file(
                 &path,
                 &content,
                 &expected_observation,
-                &MutationContext::write(policy),
+                &MutationContext::write(policy, cancellation),
             )
             .map(edit_result_to_native)
             .map_err(to_python_error)
@@ -351,15 +382,21 @@ fn workspace_replace_text(
     workspace: PyRef<'_, NativeWorkspace>,
     mutation: PyRef<'_, NativeWorkspaceMutation>,
     path: String,
-    old_string: String,
-    new_string: String,
-    replace_all: bool,
+    replacement: (String, String, bool),
+    cancellation: PyRef<'_, NativeWorkspaceCancellation>,
 ) -> PyResult<NativeEditResult> {
     let workspace = workspace.inner.clone();
-    let context = mutation.context.clone();
+    let mut context = mutation.context.clone();
+    context.cancellation = cancellation.token();
     py.detach(move || {
         workspace
-            .replace_text(&path, &old_string, &new_string, replace_all, &context)
+            .replace_text(
+                &path,
+                &replacement.0,
+                &replacement.1,
+                replacement.2,
+                &context,
+            )
             .map(edit_result_to_native)
             .map_err(to_python_error)
     })
@@ -372,13 +409,15 @@ fn workspace_patch(
     mutation: PyRef<'_, NativeWorkspaceMutation>,
     path: String,
     edits: Vec<(String, Option<String>, Option<String>)>,
+    cancellation: PyRef<'_, NativeWorkspaceCancellation>,
 ) -> PyResult<NativeEditResult> {
     let workspace = workspace.inner.clone();
-    let context = mutation.context.clone();
+    let mut context = mutation.context.clone();
+    context.cancellation = cancellation.token();
     py.detach(move || {
         let operations = parse_structured_patch(&path, &edits).map_err(to_python_error)?;
         workspace
-            .apply_patch_operations(&operations, &context)
+            .apply_patch_operations(&operations, &context, "patch")
             .map(edit_result_to_native)
             .map_err(to_python_error)
     })
@@ -390,13 +429,15 @@ fn workspace_apply_patch(
     workspace: PyRef<'_, NativeWorkspace>,
     mutation: PyRef<'_, NativeWorkspaceMutation>,
     input: String,
+    cancellation: PyRef<'_, NativeWorkspaceCancellation>,
 ) -> PyResult<NativeEditResult> {
     let workspace = workspace.inner.clone();
-    let context = mutation.context.clone();
+    let mut context = mutation.context.clone();
+    context.cancellation = cancellation.token();
     py.detach(move || {
         let operations = parse_apply_patch(&input).map_err(to_python_error)?;
         workspace
-            .apply_patch_operations(&operations, &context)
+            .apply_patch_operations(&operations, &context, "apply_patch")
             .map(edit_result_to_native)
             .map_err(to_python_error)
     })
@@ -407,12 +448,14 @@ fn workspace_delete_file(
     py: Python<'_>,
     workspace: PyRef<'_, NativeWorkspace>,
     path: String,
+    cancellation: PyRef<'_, NativeWorkspaceCancellation>,
 ) -> PyResult<NativeEditResult> {
     let workspace = workspace.inner.clone();
+    let cancellation = cancellation.token();
     py.detach(move || {
         let policy = workspace.policy().map_err(to_python_error)?;
         workspace
-            .delete_text_file(&path, &MutationContext::write(policy))
+            .delete_text_file(&path, &MutationContext::write(policy, cancellation))
             .map(edit_result_to_native)
             .map_err(to_python_error)
     })
@@ -424,20 +467,26 @@ fn workspace_move_file(
     workspace: PyRef<'_, NativeWorkspace>,
     path: String,
     destination: String,
+    cancellation: PyRef<'_, NativeWorkspaceCancellation>,
 ) -> PyResult<NativeEditResult> {
     let workspace = workspace.inner.clone();
+    let cancellation = cancellation.token();
     py.detach(move || {
         let policy = workspace.policy().map_err(to_python_error)?;
         workspace
-            .move_text_file(&path, &destination, &MutationContext::write(policy))
+            .move_text_file(
+                &path,
+                &destination,
+                &MutationContext::write(policy, cancellation),
+            )
             .map(edit_result_to_native)
             .map_err(to_python_error)
     })
 }
-
 pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<NativeWorkspace>()?;
     module.add_class::<NativeWorkspaceMutation>()?;
+    module.add_class::<NativeWorkspaceCancellation>()?;
     module.add(
         "NativeWorkspaceReadError",
         module.py().get_type::<NativeWorkspaceReadError>(),

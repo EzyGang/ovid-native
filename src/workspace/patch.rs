@@ -7,7 +7,7 @@ use crate::workspace::path::{resolve_new_file, validate_relative};
 use crate::workspace::workflows::{MutationContext, edit_result, load_current};
 use crate::workspace::{
     EditResult, FileChange, LineRange, PostEditSource, Workspace, WorkspaceError,
-    atomic_replace_path, create_file, sha256,
+    atomic_replace_path, create_file, move_file_noclobber, sha256,
 };
 
 const MAX_PATCH_OPERATIONS: usize = 256;
@@ -65,6 +65,7 @@ impl Workspace {
         &self,
         operations: &[PatchOperation],
         context: &MutationContext,
+        expected_mode: &str,
     ) -> Result<EditResult, WorkspaceError> {
         if operations.is_empty() {
             return Err(WorkspaceError::Patch(
@@ -90,6 +91,7 @@ impl Workspace {
             )));
         }
         let _coordinator = self.write_guard()?;
+        self.validate_mutation(context, expected_mode)?;
         let prepared = self.preflight_patch(operations, context)?;
         self.commit_patch(prepared, context)
     }
@@ -253,6 +255,8 @@ impl Workspace {
         changes: &mut Vec<FileChange>,
         post_edit_sources: &mut Vec<PostEditSource>,
     ) -> Result<String, WorkspaceError> {
+        context.ensure_active()?;
+
         match operation {
             PreparedOperation::Create { path, text } => {
                 let create_parents = context.policy.create_parent_directories;
@@ -284,15 +288,10 @@ impl Workspace {
                 bytes,
                 changed,
             } => {
-                atomic_replace_path(&target, &path, &bytes)?;
+                atomic_replace_path(&target, &path, &before, &bytes)?;
                 let (result_path, operation, destination_name) = match destination {
                     Some((name, destination_target)) => {
-                        fs::rename(&target, &destination_target).map_err(|_| {
-                            WorkspaceError::PartialCommit {
-                                landed: vec![path.clone()],
-                                pending: vec![name.clone()],
-                            }
-                        })?;
+                        move_file_noclobber(&target, &destination_target, &path, &name)?;
                         (name.clone(), "move", Some(name))
                     }
                     None => (path.clone(), "update", None),

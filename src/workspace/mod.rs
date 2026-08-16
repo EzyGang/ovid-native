@@ -33,8 +33,8 @@ pub(crate) use types::{
 };
 pub(crate) use workflows::MutationContext;
 pub(crate) use write::{
-    EditResult, FileChange, PostEditSource, atomic_replace_path, create_file, preflight_write,
-    replace_file, sha256,
+    EditResult, FileChange, PostEditSource, atomic_replace_path, create_file, move_file_noclobber,
+    preflight_write, replace_file, sha256,
 };
 
 #[derive(Debug)]
@@ -196,6 +196,8 @@ impl Workspace {
         &self,
         policy: WorkspacePolicy,
     ) -> Result<PolicyGeneration, WorkspaceError> {
+        let _coordinator = self.write_guard()?;
+
         self.ensure_open()?;
         let mut current = self.lock(&self.state.policy)?;
         if current.policy != policy {
@@ -211,6 +213,8 @@ impl Workspace {
     }
 
     pub(crate) fn set_edit_mode(&self, mode: &str) -> Result<EditModeSelection, WorkspaceError> {
+        let _coordinator = self.write_guard()?;
+
         self.ensure_open()?;
         if !matches!(mode, "replace" | "patch" | "apply_patch") {
             return Err(WorkspaceError::EditMode(format!(
@@ -228,6 +232,27 @@ impl Workspace {
     pub(crate) fn write_guard(&self) -> Result<MutexGuard<'_, ()>, WorkspaceError> {
         self.ensure_open()?;
         self.lock(&self.state.write_coordinator)
+    }
+
+    pub(crate) fn validate_mutation(
+        &self,
+        context: &MutationContext,
+        expected_mode: &str,
+    ) -> Result<(), WorkspaceError> {
+        let mode = self.edit_mode()?;
+        if mode.mode != expected_mode || mode.generation != context.mode_generation {
+            return Err(WorkspaceError::EditMode(
+                "workspace edit mode changed before mutation".to_owned(),
+            ));
+        }
+        let policy = self.policy()?;
+        if policy.generation != context.policy_generation {
+            return Err(WorkspaceError::Stale(
+                "workspace policy changed before mutation".to_owned(),
+            ));
+        }
+
+        Ok(())
     }
 
     pub(crate) fn observations(&self) -> Result<MutexGuard<'_, ObservationLedger>, WorkspaceError> {
