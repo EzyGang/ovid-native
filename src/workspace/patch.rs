@@ -263,6 +263,7 @@ impl Workspace {
         match operation {
             PreparedOperation::Create { path, text } => {
                 let create_parents = context.policy.create_parent_directories;
+                context.ensure_active()?;
                 create_file(self.root(), &path, &text.serialize(), create_parents)?;
                 let (file_generation, revision) = self.mark_file_changed(&path)?;
                 let after = sha256(text.source.as_bytes());
@@ -291,9 +292,11 @@ impl Workspace {
                 bytes,
                 changed,
             } => {
+                context.ensure_active()?;
                 atomic_replace_path(&target, &path, &before, &bytes)?;
                 let (result_path, operation, destination_name) = match destination {
                     Some((name, destination_target)) => {
+                        context.ensure_active()?;
                         move_file_noclobber(&target, &destination_target, &path, &name)?;
                         (name.clone(), "move", Some(name))
                     }
@@ -327,6 +330,7 @@ impl Workspace {
                 target,
                 before,
             } => {
+                context.ensure_active()?;
                 fs::remove_file(&target).map_err(|error| {
                     WorkspaceError::Write(format!("cannot delete {path}: {error}"))
                 })?;

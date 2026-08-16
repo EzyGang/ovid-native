@@ -156,6 +156,18 @@ fn mutations_reject_stale_mode_and_policy_contexts() {
         workspace.replace_text("source.txt", "source", "changed", false, &stale_policy),
         Err(WorkspaceError::Stale(_))
     ));
+
+    let stale_direct_policy =
+        MutationContext::write(workspace.policy().expect("policy"), Cancellation::new());
+    workspace
+        .set_policy(WorkspacePolicy::default())
+        .expect("policy revocation");
+
+    assert!(matches!(
+        workspace.create_text_file("created.txt", "created", false, &stale_direct_policy),
+        Err(WorkspaceError::Stale(_))
+    ));
+    assert!(!root.path().join("created.txt").exists());
 }
 
 #[test]

@@ -14,10 +14,12 @@ mod workflows;
 mod write;
 
 use std::collections::HashMap;
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
+
+use fs2::FileExt;
 
 pub(crate) use content::{
     NormalizedText, ReadExtent, WorkspaceDirectoryEntry, WorkspaceDirectoryRead, WorkspaceFileRead,
@@ -115,6 +117,12 @@ struct WorkspaceState {
     file_generations: Mutex<HashMap<String, u64>>,
     policy: Mutex<PolicyGeneration>,
     edit_mode: Mutex<EditModeSelection>,
+}
+
+#[derive(Debug)]
+pub(crate) struct WorkspaceWriteGuard<'a> {
+    _coordinator: MutexGuard<'a, ()>,
+    _file: fs::File,
 }
 
 impl Workspace {
@@ -230,9 +238,29 @@ impl Workspace {
         Ok(current.clone())
     }
 
-    pub(crate) fn write_guard(&self) -> Result<MutexGuard<'_, ()>, WorkspaceError> {
+    pub(crate) fn write_guard(&self) -> Result<WorkspaceWriteGuard<'_>, WorkspaceError> {
         self.ensure_open()?;
-        self.lock(&self.state.write_coordinator)
+        let coordinator = self.lock(&self.state.write_coordinator)?;
+        let name = format!(
+            "ovid-native-workspace-{}.lock",
+            sha256(self.root().to_string_lossy().as_bytes())
+        );
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(std::env::temp_dir().join(name))
+            .map_err(|error| {
+                WorkspaceError::Write(format!("cannot open workspace lock: {error}"))
+            })?;
+        FileExt::lock_exclusive(&file)
+            .map_err(|error| WorkspaceError::Write(format!("cannot lock workspace: {error}")))?;
+
+        Ok(WorkspaceWriteGuard {
+            _coordinator: coordinator,
+            _file: file,
+        })
     }
 
     pub(crate) fn validate_mutation(
@@ -246,6 +274,13 @@ impl Workspace {
                 "workspace edit mode changed before mutation".to_owned(),
             ));
         }
+
+        self.validate_policy(context)?;
+
+        Ok(())
+    }
+
+    pub(crate) fn validate_policy(&self, context: &MutationContext) -> Result<(), WorkspaceError> {
         let policy = self.policy()?;
         if policy.generation != context.policy_generation {
             return Err(WorkspaceError::Stale(
