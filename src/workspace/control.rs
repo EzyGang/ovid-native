@@ -1,11 +1,12 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug)]
 pub(crate) struct Cancellation {
     own: Arc<AtomicBool>,
     parents: Vec<Arc<AtomicBool>>,
+    signals: Arc<Mutex<Vec<Weak<AtomicBool>>>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -25,11 +26,23 @@ impl Cancellation {
         Self {
             own: Arc::new(AtomicBool::new(false)),
             parents: Vec::new(),
+            signals: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
     pub(crate) fn cancel(&self) {
         self.own.store(true, Ordering::Relaxed);
+        let mut signals = match self.signals.lock() {
+            Ok(signals) => signals,
+            Err(error) => error.into_inner(),
+        };
+        signals.retain(|signal| match signal.upgrade() {
+            Some(signal) => {
+                signal.store(true, Ordering::Release);
+                true
+            }
+            None => false,
+        });
     }
 
     pub(crate) fn is_cancelled(&self) -> bool {
@@ -40,6 +53,21 @@ impl Cancellation {
                 .any(|signal| signal.load(Ordering::Relaxed))
     }
 
+    pub(crate) fn register_signal(&self, signal: &Arc<AtomicBool>) {
+        let mut signals = match self.signals.lock() {
+            Ok(signals) => signals,
+            Err(error) => error.into_inner(),
+        };
+        if self.is_cancelled() {
+            signal.store(true, Ordering::Release);
+            return;
+        }
+
+        signals.retain(|registered| registered.strong_count() > 0);
+
+        signals.push(Arc::downgrade(signal));
+    }
+
     pub(crate) fn with_parent(&self, parent: &Self) -> Self {
         let mut parents = self.parents.clone();
         parents.push(parent.own.clone());
@@ -48,6 +76,7 @@ impl Cancellation {
         Self {
             own: self.own.clone(),
             parents,
+            signals: self.signals.clone(),
         }
     }
 }

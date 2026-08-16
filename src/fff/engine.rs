@@ -18,6 +18,7 @@ pub(crate) struct FffEngineState {
     pub limits: FffLimits,
     started: AtomicBool,
     indexed_revision: AtomicU64,
+    scan_revision: AtomicU64,
     closed: AtomicBool,
     startup_lock: Mutex<()>,
 }
@@ -45,6 +46,7 @@ impl NativeFffEngine {
                 started: AtomicBool::new(false),
                 closed: AtomicBool::new(false),
                 indexed_revision: AtomicU64::new(u64::MAX),
+                scan_revision: AtomicU64::new(u64::MAX),
                 startup_lock: Mutex::new(()),
             }),
         })
@@ -60,6 +62,7 @@ impl FffEngineState {
             .map_err(|_| FffError::Startup("FFF startup lock is poisoned".to_owned()))?;
 
         if !self.started.load(Ordering::Acquire) {
+            let revision = self.workspace.revision();
             let options = FilePickerOptions {
                 base_path: self.workspace.root().to_string_lossy().into_owned(),
                 enable_mmap_cache: self.config.enable_mmap_cache,
@@ -73,6 +76,7 @@ impl FffEngineState {
             };
             FilePicker::new_with_shared_state(self.picker.clone(), self.frecency.clone(), options)
                 .map_err(|error| FffError::Startup(error.to_string()))?;
+            self.scan_revision.store(revision, Ordering::Release);
             self.started.store(true, Ordering::Release);
         }
 
@@ -84,11 +88,9 @@ impl FffEngineState {
         timeout_seconds: f64,
     ) -> Result<NativeFffIndexStatus, FffError> {
         self.start()?;
-        if self.workspace.cancellation().is_cancelled() {
-            return Err(FffError::Cancelled);
-        }
+        self.ensure_not_cancelled()?;
 
-        let revision = self.workspace.revision();
+        let scan_revision = self.scan_revision.load(Ordering::Acquire);
         let deadline = Instant::now() + Duration::from_secs_f64(timeout_seconds);
 
         self.wait_for_indexing(deadline)?;
@@ -96,8 +98,10 @@ impl FffEngineState {
             self.wait_for_watcher(deadline)?;
         }
 
-        if self.workspace.revision() == revision {
-            self.indexed_revision.store(revision, Ordering::Release);
+        self.ensure_not_cancelled()?;
+        if self.workspace.revision() == scan_revision {
+            self.indexed_revision
+                .store(scan_revision, Ordering::Release);
         }
 
         self.status()
@@ -145,9 +149,7 @@ impl FffEngineState {
 
     pub(crate) fn rescan(&self) -> Result<NativeFffIndexStatus, FffError> {
         self.ensure_started()?;
-        self.picker
-            .trigger_full_rescan_async(&self.frecency)
-            .map_err(|error| FffError::Runtime(error.to_string()))?;
+        self.trigger_rescan()?;
         self.indexed_revision.store(u64::MAX, Ordering::Release);
         self.status()
     }
@@ -171,33 +173,39 @@ impl FffEngineState {
         Ok(())
     }
 
+    fn trigger_rescan(&self) -> Result<(), FffError> {
+        let revision = self.workspace.revision();
+        self.picker
+            .trigger_full_rescan_async(&self.frecency)
+            .map_err(|error| FffError::Runtime(error.to_string()))?;
+        self.scan_revision.store(revision, Ordering::Release);
+
+        Ok(())
+    }
+
     fn wait_for_indexing(&self, deadline: Instant) -> Result<(), FffError> {
         while !self
             .picker
             .wait_for_indexing_complete(wait_interval(deadline))
         {
-            if self.workspace.cancellation().is_cancelled() {
-                return Err(FffError::Cancelled);
-            }
+            self.ensure_not_cancelled()?;
             if Instant::now() >= deadline {
                 return Err(FffError::IndexNotReady);
             }
         }
 
-        Ok(())
+        self.ensure_not_cancelled()
     }
 
     fn wait_for_watcher(&self, deadline: Instant) -> Result<(), FffError> {
         while !self.picker.wait_for_watcher(wait_interval(deadline)) {
-            if self.workspace.cancellation().is_cancelled() {
-                return Err(FffError::Cancelled);
-            }
+            self.ensure_not_cancelled()?;
             if Instant::now() >= deadline {
                 return Err(FffError::IndexNotReady);
             }
         }
 
-        Ok(())
+        self.ensure_not_cancelled()
     }
 
     pub(crate) fn ensure_started(&self) -> Result<(), FffError> {
@@ -205,16 +213,21 @@ impl FffEngineState {
         self.start()?;
         let revision = self.workspace.revision();
         if self.indexed_revision.load(Ordering::Acquire) != revision {
-            self.picker
-                .trigger_full_rescan_async(&self.frecency)
-                .map_err(|error| FffError::Runtime(error.to_string()))?;
+            self.trigger_rescan()?;
         }
         let status = self.wait_ready(self.config.initial_scan_timeout_seconds)?;
         if status.0 != "ready" {
             return Err(FffError::IndexNotReady);
         }
 
-        self.indexed_revision.store(revision, Ordering::Release);
+        Ok(())
+    }
+
+    fn ensure_not_cancelled(&self) -> Result<(), FffError> {
+        if self.workspace.cancellation().is_cancelled() {
+            return Err(FffError::Cancelled);
+        }
+
         Ok(())
     }
 

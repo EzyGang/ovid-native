@@ -1,5 +1,6 @@
 use std::fs;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use tempfile::TempDir;
 
@@ -100,6 +101,34 @@ fn wait_ready_honors_workspace_cancellation() {
         engine.inner.wait_ready(10.0),
         Err(crate::fff::FffError::Cancelled)
     ));
+}
+
+#[test]
+fn close_signals_active_fff_searches() {
+    let directory = TempDir::new().expect("temporary workspace");
+    let engine = engine(directory.path().to_str().expect("workspace path"));
+    let signal = Arc::new(AtomicBool::new(false));
+    engine
+        .inner
+        .workspace
+        .cancellation()
+        .register_signal(&signal);
+
+    engine.inner.workspace.close();
+
+    assert!(signal.load(Ordering::Acquire));
+}
+
+#[test]
+fn wait_ready_leaves_pre_revision_index_stale() {
+    let directory = TempDir::new().expect("temporary workspace");
+    let engine = engine(directory.path().to_str().expect("workspace path"));
+    engine.inner.start().expect("start");
+    engine.inner.workspace.mark_changed();
+
+    engine.inner.wait_ready(10.0).expect("ready");
+
+    assert_eq!(engine.inner.indexed_revision(), u64::MAX);
 }
 
 #[test]

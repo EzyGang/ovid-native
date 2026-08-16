@@ -110,6 +110,7 @@ fn fff_grep(
     let engine = engine.inner.clone();
     let request = request.inner.clone();
     let signal = cancellation.signal();
+    engine.workspace.cancellation().register_signal(&signal);
     py.detach(move || {
         let _operation = operation;
         cancelled(&signal)?;
@@ -131,6 +132,7 @@ fn fff_multi_grep(
     let engine = engine.inner.clone();
     let request = request.inner.clone();
     let signal = cancellation.signal();
+    engine.workspace.cancellation().register_signal(&signal);
     py.detach(move || {
         let _operation = operation;
         cancelled(&signal)?;
