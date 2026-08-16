@@ -43,6 +43,15 @@ fn constraints() -> FffConstraints {
 }
 
 #[test]
+fn close_prevents_starting_an_index() {
+    let directory = TempDir::new().unwrap();
+    let engine = engine(directory.path().to_str().unwrap());
+    engine.inner.close().unwrap();
+
+    assert!(engine.inner.start().is_err());
+}
+
+#[test]
 fn indexes_and_searches_paths_and_content() {
     let directory = TempDir::new().unwrap();
     fs::write(

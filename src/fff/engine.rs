@@ -52,11 +52,11 @@ impl NativeFffEngine {
 
 impl FffEngineState {
     pub(crate) fn start(&self) -> Result<NativeFffIndexStatus, FffError> {
-        self.ensure_open()?;
         let _startup_guard = self
             .startup_lock
             .lock()
             .map_err(|_| FffError::Startup("FFF startup lock is poisoned".to_owned()))?;
+        self.ensure_open()?;
 
         if !self.started.load(Ordering::Acquire) {
             let options = FilePickerOptions {
@@ -136,6 +136,10 @@ impl FffEngineState {
     }
 
     pub(crate) fn close(&self) -> Result<(), FffError> {
+        let _startup_guard = self
+            .startup_lock
+            .lock()
+            .map_err(|_| FffError::Startup("FFF startup lock is poisoned".to_owned()))?;
         if self.closed.swap(true, Ordering::AcqRel) {
             return Ok(());
         }
