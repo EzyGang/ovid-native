@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 from typing import cast
 
+from ovid_core.services import AgentServices
 from ovid_core.tools.base import ToolExecutionContext
 
 from ovid_native.ast import (
@@ -21,6 +22,7 @@ from ovid_native.ast import (
     AstSearchToolResult,
 )
 from ovid_native.ast.tools import AST_TOOL_INSTRUCTIONS
+from ovid_native.workspace.service import NativeWorkspaceSession, workspace_binding
 
 
 def context() -> ToolExecutionContext[None]:
@@ -28,8 +30,9 @@ def context() -> ToolExecutionContext[None]:
 
 
 def test_capability_contributes_exact_ast_surface(tmp_path: Path) -> None:
+    session = NativeWorkspaceSession(root=tmp_path)
+    capability = AstCapability[None]().bind(AgentServices((workspace_binding(session),)))
     engine = AstEngine(root=tmp_path)
-    capability = AstCapability[None](engine=engine)
 
     assert capability.id == 'native_ast'
     assert capability.description == 'Syntax-aware source search and staged structural rewrites'
@@ -41,13 +44,14 @@ def test_capability_contributes_exact_ast_surface(tmp_path: Path) -> None:
     assert engine.limits == AstLimits()
     second_engine = AstEngine(root=tmp_path)
     assert engine.limits is not second_engine.limits
+    asyncio.run(session.close())
 
 
 def test_tool_contracts_and_approval(tmp_path: Path) -> None:
     engine = AstEngine(root=tmp_path)
-    grep = AstGrepTool[None](engine=engine)
-    preview = AstEditPreviewTool[None](engine=engine)
-    apply = AstEditApplyTool[None](engine=engine)
+    grep = AstGrepTool[None](provider=engine)
+    preview = AstEditPreviewTool[None](provider=engine)
+    apply = AstEditApplyTool[None](provider=engine)
 
     assert grep.args_type is AstSearchRequest
     assert grep.result_type is AstSearchToolResult
@@ -67,9 +71,9 @@ def test_tools_execute_search_preview_and_apply(tmp_path: Path) -> None:
     source = tmp_path / 'sample.py'
     source.write_text('print(1)\n')
     engine = AstEngine(root=tmp_path)
-    grep = AstGrepTool[None](engine=engine)
-    preview_tool = AstEditPreviewTool[None](engine=engine)
-    apply_tool = AstEditApplyTool[None](engine=engine)
+    grep = AstGrepTool[None](provider=engine)
+    preview_tool = AstEditPreviewTool[None](provider=engine)
+    apply_tool = AstEditApplyTool[None](provider=engine)
 
     search = asyncio.run(grep.execute(context(), AstSearchRequest(pattern='print($A)')))
     assert search.content['result']['matches'][0]['text'] == 'print(1)'

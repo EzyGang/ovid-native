@@ -1,7 +1,6 @@
 from ovid_core.tools.base import BaseTool, ToolExecutionContext
 from ovid_core.tools.models import ToolApproval
 
-from ovid_native.ast.engine import AstEngine
 from ovid_native.ast.models import (
     AstRewriteApplyRequest,
     AstRewriteApplyToolContent,
@@ -13,6 +12,7 @@ from ovid_native.ast.models import (
     AstSearchToolContent,
     AstSearchToolResult,
 )
+from ovid_native.workspace.models import WorkspaceAstProvider
 
 
 AST_GREP_DESCRIPTION = (
@@ -46,8 +46,8 @@ class AstGrepTool[Deps](BaseTool[Deps, AstSearchRequest, AstSearchToolResult]):
     timeout_seconds = 30.0
     defer_loading = True
 
-    def __init__(self, *, engine: AstEngine) -> None:
-        self._engine = engine
+    def __init__(self, *, provider: WorkspaceAstProvider) -> None:
+        self._provider = provider
 
     async def execute(
         self,
@@ -55,7 +55,7 @@ class AstGrepTool[Deps](BaseTool[Deps, AstSearchRequest, AstSearchToolResult]):
         arguments: AstSearchRequest,
     ) -> AstSearchToolResult:
         del context
-        result = await self._engine.search(arguments)
+        result = await self._provider.search(arguments)
         content = AstSearchToolContent(result=result).model_dump(mode='json')
         return AstSearchToolResult(content=content)
 
@@ -68,8 +68,8 @@ class AstEditPreviewTool[Deps](BaseTool[Deps, AstRewritePreviewRequest, AstRewri
     timeout_seconds = 30.0
     defer_loading = True
 
-    def __init__(self, *, engine: AstEngine) -> None:
-        self._engine = engine
+    def __init__(self, *, provider: WorkspaceAstProvider) -> None:
+        self._provider = provider
 
     async def execute(
         self,
@@ -77,7 +77,7 @@ class AstEditPreviewTool[Deps](BaseTool[Deps, AstRewritePreviewRequest, AstRewri
         arguments: AstRewritePreviewRequest,
     ) -> AstRewritePreviewToolResult:
         del context
-        preview = await self._engine.preview_rewrite(arguments)
+        preview = await self._provider.preview_rewrite(arguments)
         content = AstRewritePreviewToolContent(preview=preview).model_dump(mode='json')
         return AstRewritePreviewToolResult(content=content)
 
@@ -91,8 +91,8 @@ class AstEditApplyTool[Deps](BaseTool[Deps, AstRewriteApplyRequest, AstRewriteAp
     timeout_seconds = 30.0
     defer_loading = True
 
-    def __init__(self, *, engine: AstEngine) -> None:
-        self._engine = engine
+    def __init__(self, *, provider: WorkspaceAstProvider) -> None:
+        self._provider = provider
 
     async def execute(
         self,
@@ -100,6 +100,6 @@ class AstEditApplyTool[Deps](BaseTool[Deps, AstRewriteApplyRequest, AstRewriteAp
         arguments: AstRewriteApplyRequest,
     ) -> AstRewriteApplyToolResult:
         del context
-        result = await self._engine.apply_rewrite(arguments)
+        result = await self._provider.apply_rewrite(arguments)
         content = AstRewriteApplyToolContent(result=result).model_dump(mode='json')
         return AstRewriteApplyToolResult(content=content)

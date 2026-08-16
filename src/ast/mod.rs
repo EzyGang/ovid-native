@@ -33,6 +33,9 @@ impl From<crate::workspace::WorkspaceError> for AstError {
             crate::workspace::WorkspaceError::Stale(message) => Self::Stale(message),
             crate::workspace::WorkspaceError::Write(message) => Self::Write(message),
             crate::workspace::WorkspaceError::Cancelled => Self::Cancelled,
+            crate::workspace::WorkspaceError::Closed => {
+                Self::Stale("workspace is closed".to_owned())
+            }
             crate::workspace::WorkspaceError::Deadline => {
                 Self::Limit("workspace operation reached its deadline".to_owned())
             }

@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from pathlib import Path
+from typing import Self
 
 from ovid_native import _native
 from ovid_native._native_execution import run_native
@@ -15,6 +16,7 @@ from ovid_native.search.errors import (
     SearchReadError,
 )
 from ovid_native.search.models import GlobRequest, GlobResult, GrepRequest, GrepResult, SearchLimits
+from ovid_native.workspace.errors import WorkspaceClosedError
 
 
 _NATIVE_ERRORS: tuple[type[Exception], ...] = (
@@ -31,13 +33,26 @@ class SearchEngine:
     def __init__(self, *, root: Path, limits: SearchLimits | None = None) -> None:
         ensure_native_compatibility()
         try:
-            workspace = _native.search_workspace(str(root))
-        except _NATIVE_ERRORS as error:
-            raise _translate_native(error) from error
+            workspace = _native.workspace_create(str(root))
+        except ValueError as error:
+            raise SearchConfigurationError(str(error)) from error
 
         self._workspace = workspace
-        self._root = Path(workspace.root)
+        self._root = root.resolve(strict=True)
         self._limits = limits if limits is not None else SearchLimits()
+
+    @classmethod
+    def _from_workspace(
+        cls,
+        workspace: _native.NativeWorkspace,
+        *,
+        limits: SearchLimits | None = None,
+    ) -> Self:
+        engine = cls.__new__(cls)
+        engine._workspace = workspace
+        engine._root = Path(workspace.root)
+        engine._limits = limits if limits is not None else SearchLimits()
+        return engine
 
     @property
     def root(self) -> Path:
@@ -48,6 +63,7 @@ class SearchEngine:
         return self._limits
 
     async def glob(self, request: GlobRequest) -> GlobResult:
+        self._ensure_open()
         _validate_glob_limits(request, self._limits)
         cancellation = _native.NativeSearchCancellation()
         native_request = _native.NativeGlobRequest(
@@ -69,6 +85,7 @@ class SearchEngine:
         return _mapping.glob_result(result)
 
     async def grep(self, request: GrepRequest) -> GrepResult:
+        self._ensure_open()
         _validate_grep_limits(request, self._limits)
         cancellation = _native.NativeSearchCancellation()
         native_request = _native.NativeGrepRequest(
@@ -101,6 +118,10 @@ class SearchEngine:
             cancellation=cancellation,
         )
         return _mapping.grep_result(result)
+
+    def _ensure_open(self) -> None:
+        if _native.workspace_is_closed(self._workspace):
+            raise WorkspaceClosedError('Workspace session is closed')
 
 
 def _validate_glob_limits(request: GlobRequest, limits: SearchLimits) -> None:

@@ -35,6 +35,7 @@ impl From<crate::workspace::WorkspaceError> for FffError {
             crate::workspace::WorkspaceError::Read(message)
             | crate::workspace::WorkspaceError::Stale(message)
             | crate::workspace::WorkspaceError::Write(message) => Self::Runtime(message),
+            crate::workspace::WorkspaceError::Closed => Self::Closed,
             crate::workspace::WorkspaceError::Deadline => Self::IndexNotReady,
         }
     }

@@ -29,13 +29,12 @@ pub(crate) struct NativeFffEngine {
 
 impl NativeFffEngine {
     pub(crate) fn new(
-        root: String,
+        workspace: Workspace,
         config: FffConfig,
         limits: FffLimits,
     ) -> Result<Self, FffError> {
         validate_config(&config, &limits)?;
-        let workspace = Workspace::new(&root)?;
-
+        workspace.ensure_open()?;
         Ok(Self {
             inner: Arc::new(FffEngineState {
                 workspace,
@@ -53,11 +52,11 @@ impl NativeFffEngine {
 
 impl FffEngineState {
     pub(crate) fn start(&self) -> Result<NativeFffIndexStatus, FffError> {
-        self.ensure_open()?;
         let _startup_guard = self
             .startup_lock
             .lock()
             .map_err(|_| FffError::Startup("FFF startup lock is poisoned".to_owned()))?;
+        self.ensure_open()?;
 
         if !self.started.load(Ordering::Acquire) {
             let options = FilePickerOptions {
@@ -97,15 +96,7 @@ impl FffEngineState {
     }
 
     pub(crate) fn status(&self) -> Result<NativeFffIndexStatus, FffError> {
-        if self.closed.load(Ordering::Acquire) {
-            return Ok((
-                "closed".to_owned(),
-                0,
-                false,
-                false,
-                self.config.enable_content_indexing,
-            ));
-        }
+        self.ensure_open()?;
         if !self.started.load(Ordering::Acquire) {
             return Ok((
                 "new".to_owned(),
@@ -145,6 +136,10 @@ impl FffEngineState {
     }
 
     pub(crate) fn close(&self) -> Result<(), FffError> {
+        let _startup_guard = self
+            .startup_lock
+            .lock()
+            .map_err(|_| FffError::Startup("FFF startup lock is poisoned".to_owned()))?;
         if self.closed.swap(true, Ordering::AcqRel) {
             return Ok(());
         }
@@ -175,6 +170,7 @@ impl FffEngineState {
     }
 
     pub(crate) fn ensure_open(&self) -> Result<(), FffError> {
+        self.workspace.ensure_open()?;
         if self.closed.load(Ordering::Acquire) {
             return Err(FffError::Closed);
         }

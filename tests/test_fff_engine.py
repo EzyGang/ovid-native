@@ -39,7 +39,8 @@ def test_engine_searches_and_closes(tmp_path: Path) -> None:
         assert grep.matches[0].column == 7
         assert grep.matches[0].is_definition
         assert len(multi.matches) == 2
-        assert (await engine.status()).state == 'closed'
+        with pytest.raises(FffClosedError):
+            await engine.status()
         with pytest.raises(FffClosedError):
             await engine.find(FffFindRequest(query='resolver'))
 

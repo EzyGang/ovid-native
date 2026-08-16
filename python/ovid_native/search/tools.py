@@ -1,6 +1,5 @@
 from ovid_core.tools.base import BaseTool, ToolExecutionContext
 
-from ovid_native.search.engine import SearchEngine
 from ovid_native.search.models import (
     GlobRequest,
     GlobToolContent,
@@ -10,6 +9,7 @@ from ovid_native.search.models import (
     GrepToolRequest,
     GrepToolResult,
 )
+from ovid_native.workspace.models import WorkspaceSearchProvider
 
 
 GLOB_DESCRIPTION = (
@@ -38,8 +38,8 @@ class GlobTool[Deps](BaseTool[Deps, GlobRequest, GlobToolResult]):
     timeout_seconds = 5.0
     defer_loading = False
 
-    def __init__(self, *, engine: SearchEngine) -> None:
-        self._engine = engine
+    def __init__(self, *, provider: WorkspaceSearchProvider) -> None:
+        self._provider = provider
 
     async def execute(
         self,
@@ -47,7 +47,7 @@ class GlobTool[Deps](BaseTool[Deps, GlobRequest, GlobToolResult]):
         arguments: GlobRequest,
     ) -> GlobToolResult:
         del context
-        result = await self._engine.glob(arguments)
+        result = await self._provider.glob(arguments)
         content = GlobToolContent(result=result).model_dump(mode='json')
         return GlobToolResult(content=content)
 
@@ -60,8 +60,8 @@ class GrepTool[Deps](BaseTool[Deps, GrepToolRequest, GrepToolResult]):
     timeout_seconds = 30.0
     defer_loading = False
 
-    def __init__(self, *, engine: SearchEngine) -> None:
-        self._engine = engine
+    def __init__(self, *, provider: WorkspaceSearchProvider) -> None:
+        self._provider = provider
 
     async def execute(
         self,
@@ -69,7 +69,7 @@ class GrepTool[Deps](BaseTool[Deps, GrepToolRequest, GrepToolResult]):
         arguments: GrepToolRequest,
     ) -> GrepToolResult:
         del context
-        result = await self._engine.grep(_grep_request(arguments))
+        result = await self._provider.grep(_grep_request(arguments))
         content = GrepToolContent(result=result).model_dump(mode='json')
         return GrepToolResult(content=content)
 

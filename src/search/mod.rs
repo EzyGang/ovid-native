@@ -27,6 +27,9 @@ impl From<crate::workspace::WorkspaceError> for SearchError {
             crate::workspace::WorkspaceError::Read(message) => Self::Read(message),
             crate::workspace::WorkspaceError::Stale(message)
             | crate::workspace::WorkspaceError::Write(message) => Self::Read(message),
+            crate::workspace::WorkspaceError::Closed => {
+                Self::Read("workspace is closed".to_owned())
+            }
             crate::workspace::WorkspaceError::Cancelled => Self::Cancelled,
             crate::workspace::WorkspaceError::Deadline => {
                 Self::Limit("search operation reached its deadline".to_owned())

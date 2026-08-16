@@ -11,14 +11,20 @@ use crate::fff::python_types::{
 use crate::fff::types::{
     NativeFffCancellation, NativeFffFindResult, NativeFffGrepResult, NativeFffIndexStatus,
 };
+use crate::workspace::NativeWorkspace;
 
 #[pyfunction]
 fn fff_create(
-    root: String,
+    workspace: PyRef<'_, NativeWorkspace>,
     config: PyRef<'_, NativeFffConfig>,
     limits: PyRef<'_, NativeFffLimits>,
 ) -> PyResult<NativeFffEngine> {
-    NativeFffEngine::new(root, config.inner.clone(), limits.inner.clone()).map_err(to_python_error)
+    NativeFffEngine::new(
+        workspace.inner.clone(),
+        config.inner.clone(),
+        limits.inner.clone(),
+    )
+    .map_err(to_python_error)
 }
 
 #[pyfunction]

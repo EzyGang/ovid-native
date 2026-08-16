@@ -8,10 +8,11 @@ use crate::fff::grep::{grep, multi_grep};
 use crate::fff::types::{
     FffConfig, FffConstraints, FffFindRequest, FffGrepRequest, FffLimits, FffMultiGrepRequest,
 };
+use crate::workspace::Workspace;
 
 fn engine(root: &str) -> NativeFffEngine {
     NativeFffEngine::new(
-        root.to_owned(),
+        Workspace::new(root).unwrap(),
         FffConfig {
             watch: false,
             enable_content_indexing: true,
@@ -39,6 +40,15 @@ fn constraints() -> FffConstraints {
         exclude: vec![],
         git_status: None,
     }
+}
+
+#[test]
+fn close_prevents_starting_an_index() {
+    let directory = TempDir::new().unwrap();
+    let engine = engine(directory.path().to_str().unwrap());
+    engine.inner.close().unwrap();
+
+    assert!(engine.inner.start().is_err());
 }
 
 #[test]

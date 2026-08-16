@@ -6,11 +6,15 @@ from ovid_core.agents import AgentDefinition, AgentFactory
 from ovid_core.config.models import ModelConfig, OvidConfig
 from ovid_core.routing.factory import ModelFactory
 from ovid_core.routing.models import ModelCapabilities, ModelHandle, ModelRef
+from ovid_core.services import AgentServices
 from pydantic_ai import ModelMessage, ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pytest_mock import MockerFixture
 
-from ovid_native.search import SearchCapability, SearchEngine
+from ovid_native.ast import AstCapability
+from ovid_native.fff import FffCapability
+from ovid_native.search import SearchCapability
+from ovid_native.workspace.service import NativeWorkspaceSession, workspace_binding
 
 
 def handle(model: FunctionModel) -> ModelHandle:
@@ -36,11 +40,22 @@ def test_search_capability_runs_through_real_agent_factory(tmp_path: Path, mocke
     (tmp_path / '.hidden.txt').write_text('needle hidden\n')
     (tmp_path / '.gitignore').write_text('ignored.txt\n')
     (tmp_path / 'ignored.txt').write_text('needle ignored\n')
-    engine = SearchEngine(root=tmp_path)
+    (tmp_path / 'sample.py').write_text("print('needle')\n")
+    workspace = NativeWorkspaceSession(root=tmp_path)
 
     def model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        tool_names = {tool.name for tool in info.function_tools}
+
         tool_returns = [part for message in messages for part in message.parts if isinstance(part, ToolReturnPart)]
-        assert {tool.name for tool in info.function_tools} == {'glob', 'grep'}
+        assert tool_names - {'load_capability'} == {
+            'ast_edit_apply',
+            'ast_edit_preview',
+            'ast_grep',
+            'find_files',
+            'glob',
+            'grep',
+            'multi_grep',
+        }
         if not tool_returns:
             return ModelResponse(parts=[ToolCallPart('glob', {'patterns': ['*.txt'], 'order': 'path'})])
         if len(tool_returns) == 1:
@@ -81,10 +96,26 @@ def test_search_capability_runs_through_real_agent_factory(tmp_path: Path, mocke
                 ]
             )
 
+        if len(tool_returns) == 3:
+            result = tool_returns[-1].content['content']['result']
+            assert result['files'][0]['path'] == 'oversized.txt'
+            assert result['files'][0]['coverage']['complete'] is False
+            assert result['skipped_binary_files'] == 1
+            return ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        'ast_grep',
+                        {'pattern': 'print($VALUE)', 'language': 'python', 'scan': {'paths': ['sample.py']}},
+                    )
+                ]
+            )
+        if len(tool_returns) == 4:
+            result = tool_returns[-1].content['content']['result']
+            assert result['matches'][0]['path'] == 'sample.py'
+            return ModelResponse(parts=[ToolCallPart('find_files', {'query': 'sample'})])
+
         result = tool_returns[-1].content['content']['result']
-        assert result['files'][0]['path'] == 'oversized.txt'
-        assert result['files'][0]['coverage']['complete'] is False
-        assert result['skipped_binary_files'] == 1
+        assert result['matches'][0]['path'] == 'sample.py'
         return ModelResponse(parts=[TextPart('searched')])
 
     model_factory = mocker.Mock()
@@ -97,12 +128,16 @@ def test_search_capability_runs_through_real_agent_factory(tmp_path: Path, mocke
         model=ModelRef(name='test'),
         deps_type=type(None),
         output_type=str,
-        capabilities=(SearchCapability[None](engine=engine),),
+        capabilities=(SearchCapability[None](), AstCapability[None](), FffCapability[None](include_grep=False)),
+        services=AgentServices((workspace_binding(workspace),)),
     )
 
     async def run() -> str:
         agent = await factory.build(definition)
         result = await agent.run('Discover files and search for needle.', deps=None)
+        assert agent.diagnostics.services[0].identity == workspace.id.root
+        assert agent.diagnostics.services[0].consumers == ('native_search', 'native_ast', 'native_fff')
+        await workspace.close()
         return result.output
 
     assert asyncio.run(run()) == 'searched'

@@ -45,7 +45,7 @@ def test_glob_is_typed_ranked_bounded_and_workspace_safe(tmp_path: Path) -> None
     assert engine.limits == SearchLimits()
     assert [match.path for match in ranked.matches] == ['src/newer.py', 'src/older.py']
     assert ranked.matches[0].modified_at is not None
-    assert ranked.matches[0].size == len('newer\n')
+    assert ranked.matches[0].size == len(newer.read_bytes())
     assert all(not match.path.startswith('/') for match in ranked.matches)
     assert bounded.completion == 'complete'
     assert bounded.truncated is True
@@ -97,7 +97,7 @@ def test_grep_reports_pagination_context_utf8_and_partial_coverage(tmp_path: Pat
     assert matched.text == 'néedle'
     assert matched.range.start.line == 2
     assert matched.range.start.column == 1
-    assert matched.range.start.byte_offset == len(b'before\n')
+    assert matched.range.start.byte_offset == (tmp_path / 'a.txt').read_bytes().index('néedle'.encode())
     assert matched.context_before[0].text == 'before'
     assert matched.context_after[0].text == 'after'
     assert first_result.files[0].total_matches == 2
