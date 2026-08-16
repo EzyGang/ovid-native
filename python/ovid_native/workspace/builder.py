@@ -1,14 +1,24 @@
 from pathlib import Path
 from typing import Self
 
+from ovid_native.files.edit_modes import EditMode
 from ovid_native.workspace.errors import WorkspaceConfigurationError
 from ovid_native.workspace.models import WorkspaceAstProvider, WorkspaceFffProvider, WorkspaceSearchProvider
+from ovid_native.workspace.policy import WorkspacePolicy
 from ovid_native.workspace.service import NativeWorkspaceSession
 
 
 class WorkspaceSessionBuilder:
-    def __init__(self, *, root: Path) -> None:
+    def __init__(
+        self,
+        *,
+        root: Path,
+        edit_mode: EditMode,
+        policy: WorkspacePolicy | None,
+    ) -> None:
         self._root = root
+        self._edit_mode = edit_mode
+        self._policy = policy
         self._search_provider: WorkspaceSearchProvider | None = None
         self._ast_provider: WorkspaceAstProvider | None = None
         self._fff_provider: WorkspaceFffProvider | None = None
@@ -18,8 +28,14 @@ class WorkspaceSessionBuilder:
         self._built = False
 
     @classmethod
-    def native(cls, *, root: Path) -> Self:
-        return cls(root=root)
+    def native(
+        cls,
+        *,
+        root: Path,
+        edit_mode: EditMode = EditMode.APPLY_PATCH,
+        policy: WorkspacePolicy | None = None,
+    ) -> Self:
+        return cls(root=root, edit_mode=edit_mode, policy=policy)
 
     def with_search_provider(self, provider: WorkspaceSearchProvider) -> Self:
         if self._search_selected:
@@ -59,6 +75,8 @@ class WorkspaceSessionBuilder:
             search_provider=self._search_provider,
             ast_provider=self._ast_provider,
             fff_provider=self._fff_provider,
+            edit_mode=self._edit_mode,
+            policy=self._policy,
         )
 
 

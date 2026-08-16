@@ -1,3 +1,45 @@
+type NativeWorkspaceObservationReceipt = tuple[str, str, str, int, list[tuple[int, int]], bool]
+type NativeWorkspaceRenderedLine = tuple[int, str, str]
+type NativeWorkspacePolicy = tuple[bool, float, int, int, int, int, bool, int]
+type NativeWorkspaceFileRead = tuple[
+    str,
+    NativeWorkspaceObservationReceipt | None,
+    list[NativeWorkspaceRenderedLine],
+    int,
+    bool,
+    bool,
+    int,
+    int,
+]
+type NativeWorkspaceDirectoryRead = tuple[str, list[tuple[str, str, int | None]], bool]
+type NativeWorkspaceFileChange = tuple[
+    str,
+    str,
+    str | None,
+    str | None,
+    str | None,
+    NativeWorkspaceObservationReceipt | None,
+    int,
+    int,
+]
+type NativeWorkspacePostEditSource = tuple[
+    str,
+    NativeWorkspaceObservationReceipt,
+    list[NativeWorkspaceRenderedLine],
+    bool,
+]
+type NativeWorkspaceEditResult = tuple[
+    str,
+    int,
+    int,
+    list[NativeWorkspaceFileChange],
+    list[NativeWorkspacePostEditSource],
+    bool,
+    bool,
+    str | None,
+    float | None,
+]
+
 type NativeAstPosition = tuple[int, int, int]
 type NativeAstRange = tuple[NativeAstPosition, NativeAstPosition]
 type NativeAstCapture = tuple[str, str, NativeAstRange | None]
@@ -93,6 +135,22 @@ class NativeFffClosedError(Exception): ...
 class NativeFffCancelledError(Exception): ...
 class NativeFffRuntimeError(Exception): ...
 class NativeFffStartupError(Exception): ...
+class NativeWorkspaceReadError(Exception): ...
+class NativeWorkspaceEncodingError(NativeWorkspaceReadError): ...
+class NativeWorkspaceBinaryFileError(NativeWorkspaceReadError): ...
+class NativeWorkspaceLimitError(Exception): ...
+class NativeWorkspaceObservationNotFoundError(Exception): ...
+class NativeWorkspaceObservationCollisionError(Exception): ...
+class NativeWorkspaceUnseenLineError(Exception): ...
+class NativeWorkspaceObservedLineChangedError(Exception): ...
+class NativeWorkspaceStaleError(Exception): ...
+class NativeWorkspaceEditModeError(Exception): ...
+class NativeWorkspacePatchError(Exception): ...
+class NativeWorkspacePartialCommitError(Exception): ...
+class NativeWorkspaceWriteError(Exception): ...
+class NativeWorkspacePathError(Exception): ...
+class NativeWorkspaceClosedError(Exception): ...
+
 
 
 class NativeAstCancellation:
@@ -101,6 +159,14 @@ class NativeAstCancellation:
 class NativeWorkspace:
     @property
     def root(self) -> str: ...
+
+class NativeWorkspaceMutation:
+    @property
+    def mode(self) -> str: ...
+    @property
+    def mode_generation(self) -> int: ...
+    @property
+    def policy_generation(self) -> int: ...
 
 
 class NativeSearchCancellation:
@@ -249,6 +315,75 @@ def workspace_create(root: str) -> NativeWorkspace: ...
 def workspace_close(workspace: NativeWorkspace) -> None: ...
 def workspace_is_closed(workspace: NativeWorkspace) -> bool: ...
 def workspace_revision(workspace: NativeWorkspace) -> int: ...
+def workspace_policy(workspace: NativeWorkspace) -> NativeWorkspacePolicy: ...
+def workspace_set_policy(
+    workspace: NativeWorkspace,
+    policy: tuple[bool, float, int, int, int, int, bool],
+) -> NativeWorkspacePolicy: ...
+def workspace_edit_mode(workspace: NativeWorkspace) -> tuple[str, int]: ...
+def workspace_set_edit_mode(workspace: NativeWorkspace, mode: str) -> tuple[str, int]: ...
+def workspace_capture_mutation(workspace: NativeWorkspace) -> NativeWorkspaceMutation: ...
+def workspace_read_file(
+    workspace: NativeWorkspace,
+    path: str,
+    ranges: list[tuple[int, int | None]],
+) -> NativeWorkspaceFileRead: ...
+def workspace_list_directory(
+    workspace: NativeWorkspace,
+    path: str,
+    depth: int,
+) -> NativeWorkspaceDirectoryRead: ...
+def workspace_resolve_observation(
+    workspace: NativeWorkspace,
+    path: str,
+    tag: str,
+) -> NativeWorkspaceObservationReceipt: ...
+def workspace_validate_observed_lines(
+    workspace: NativeWorkspace,
+    path: str,
+    tag: str,
+    lines: list[int],
+) -> NativeWorkspaceObservationReceipt: ...
+def workspace_create_file(
+    workspace: NativeWorkspace,
+    path: str,
+    content: str,
+    create_parents: bool,
+) -> NativeWorkspaceEditResult: ...
+def workspace_replace_file(
+    workspace: NativeWorkspace,
+    path: str,
+    content: str,
+    expected_observation: str,
+) -> NativeWorkspaceEditResult: ...
+def workspace_replace_text(
+    workspace: NativeWorkspace,
+    mutation: NativeWorkspaceMutation,
+    path: str,
+    old_string: str,
+    new_string: str,
+    replace_all: bool,
+) -> NativeWorkspaceEditResult: ...
+def workspace_patch(
+    workspace: NativeWorkspace,
+    mutation: NativeWorkspaceMutation,
+    path: str,
+    edits: list[tuple[str, str | None, str | None]],
+) -> NativeWorkspaceEditResult: ...
+def workspace_apply_patch(
+    workspace: NativeWorkspace,
+    mutation: NativeWorkspaceMutation,
+    input: str,
+) -> NativeWorkspaceEditResult: ...
+def workspace_delete_file(
+    workspace: NativeWorkspace,
+    path: str,
+) -> NativeWorkspaceEditResult: ...
+def workspace_move_file(
+    workspace: NativeWorkspace,
+    path: str,
+    destination: str,
+) -> NativeWorkspaceEditResult: ...
 def search_glob(workspace: NativeWorkspace, request: NativeGlobRequest) -> NativeGlobResult: ...
 def search_grep(workspace: NativeWorkspace, request: NativeGrepRequest) -> NativeGrepResult: ...
 def fff_create(workspace: NativeWorkspace, config: NativeFffConfig, limits: NativeFffLimits) -> NativeFffEngine: ...

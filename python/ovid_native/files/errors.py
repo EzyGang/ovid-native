@@ -1,0 +1,14 @@
+from ovid_native.workspace.errors import WorkspaceBinaryFileError as WorkspaceBinaryFileError
+from ovid_native.workspace.errors import WorkspaceEditModeError as WorkspaceEditModeError
+from ovid_native.workspace.errors import WorkspaceEncodingError as WorkspaceEncodingError
+from ovid_native.workspace.errors import WorkspaceLimitError as WorkspaceLimitError
+from ovid_native.workspace.errors import WorkspaceObservationCollisionError as WorkspaceObservationCollisionError
+from ovid_native.workspace.errors import WorkspaceObservationError as WorkspaceObservationError
+from ovid_native.workspace.errors import WorkspaceObservationNotFoundError as WorkspaceObservationNotFoundError
+from ovid_native.workspace.errors import WorkspaceObservedLineChangedError as WorkspaceObservedLineChangedError
+from ovid_native.workspace.errors import WorkspacePartialCommitError as WorkspacePartialCommitError
+from ovid_native.workspace.errors import WorkspacePatchError as WorkspacePatchError
+from ovid_native.workspace.errors import WorkspaceReadError as WorkspaceReadError
+from ovid_native.workspace.errors import WorkspaceStaleError as WorkspaceStaleError
+from ovid_native.workspace.errors import WorkspaceUnseenLineError as WorkspaceUnseenLineError
+from ovid_native.workspace.errors import WorkspaceWriteError as WorkspaceWriteError

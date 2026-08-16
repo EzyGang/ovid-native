@@ -23,12 +23,40 @@ if TYPE_CHECKING:
         FffIndexStatus,
         FffMultiGrepRequest,
     )
+    from ovid_native.files.edit_modes import EditModeState
+    from ovid_native.files.models import (
+        WorkspaceCreateRequest,
+        WorkspaceDeleteRequest,
+        WorkspaceDirectoryReadRequest,
+        WorkspaceFileReadRequest,
+        WorkspaceMoveRequest,
+        WorkspaceReadDirectoryResult,
+        WorkspaceReadFileResult,
+        WorkspaceReplaceRequest,
+        WorkspaceWriteResult,
+    )
     from ovid_native.search.models import GlobRequest, GlobResult, GrepRequest, GrepResult
+    from ovid_native.workspace.observations import WorkspaceChangeEvents, WorkspaceObservationService
+    from ovid_native.workspace.policy import WorkspacePolicyState
 from ovid_native.workspace.operations import WorkspaceOperation
 
 
 class WorkspaceSessionId(BaseRootModel[str]):
     pass
+
+
+class WorkspaceFilesProvider(Protocol):
+    async def read_file(self, request: WorkspaceFileReadRequest) -> WorkspaceReadFileResult: ...
+
+    async def list_directory(self, request: WorkspaceDirectoryReadRequest) -> WorkspaceReadDirectoryResult: ...
+
+    async def create_file(self, request: WorkspaceCreateRequest) -> WorkspaceWriteResult: ...
+
+    async def replace_file(self, request: WorkspaceReplaceRequest) -> WorkspaceWriteResult: ...
+
+    async def delete_file(self, request: WorkspaceDeleteRequest) -> WorkspaceWriteResult: ...
+
+    async def move_file(self, request: WorkspaceMoveRequest) -> WorkspaceWriteResult: ...
 
 
 class WorkspaceSearchProvider(Protocol):
@@ -83,6 +111,21 @@ class WorkspaceSession(Protocol):
 
     @property
     def operations(self) -> frozenset[WorkspaceOperation]: ...
+
+    @property
+    def edit_mode(self) -> EditModeState: ...
+
+    @property
+    def policy(self) -> WorkspacePolicyState: ...
+
+    @property
+    def files(self) -> WorkspaceFilesProvider: ...
+
+    @property
+    def observations(self) -> WorkspaceObservationService: ...
+
+    @property
+    def change_events(self) -> WorkspaceChangeEvents: ...
 
     @property
     def search(self) -> WorkspaceSearchProvider: ...

@@ -37,8 +37,17 @@ def test_session_identity_binding_and_shared_native_handle(tmp_path: Path) -> No
     assert str(tmp_path) not in first.id.root
     assert binding.ref == workspace_ref('project')
     assert binding.identity == first.id.root
-    assert binding.features == frozenset(('search', 'ast', 'fff'))
-    assert first.operations == frozenset((WorkspaceOperation.SEARCH, WorkspaceOperation.AST, WorkspaceOperation.FFF))
+    assert binding.features == frozenset(('files', 'observations', 'change_events', 'search', 'ast', 'fff'))
+    assert first.operations == frozenset(
+        (
+            WorkspaceOperation.FILES,
+            WorkspaceOperation.OBSERVATIONS,
+            WorkspaceOperation.CHANGE_EVENTS,
+            WorkspaceOperation.SEARCH,
+            WorkspaceOperation.AST,
+            WorkspaceOperation.FFF,
+        )
+    )
     assert first.search._workspace is first.ast._workspace
     assert first.search._workspace is first.fff._workspace
     retained_ast = first.ast

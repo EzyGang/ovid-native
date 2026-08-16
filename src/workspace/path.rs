@@ -121,17 +121,7 @@ pub(crate) fn resolve_contained_file(
     root: &Path,
     relative: &str,
 ) -> Result<PathBuf, WorkspaceError> {
-    validate_relative(relative)?;
-    let target = root
-        .join(relative)
-        .canonicalize()
-        .map_err(|error| WorkspaceError::Path(format!("cannot resolve {relative}: {error}")))?;
-
-    if !target.starts_with(root) {
-        return Err(WorkspaceError::Path(format!(
-            "path resolves outside the workspace: {relative}"
-        )));
-    }
+    let target = resolve_contained_entry(root, relative)?;
     if !fs::metadata(&target).is_ok_and(|metadata| metadata.is_file()) {
         return Err(WorkspaceError::Path(format!(
             "path is not a regular file: {relative}"
@@ -139,6 +129,129 @@ pub(crate) fn resolve_contained_file(
     }
 
     Ok(target)
+}
+
+pub(crate) fn resolve_contained_directory(
+    root: &Path,
+    relative: &str,
+) -> Result<PathBuf, WorkspaceError> {
+    let target = resolve_contained_entry(root, relative)?;
+    if !fs::metadata(&target).is_ok_and(|metadata| metadata.is_dir()) {
+        return Err(WorkspaceError::Path(format!(
+            "path is not a directory: {relative}"
+        )));
+    }
+
+    Ok(target)
+}
+
+pub(crate) fn resolve_contained_entry(
+    root: &Path,
+    relative: &str,
+) -> Result<PathBuf, WorkspaceError> {
+    validate_relative(relative)?;
+    let joined = root.join(relative);
+    reject_symlink_components(root, &joined, relative)?;
+    let target = joined
+        .canonicalize()
+        .map_err(|error| WorkspaceError::Path(format!("cannot resolve {relative}: {error}")))?;
+    if !target.starts_with(root) {
+        return Err(WorkspaceError::Path(format!(
+            "path resolves outside the workspace: {relative}"
+        )));
+    }
+
+    Ok(target)
+}
+
+pub(crate) fn resolve_new_file(
+    root: &Path,
+    relative: &str,
+    create_parents: bool,
+) -> Result<PathBuf, WorkspaceError> {
+    validate_relative(relative)?;
+    let target = root.join(relative);
+    if fs::symlink_metadata(&target).is_ok() {
+        return Err(WorkspaceError::Write(format!(
+            "workspace path already exists: {relative}"
+        )));
+    }
+    let parent = target
+        .parent()
+        .ok_or_else(|| WorkspaceError::Path(format!("path has no parent: {relative}")))?;
+    validate_new_parent(root, parent, relative, create_parents)?;
+    Ok(target)
+}
+fn reject_symlink_components(
+    root: &Path,
+    target: &Path,
+    relative: &str,
+) -> Result<(), WorkspaceError> {
+    let mut current = root.to_path_buf();
+    for component in target
+        .strip_prefix(root)
+        .map_err(|_| {
+            WorkspaceError::Path(format!("path resolves outside the workspace: {relative}"))
+        })?
+        .components()
+    {
+        current.push(component);
+        let metadata = fs::symlink_metadata(&current)
+            .map_err(|error| WorkspaceError::Path(format!("cannot inspect {relative}: {error}")))?;
+        if metadata.file_type().is_symlink() {
+            return Err(WorkspaceError::Path(format!(
+                "workspace paths cannot traverse symlinks: {relative}"
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_new_parent(
+    root: &Path,
+    parent: &Path,
+    relative: &str,
+    create_parents: bool,
+) -> Result<(), WorkspaceError> {
+    let mut current = root.to_path_buf();
+    for component in parent
+        .strip_prefix(root)
+        .map_err(|_| {
+            WorkspaceError::Path(format!("path resolves outside the workspace: {relative}"))
+        })?
+        .components()
+    {
+        current.push(component);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(WorkspaceError::Path(format!(
+                    "workspace paths cannot traverse symlinks: {relative}"
+                )));
+            }
+            Ok(metadata) if !metadata.is_dir() => {
+                return Err(WorkspaceError::Path(format!(
+                    "workspace parent is not a directory: {relative}"
+                )));
+            }
+            Ok(_) => (),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound && create_parents => {
+                return Ok(());
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Err(WorkspaceError::Path(format!(
+                    "workspace parent does not exist: {relative}"
+                )));
+            }
+            Err(error) => {
+                return Err(WorkspaceError::Path(format!(
+                    "cannot inspect workspace parent {relative}: {error}"
+                )));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn build_selection(root: &Path, value: &str) -> Result<Selection, WorkspaceError> {
@@ -182,7 +295,7 @@ fn build_selection(root: &Path, value: &str) -> Result<Selection, WorkspaceError
     Ok(Selection::Exact(normalized))
 }
 
-fn validate_relative(value: &str) -> Result<(), WorkspaceError> {
+pub(crate) fn validate_relative(value: &str) -> Result<(), WorkspaceError> {
     if value.is_empty() || value.contains('\0') {
         return Err(WorkspaceError::Path(
             "workspace paths must be non-empty and contain no NUL bytes".to_owned(),
