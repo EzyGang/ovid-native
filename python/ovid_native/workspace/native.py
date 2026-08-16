@@ -85,9 +85,25 @@ class NativeWorkspaceSession:
                 WorkspaceOperation.FFF,
             }
         )
-        self._search = search_provider or SearchEngine._from_workspace(self._native, limits=search_limits)
-        self._ast = ast_provider or AstEngine._from_workspace(self._native, limits=ast_limits)
-        self._fff = fff_provider or FffEngine._from_workspace(self._native, config=fff_config, limits=fff_limits)
+        _validate_native_provider_roots(
+            self._native,
+            search_provider=search_provider,
+            ast_provider=ast_provider,
+            fff_provider=fff_provider,
+        )
+        self._search = (
+            search_provider
+            if search_provider is not None
+            else SearchEngine._from_workspace(self._native, limits=search_limits)
+        )
+        self._ast = (
+            ast_provider if ast_provider is not None else AstEngine._from_workspace(self._native, limits=ast_limits)
+        )
+        self._fff = (
+            fff_provider
+            if fff_provider is not None
+            else FffEngine._from_workspace(self._native, config=fff_config, limits=fff_limits)
+        )
         self._closed = False
         self._close_lock = asyncio.Lock()
 
@@ -128,6 +144,20 @@ class NativeWorkspaceSession:
             raise WorkspaceClosedError('Workspace session is closed')
         if operation not in self._operations:
             raise WorkspaceOperationUnavailableError(f'Workspace operation is unavailable: {operation.value}')
+
+
+def _validate_native_provider_roots(
+    workspace: _native.NativeWorkspace,
+    *,
+    search_provider: WorkspaceSearchProvider | None,
+    ast_provider: WorkspaceAstProvider | None,
+    fff_provider: WorkspaceFffProvider | None,
+) -> None:
+    providers = (search_provider, ast_provider, fff_provider)
+
+    for provider in providers:
+        if isinstance(provider, (SearchEngine, AstEngine, FffEngine)) and provider._workspace.root != workspace.root:
+            raise WorkspaceConfigurationError('Native workspace provider must use the configured workspace root')
 
 
 def _create_native_workspace(root: Path, session_id: WorkspaceSessionId) -> _native.NativeWorkspace:

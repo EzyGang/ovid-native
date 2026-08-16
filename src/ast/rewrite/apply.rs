@@ -71,9 +71,8 @@ pub fn apply(
             }
         }
         applied.push(file.path.clone());
+        workspace.mark_changed();
     }
-
-    workspace.mark_changed();
 
     let files = computation.files.iter().map(file_change).collect();
     Ok((files, computation.total_replacements))

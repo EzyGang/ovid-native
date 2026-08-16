@@ -200,6 +200,7 @@ fn preview_deduplicates_edits_and_applies_in_reverse_order() {
         fs::read_to_string(root.path().join("sample.py")).expect("updated"),
         "log(1)\nlog(2)\n"
     );
+    assert_eq!(native.revision(), 1);
 }
 
 #[test]

@@ -96,6 +96,33 @@ def test_builder_supports_partial_override_and_rejects_duplicate_choices(tmp_pat
     asyncio.run(donor.close())
 
 
+def test_builder_rejects_native_providers_from_another_root(tmp_path: Path) -> None:
+    other_root = tmp_path / 'other'
+    other_root.mkdir()
+    donor = NativeWorkspaceSession(root=other_root)
+
+    with pytest.raises(WorkspaceConfigurationError, match='configured workspace root'):
+        WorkspaceSessionBuilder.native(root=tmp_path).with_search_provider(donor.search).build()
+
+    with pytest.raises(WorkspaceConfigurationError, match='configured workspace root'):
+        WorkspaceSessionBuilder.native(root=tmp_path).with_ast_provider(donor.ast).build()
+
+    with pytest.raises(WorkspaceConfigurationError, match='configured workspace root'):
+        WorkspaceSessionBuilder.native(root=tmp_path).with_fff_provider(donor.fff).build()
+
+    asyncio.run(donor.close())
+
+
+def test_builder_preserves_falsey_injected_provider(tmp_path: Path, mocker: MockerFixture) -> None:
+    native_provider = mocker.MagicMock(spec=['glob', 'grep'])
+    native_provider.__bool__.return_value = False
+    provider = cast(WorkspaceSearchProvider, native_provider)
+    session = WorkspaceSessionBuilder.native(root=tmp_path).with_search_provider(provider).build()
+    assert session.search is provider
+
+    asyncio.run(session.close())
+
+
 def test_builder_rejects_incompatible_provider_before_build(tmp_path: Path, mocker: MockerFixture) -> None:
     provider = cast(WorkspaceSearchProvider, mocker.Mock(spec=[]))
 

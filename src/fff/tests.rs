@@ -91,6 +91,33 @@ fn indexes_and_searches_paths_and_content() {
 }
 
 #[test]
+fn wait_ready_honors_workspace_cancellation() {
+    let directory = TempDir::new().expect("temporary workspace");
+    let engine = engine(directory.path().to_str().expect("workspace path"));
+    engine.inner.workspace.cancellation().cancel();
+
+    assert!(matches!(
+        engine.inner.wait_ready(10.0),
+        Err(crate::fff::FffError::Cancelled)
+    ));
+}
+
+#[test]
+fn ready_rescan_records_current_workspace_revision() {
+    let directory = TempDir::new().expect("temporary workspace");
+    fs::write(directory.path().join("sample.py"), "print(1)\n").expect("source file");
+    let engine = engine(directory.path().to_str().expect("workspace path"));
+
+    engine.inner.rescan().expect("rescan");
+    engine.inner.wait_ready(10.0).expect("ready");
+
+    assert_eq!(
+        engine.inner.indexed_revision(),
+        engine.inner.workspace.revision()
+    );
+}
+
+#[test]
 fn multi_grep_treats_patterns_as_literals() {
     let directory = TempDir::new().unwrap();
     fs::write(

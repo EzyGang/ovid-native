@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use fff_search::{FFFMode, FilePicker, FilePickerOptions, SharedFilePicker, SharedFrecency};
 use pyo3::prelude::*;
@@ -84,13 +84,20 @@ impl FffEngineState {
         timeout_seconds: f64,
     ) -> Result<NativeFffIndexStatus, FffError> {
         self.start()?;
-        let timeout = Duration::from_secs_f64(timeout_seconds);
-
-        if !self.picker.wait_for_indexing_complete(timeout) {
-            return Err(FffError::IndexNotReady);
+        if self.workspace.cancellation().is_cancelled() {
+            return Err(FffError::Cancelled);
         }
-        if self.config.watch && !self.picker.wait_for_watcher(timeout) {
-            return Err(FffError::IndexNotReady);
+
+        let revision = self.workspace.revision();
+        let deadline = Instant::now() + Duration::from_secs_f64(timeout_seconds);
+
+        self.wait_for_indexing(deadline)?;
+        if self.config.watch {
+            self.wait_for_watcher(deadline)?;
+        }
+
+        if self.workspace.revision() == revision {
+            self.indexed_revision.store(revision, Ordering::Release);
         }
 
         self.status()
@@ -164,6 +171,35 @@ impl FffEngineState {
         Ok(())
     }
 
+    fn wait_for_indexing(&self, deadline: Instant) -> Result<(), FffError> {
+        while !self
+            .picker
+            .wait_for_indexing_complete(wait_interval(deadline))
+        {
+            if self.workspace.cancellation().is_cancelled() {
+                return Err(FffError::Cancelled);
+            }
+            if Instant::now() >= deadline {
+                return Err(FffError::IndexNotReady);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn wait_for_watcher(&self, deadline: Instant) -> Result<(), FffError> {
+        while !self.picker.wait_for_watcher(wait_interval(deadline)) {
+            if self.workspace.cancellation().is_cancelled() {
+                return Err(FffError::Cancelled);
+            }
+            if Instant::now() >= deadline {
+                return Err(FffError::IndexNotReady);
+            }
+        }
+
+        Ok(())
+    }
+
     pub(crate) fn ensure_started(&self) -> Result<(), FffError> {
         self.ensure_open()?;
         self.start()?;
@@ -189,12 +225,23 @@ impl FffEngineState {
 
         Ok(())
     }
+
+    #[cfg(test)]
+    pub(crate) fn indexed_revision(&self) -> u64 {
+        self.indexed_revision.load(Ordering::Acquire)
+    }
 }
 
 impl Drop for FffEngineState {
     fn drop(&mut self) {
         let _ = self.close();
     }
+}
+
+fn wait_interval(deadline: Instant) -> Duration {
+    deadline
+        .saturating_duration_since(Instant::now())
+        .min(Duration::from_millis(50))
 }
 
 fn validate_config(config: &FffConfig, limits: &FffLimits) -> Result<(), FffError> {
