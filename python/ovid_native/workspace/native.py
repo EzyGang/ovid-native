@@ -85,7 +85,7 @@ class NativeWorkspaceSession:
                 WorkspaceOperation.FFF,
             }
         )
-        _validate_native_provider_roots(
+        _validate_native_provider_workspaces(
             self._native,
             search_provider=search_provider,
             ast_provider=ast_provider,
@@ -146,7 +146,7 @@ class NativeWorkspaceSession:
             raise WorkspaceOperationUnavailableError(f'Workspace operation is unavailable: {operation.value}')
 
 
-def _validate_native_provider_roots(
+def _validate_native_provider_workspaces(
     workspace: _native.NativeWorkspace,
     *,
     search_provider: WorkspaceSearchProvider | None,
@@ -156,8 +156,8 @@ def _validate_native_provider_roots(
     providers = (search_provider, ast_provider, fff_provider)
 
     for provider in providers:
-        if isinstance(provider, (SearchEngine, AstEngine, FffEngine)) and provider._workspace.root != workspace.root:
-            raise WorkspaceConfigurationError('Native workspace provider must use the configured workspace root')
+        if isinstance(provider, (SearchEngine, AstEngine, FffEngine)) and provider._workspace is not workspace:
+            raise WorkspaceConfigurationError('Native workspace provider must use the configured workspace session')
 
 
 def _create_native_workspace(root: Path, session_id: WorkspaceSessionId) -> _native.NativeWorkspace:

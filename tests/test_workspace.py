@@ -29,7 +29,7 @@ from ovid_native.workspace import (
     workspace_binding,
     workspace_ref,
 )
-from ovid_native.workspace.operations import WorkspaceSearchProvider
+from ovid_native.workspace.operations import WorkspaceAstProvider, WorkspaceFffProvider, WorkspaceSearchProvider
 
 
 def test_workspace_module_exposes_lazy_public_contract() -> None:
@@ -70,44 +70,42 @@ def test_session_identity_binding_and_shared_native_handle(tmp_path: Path) -> No
     asyncio.run(second.close())
 
 
-def test_builder_supports_partial_override_and_rejects_duplicate_choices(tmp_path: Path) -> None:
-    donor = NativeWorkspaceSession(root=tmp_path)
-    provider = donor.search
-    session = WorkspaceSessionBuilder.native(root=tmp_path).with_search_provider(provider).build()
+def test_builder_supports_partial_override_and_rejects_duplicate_choices(tmp_path: Path, mocker: MockerFixture) -> None:
+    search_provider = cast(WorkspaceSearchProvider, mocker.Mock(spec=['glob', 'grep']))
+    ast_provider = cast(WorkspaceAstProvider, mocker.Mock(spec=['search', 'preview_rewrite', 'apply_rewrite']))
+    fff_provider = cast(WorkspaceFffProvider, mocker.Mock(spec=['start', 'find', 'grep', 'multi_grep', 'close']))
+    session = WorkspaceSessionBuilder.native(root=tmp_path).with_search_provider(search_provider).build()
 
-    assert session.search is provider
+    assert session.search is search_provider
     assert isinstance(session.ast, AstEngine)
     assert isinstance(session.fff, FffEngine)
 
     builder = WorkspaceSessionBuilder.native(root=tmp_path)
-    builder.with_search_provider(provider)
+    builder.with_search_provider(search_provider)
     with pytest.raises(WorkspaceConfigurationError, match='already selected'):
-        builder.with_search_provider(provider)
+        builder.with_search_provider(search_provider)
 
-    ast_builder = WorkspaceSessionBuilder.native(root=tmp_path).with_ast_provider(donor.ast)
+    ast_builder = WorkspaceSessionBuilder.native(root=tmp_path).with_ast_provider(ast_provider)
     with pytest.raises(WorkspaceConfigurationError, match='already selected'):
-        ast_builder.with_ast_provider(donor.ast)
+        ast_builder.with_ast_provider(ast_provider)
 
-    fff_builder = WorkspaceSessionBuilder.native(root=tmp_path).with_fff_provider(donor.fff)
+    fff_builder = WorkspaceSessionBuilder.native(root=tmp_path).with_fff_provider(fff_provider)
     with pytest.raises(WorkspaceConfigurationError, match='already selected'):
-        fff_builder.with_fff_provider(donor.fff)
+        fff_builder.with_fff_provider(fff_provider)
 
     asyncio.run(session.close())
-    asyncio.run(donor.close())
 
 
-def test_builder_rejects_native_providers_from_another_root(tmp_path: Path) -> None:
-    other_root = tmp_path / 'other'
-    other_root.mkdir()
-    donor = NativeWorkspaceSession(root=other_root)
+def test_builder_rejects_native_providers_from_another_session(tmp_path: Path) -> None:
+    donor = NativeWorkspaceSession(root=tmp_path)
 
-    with pytest.raises(WorkspaceConfigurationError, match='configured workspace root'):
+    with pytest.raises(WorkspaceConfigurationError, match='configured workspace session'):
         WorkspaceSessionBuilder.native(root=tmp_path).with_search_provider(donor.search).build()
 
-    with pytest.raises(WorkspaceConfigurationError, match='configured workspace root'):
+    with pytest.raises(WorkspaceConfigurationError, match='configured workspace session'):
         WorkspaceSessionBuilder.native(root=tmp_path).with_ast_provider(donor.ast).build()
 
-    with pytest.raises(WorkspaceConfigurationError, match='configured workspace root'):
+    with pytest.raises(WorkspaceConfigurationError, match='configured workspace session'):
         WorkspaceSessionBuilder.native(root=tmp_path).with_fff_provider(donor.fff).build()
 
     asyncio.run(donor.close())
