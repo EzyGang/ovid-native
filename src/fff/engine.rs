@@ -29,13 +29,12 @@ pub(crate) struct NativeFffEngine {
 
 impl NativeFffEngine {
     pub(crate) fn new(
-        root: String,
+        workspace: Workspace,
         config: FffConfig,
         limits: FffLimits,
     ) -> Result<Self, FffError> {
         validate_config(&config, &limits)?;
-        let workspace = Workspace::new(&root)?;
-
+        workspace.ensure_open()?;
         Ok(Self {
             inner: Arc::new(FffEngineState {
                 workspace,
@@ -97,15 +96,7 @@ impl FffEngineState {
     }
 
     pub(crate) fn status(&self) -> Result<NativeFffIndexStatus, FffError> {
-        if self.closed.load(Ordering::Acquire) {
-            return Ok((
-                "closed".to_owned(),
-                0,
-                false,
-                false,
-                self.config.enable_content_indexing,
-            ));
-        }
+        self.ensure_open()?;
         if !self.started.load(Ordering::Acquire) {
             return Ok((
                 "new".to_owned(),
@@ -175,6 +166,7 @@ impl FffEngineState {
     }
 
     pub(crate) fn ensure_open(&self) -> Result<(), FffError> {
+        self.workspace.ensure_open()?;
         if self.closed.load(Ordering::Acquire) {
             return Err(FffError::Closed);
         }

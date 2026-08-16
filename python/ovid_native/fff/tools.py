@@ -1,6 +1,5 @@
 from ovid_core.tools.base import BaseTool, ToolExecutionContext
 
-from ovid_native.fff.engine import FffEngine
 from ovid_native.fff.models import (
     FffFindRequest,
     FffFindToolContent,
@@ -12,6 +11,7 @@ from ovid_native.fff.models import (
     FffMultiGrepToolContent,
     FffMultiGrepToolResult,
 )
+from ovid_native.workspace.models import WorkspaceFffProvider
 
 
 FIND_DESCRIPTION = (
@@ -37,12 +37,12 @@ class FffFindTool[Deps](BaseTool[Deps, FffFindRequest, FffFindToolResult]):
     timeout_seconds = 10.0
     defer_loading = True
 
-    def __init__(self, *, engine: FffEngine) -> None:
-        self._engine = engine
+    def __init__(self, *, provider: WorkspaceFffProvider) -> None:
+        self._provider = provider
 
     async def execute(self, context: ToolExecutionContext[Deps], arguments: FffFindRequest) -> FffFindToolResult:
         del context
-        result = await self._engine.find(arguments)
+        result = await self._provider.find(arguments)
         return FffFindToolResult(content=FffFindToolContent(result=result).model_dump(mode='json'))
 
 
@@ -54,12 +54,12 @@ class FffGrepTool[Deps](BaseTool[Deps, FffGrepRequest, FffGrepToolResult]):
     timeout_seconds = 10.0
     defer_loading = True
 
-    def __init__(self, *, engine: FffEngine) -> None:
-        self._engine = engine
+    def __init__(self, *, provider: WorkspaceFffProvider) -> None:
+        self._provider = provider
 
     async def execute(self, context: ToolExecutionContext[Deps], arguments: FffGrepRequest) -> FffGrepToolResult:
         del context
-        result = await self._engine.grep(arguments)
+        result = await self._provider.grep(arguments)
         return FffGrepToolResult(content=FffGrepToolContent(result=result).model_dump(mode='json'))
 
 
@@ -71,8 +71,8 @@ class FffMultiGrepTool[Deps](BaseTool[Deps, FffMultiGrepRequest, FffMultiGrepToo
     timeout_seconds = 10.0
     defer_loading = True
 
-    def __init__(self, *, engine: FffEngine) -> None:
-        self._engine = engine
+    def __init__(self, *, provider: WorkspaceFffProvider) -> None:
+        self._provider = provider
 
     async def execute(
         self,
@@ -80,5 +80,5 @@ class FffMultiGrepTool[Deps](BaseTool[Deps, FffMultiGrepRequest, FffMultiGrepToo
         arguments: FffMultiGrepRequest,
     ) -> FffMultiGrepToolResult:
         del context
-        result = await self._engine.multi_grep(arguments)
+        result = await self._provider.multi_grep(arguments)
         return FffMultiGrepToolResult(content=FffMultiGrepToolContent(result=result).model_dump(mode='json'))

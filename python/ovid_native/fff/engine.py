@@ -31,6 +31,7 @@ from ovid_native.fff.models import (
     FffMultiGrepRequest,
 )
 from ovid_native.runtime import ensure_native_compatibility
+from ovid_native.workspace.errors import WorkspaceClosedError
 
 
 _NATIVE_ERRORS: tuple[type[Exception], ...] = (
@@ -56,11 +57,39 @@ class FffEngine:
         limits: FffLimits = FffLimits(),
     ) -> None:
         ensure_native_compatibility()
+        try:
+            workspace = _native.workspace_create(str(root))
+        except ValueError as error:
+            raise FffConfigurationError(str(error)) from error
+
+        self._initialize(workspace, config=config, limits=limits)
+
+    @classmethod
+    def _from_workspace(
+        cls,
+        workspace: _native.NativeWorkspace,
+        *,
+        config: FffConfig = FffConfig(),
+        limits: FffLimits = FffLimits(),
+    ) -> Self:
+        engine = cls.__new__(cls)
+        engine._initialize(workspace, config=config, limits=limits)
+        return engine
+
+    def _initialize(
+        self,
+        workspace: _native.NativeWorkspace,
+        *,
+        config: FffConfig,
+        limits: FffLimits,
+    ) -> None:
+        self._workspace = workspace
         self._config = config
         self._limits = limits
+        self._indexed_revision: int | None = None
         self._native = self._call(
             lambda: _native.fff_create(
-                str(root),
+                workspace,
                 _native.NativeFffConfig(
                     config.watch,
                     config.enable_content_indexing,
@@ -86,19 +115,24 @@ class FffEngine:
         return self._config
 
     async def start(self) -> FffIndexStatus:
+        self._ensure_open()
         value = await run_native(lambda: self._call(lambda: _native.fff_start(self._native)))
         return _mapping.index_status(value)
 
     async def wait_ready(self, *, timeout_seconds: float | None = None) -> FffIndexStatus:
+        self._ensure_open()
         timeout = timeout_seconds if timeout_seconds is not None else self._config.initial_scan_timeout_seconds
         value = await run_native(lambda: self._call(lambda: _native.fff_wait_ready(self._native, timeout)))
+        self._indexed_revision = _native.workspace_revision(self._workspace)
         return _mapping.index_status(value)
 
     async def status(self) -> FffIndexStatus:
+        self._ensure_open()
         value = await run_native(lambda: self._call(lambda: _native.fff_status(self._native)))
         return _mapping.index_status(value)
 
     async def rescan(self) -> FffIndexStatus:
+        self._ensure_open()
         value = await run_native(lambda: self._call(lambda: _native.fff_rescan(self._native)))
         return _mapping.index_status(value)
 
@@ -106,6 +140,7 @@ class FffEngine:
         await run_native(lambda: self._call(lambda: _native.fff_close(self._native)))
 
     async def find(self, request: FffFindRequest) -> FffFindResult:
+        await self._refresh_if_stale()
         constraints = self._constraints(request.constraints)
         native_request = _native.NativeFffFindRequest(
             request.query,
@@ -115,9 +150,12 @@ class FffEngine:
             request.limit,
         )
         value = await run_native(lambda: self._call(lambda: _native.fff_find(self._native, native_request)))
-        return _mapping.find_result(value)
+        result = _mapping.find_result(value)
+        self._indexed_revision = _native.workspace_revision(self._workspace)
+        return result
 
     async def grep(self, request: FffGrepRequest) -> FffGrepResult:
+        await self._refresh_if_stale()
         cancellation = _native.NativeFffCancellation()
         native_request = _native.NativeFffGrepRequest(
             request.query,
@@ -136,9 +174,12 @@ class FffEngine:
             lambda: self._call(lambda: _native.fff_grep(self._native, native_request, cancellation)),
             cancellation=cancellation,
         )
-        return _mapping.grep_result(value)
+        result = _mapping.grep_result(value)
+        self._indexed_revision = _native.workspace_revision(self._workspace)
+        return result
 
     async def multi_grep(self, request: FffMultiGrepRequest) -> FffGrepResult:
+        await self._refresh_if_stale()
         cancellation = _native.NativeFffCancellation()
         native_request = _native.NativeFffMultiGrepRequest(
             list(request.patterns),
@@ -157,7 +198,9 @@ class FffEngine:
             lambda: self._call(lambda: _native.fff_multi_grep(self._native, native_request, cancellation)),
             cancellation=cancellation,
         )
-        return _mapping.grep_result(value)
+        result = _mapping.grep_result(value)
+        self._indexed_revision = _native.workspace_revision(self._workspace)
+        return result
 
     async def __aenter__(self) -> Self:
         await self.start()
@@ -174,6 +217,19 @@ class FffEngine:
     @staticmethod
     def _constraints(value: FffConstraints) -> tuple[list[str], list[str], str | None]:
         return list(value.include), list(value.exclude), value.git_status
+
+    async def _refresh_if_stale(self) -> None:
+        self._ensure_open()
+        revision = _native.workspace_revision(self._workspace)
+        if self._indexed_revision is None or self._indexed_revision == revision:
+            return
+
+        await run_native(lambda: self._call(lambda: _native.fff_rescan(self._native)))
+        await self.wait_ready()
+
+    def _ensure_open(self) -> None:
+        if _native.workspace_is_closed(self._workspace):
+            raise WorkspaceClosedError('Workspace session is closed')
 
     @staticmethod
     def _call[Result](operation: Callable[[], Result]) -> Result:

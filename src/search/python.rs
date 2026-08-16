@@ -7,9 +7,8 @@ use crate::search::glob::glob;
 use crate::search::grep::grep;
 use crate::search::types::{
     GlobRequest, GrepRequest, NativeGlobResult, NativeGrepResult, NativeSearchCancellation,
-    NativeWorkspace,
 };
-use crate::workspace::Workspace;
+use crate::workspace::NativeWorkspace;
 
 create_exception!(_native, NativeSearchConfigurationError, PyException);
 create_exception!(_native, NativeSearchPathError, PyException);
@@ -95,14 +94,6 @@ impl NativeGrepRequest {
 }
 
 #[pyfunction]
-fn search_workspace(root: String) -> PyResult<NativeWorkspace> {
-    Workspace::new(&root)
-        .map(NativeWorkspace::new)
-        .map_err(SearchError::from)
-        .map_err(to_python_error)
-}
-
-#[pyfunction]
 fn search_glob(
     py: Python<'_>,
     workspace: PyRef<'_, NativeWorkspace>,
@@ -127,11 +118,9 @@ fn search_grep(
 }
 
 pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
-    module.add_class::<NativeWorkspace>()?;
     module.add_class::<NativeSearchCancellation>()?;
     module.add_class::<NativeGlobRequest>()?;
     module.add_class::<NativeGrepRequest>()?;
-    module.add_function(wrap_pyfunction!(search_workspace, module)?)?;
     module.add_function(wrap_pyfunction!(search_glob, module)?)?;
     module.add_function(wrap_pyfunction!(search_grep, module)?)?;
     add_exceptions(module)?;

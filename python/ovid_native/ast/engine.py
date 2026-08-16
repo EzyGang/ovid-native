@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Self
 
 from ovid_native import _native
 from ovid_native._native_execution import run_native
@@ -33,11 +34,14 @@ from ovid_native.ast.models import (
     AstSearchResult,
 )
 from ovid_native.runtime import ensure_native_compatibility
+from ovid_native.workspace.errors import WorkspaceClosedError
 
 
 @dataclass(frozen=True, slots=True)
 class _Proposal:
     computation: _native.NativeAstRewriteComputation
+    session_id: str
+    revision: int
     expires_monotonic: float
 
 
@@ -56,13 +60,35 @@ class AstEngine:
     def __init__(self, *, root: Path, limits: AstLimits | None = None) -> None:
         ensure_native_compatibility()
         try:
-            resolved = root.resolve(strict=True)
-        except OSError as error:
-            raise AstConfigurationError(f'Cannot resolve workspace root: {error}') from error
-        if not resolved.is_dir():
-            raise AstConfigurationError('Workspace root must be a directory')
+            workspace = _native.workspace_create(str(root))
+        except ValueError as error:
+            raise AstConfigurationError(str(error)) from error
 
-        self._root = resolved
+        self._initialize(workspace, session_id=secrets.token_urlsafe(24), limits=limits)
+        self._root = root.resolve(strict=True)
+
+    @classmethod
+    def _from_workspace(
+        cls,
+        workspace: _native.NativeWorkspace,
+        *,
+        session_id: str,
+        limits: AstLimits | None = None,
+    ) -> Self:
+        engine = cls.__new__(cls)
+        engine._initialize(workspace, session_id=session_id, limits=limits)
+        return engine
+
+    def _initialize(
+        self,
+        workspace: _native.NativeWorkspace,
+        *,
+        session_id: str,
+        limits: AstLimits | None,
+    ) -> None:
+        self._workspace = workspace
+        self._root = Path(workspace.root)
+        self._session_id = session_id
         self._limits = limits if limits is not None else AstLimits()
         self._proposals: dict[str, _Proposal] = {}
         self._proposal_lock = asyncio.Lock()
@@ -77,6 +103,7 @@ class AstEngine:
         return self._limits
 
     async def search(self, request: AstSearchRequest) -> AstSearchResult:
+        self._ensure_open()
         cancellation = _native.NativeAstCancellation()
         native_request = _native.NativeAstSearchRequest(
             request.pattern,
@@ -88,12 +115,13 @@ class AstEngine:
             cancellation,
         )
         result = await _call_native(
-            lambda: _native.ast_search(str(self._root), native_request),
+            lambda: _native.ast_search(self._workspace, native_request),
             cancellation=cancellation,
         )
         return _mapping.search_result(result)
 
     async def preview_rewrite(self, request: AstRewritePreviewRequest) -> AstRewritePreview:
+        self._ensure_open()
         cancellation = _native.NativeAstCancellation()
         native_request = _native.NativeAstRewriteRequest(
             [(operation.pattern, operation.replacement) for operation in request.operations],
@@ -104,12 +132,16 @@ class AstEngine:
             cancellation,
         )
         native = await _call_native(
-            lambda: _native.ast_preview_rewrite(str(self._root), native_request),
+            lambda: _native.ast_preview_rewrite(self._workspace, native_request),
             cancellation=cancellation,
         )
         computation, changes, files, replacements, files_searched, native_issues = native
         expires_at = datetime.now(UTC) + timedelta(seconds=self._limits.proposal_ttl_seconds)
-        proposal_id = await self._store(computation, replacements)
+        proposal_id = await self._store(
+            computation,
+            replacements,
+            revision=_native.workspace_revision(self._workspace),
+        )
 
         return AstRewritePreview(
             proposal_id=proposal_id,
@@ -122,11 +154,16 @@ class AstEngine:
         )
 
     async def apply_rewrite(self, request: AstRewriteApplyRequest) -> AstRewriteApplyResult:
+        self._ensure_open()
         async with self._workspace_write_lock:
             cancellation = _native.NativeAstCancellation()
             proposal = await self._take(request.proposal_id)
+            if proposal.session_id != self._session_id or proposal.revision != _native.workspace_revision(
+                self._workspace
+            ):
+                raise AstProposalStaleError('AST rewrite proposal belongs to an incompatible workspace revision')
             native_files, replacements = await _call_native(
-                lambda: _native.ast_apply_rewrite(str(self._root), proposal.computation, cancellation),
+                lambda: _native.ast_apply_rewrite(self._workspace, proposal.computation, cancellation),
                 cancellation=cancellation,
             )
 
@@ -143,7 +180,13 @@ class AstEngine:
             self._purge_expired(now)
             return proposal is not None and proposal.expires_monotonic > now
 
-    async def _store(self, computation: _native.NativeAstRewriteComputation, replacements: int) -> str:
+    async def _store(
+        self,
+        computation: _native.NativeAstRewriteComputation,
+        replacements: int,
+        *,
+        revision: int,
+    ) -> str:
         if replacements == 0:
             return ''
 
@@ -151,6 +194,8 @@ class AstEngine:
         proposal_id = secrets.token_urlsafe(24)
         proposal = _Proposal(
             computation=computation,
+            session_id=self._session_id,
+            revision=revision,
             expires_monotonic=now + self._limits.proposal_ttl_seconds,
         )
         async with self._proposal_lock:
@@ -179,6 +224,10 @@ class AstEngine:
         expired = [key for key, proposal in self._proposals.items() if proposal.expires_monotonic <= now]
         for key in expired:
             del self._proposals[key]
+
+    def _ensure_open(self) -> None:
+        if _native.workspace_is_closed(self._workspace):
+            raise WorkspaceClosedError('Workspace session is closed')
 
 
 def supported_ast_languages() -> tuple[AstLanguageInfo, ...]:
