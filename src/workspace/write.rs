@@ -164,6 +164,7 @@ pub(crate) fn move_file_noclobber(
     })?;
     fs::remove_file(source).map_err(|_| WorkspaceError::PartialCommit {
         landed: vec![destination_relative.to_owned()],
+        changes: Vec::new(),
         pending: vec![relative.to_owned()],
     })
 }

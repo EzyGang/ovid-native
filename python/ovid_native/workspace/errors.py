@@ -117,7 +117,7 @@ def translate_native_workspace_error(error: Exception) -> WorkspaceError:
         (_native.NativeWorkspaceClosedError, WorkspaceClosedError),
     )
     if isinstance(error, _native.NativeWorkspacePartialCommitError):
-        _, landed, pending = error.args
+        _, landed, pending, _ = error.args
         return WorkspacePartialCommitError(landed=tuple(landed), pending=tuple(pending))
     for native_type, public_type in mapping:
         if isinstance(error, native_type):

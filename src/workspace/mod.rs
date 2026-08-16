@@ -55,6 +55,7 @@ pub(crate) enum WorkspaceError {
     PartialCommit {
         landed: Vec<String>,
         pending: Vec<String>,
+        changes: Vec<FileChange>,
     },
     Write(String),
     Cancelled,

@@ -36,13 +36,13 @@ impl From<crate::workspace::WorkspaceError> for SearchError {
             | crate::workspace::WorkspaceError::Patch(message)
             | crate::workspace::WorkspaceError::Write(message) => Self::Read(message),
             crate::workspace::WorkspaceError::Limit(message) => Self::Limit(message),
-            crate::workspace::WorkspaceError::PartialCommit { landed, pending } => {
-                Self::Read(format!(
-                    "workspace operation committed [{}] with pending [{}]",
-                    landed.join(", "),
-                    pending.join(", ")
-                ))
-            }
+            crate::workspace::WorkspaceError::PartialCommit {
+                landed, pending, ..
+            } => Self::Read(format!(
+                "workspace operation committed [{}] with pending [{}]",
+                landed.join(", "),
+                pending.join(", ")
+            )),
             crate::workspace::WorkspaceError::Closed => {
                 Self::Read("workspace is closed".to_owned())
             }

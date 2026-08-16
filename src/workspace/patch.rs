@@ -226,6 +226,7 @@ impl Workspace {
                 Err(WorkspaceError::PartialCommit {
                     landed: operation_landed,
                     pending: operation_pending,
+                    ..
                 }) => {
                     landed.extend(operation_landed);
                     let mut remaining = operation_pending;
@@ -233,6 +234,7 @@ impl Workspace {
                     return Err(WorkspaceError::PartialCommit {
                         landed,
                         pending: remaining,
+                        changes,
                     });
                 }
                 Err(error) if landed.is_empty() => return Err(error),
@@ -240,6 +242,7 @@ impl Workspace {
                     return Err(WorkspaceError::PartialCommit {
                         landed,
                         pending: pending[index..].to_vec(),
+                        changes,
                     });
                 }
             }

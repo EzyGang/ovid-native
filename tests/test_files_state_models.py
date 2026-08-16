@@ -168,6 +168,7 @@ def test_subscriptions_and_error_translation_are_typed() -> None:
         'partial',
         ['landed.txt'],
         ['pending.txt'],
+        [],
     )
     translated = translate_native_workspace_error(native)
     assert isinstance(translated, WorkspacePartialCommitError)

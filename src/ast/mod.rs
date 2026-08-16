@@ -40,13 +40,13 @@ impl From<crate::workspace::WorkspaceError> for AstError {
             | crate::workspace::WorkspaceError::Stale(message) => Self::Stale(message),
             crate::workspace::WorkspaceError::EditMode(message)
             | crate::workspace::WorkspaceError::Patch(message) => Self::Pattern(message),
-            crate::workspace::WorkspaceError::PartialCommit { landed, pending } => {
-                Self::Write(format!(
-                    "workspace operation committed [{}] with pending [{}]",
-                    landed.join(", "),
-                    pending.join(", ")
-                ))
-            }
+            crate::workspace::WorkspaceError::PartialCommit {
+                landed, pending, ..
+            } => Self::Write(format!(
+                "workspace operation committed [{}] with pending [{}]",
+                landed.join(", "),
+                pending.join(", ")
+            )),
             crate::workspace::WorkspaceError::Write(message) => Self::Write(message),
             crate::workspace::WorkspaceError::Cancelled => Self::Cancelled,
             crate::workspace::WorkspaceError::Closed => {

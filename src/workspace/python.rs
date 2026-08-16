@@ -695,13 +695,19 @@ fn to_python_error(error: WorkspaceError) -> PyErr {
         WorkspaceError::Stale(message) => NativeWorkspaceStaleError::new_err(message),
         WorkspaceError::EditMode(message) => NativeWorkspaceEditModeError::new_err(message),
         WorkspaceError::Patch(message) => NativeWorkspacePatchError::new_err(message),
-        WorkspaceError::PartialCommit { landed, pending } => {
-            NativeWorkspacePartialCommitError::new_err((
-                "workspace patch committed only part of its operations",
-                landed,
-                pending,
-            ))
-        }
+        WorkspaceError::PartialCommit {
+            landed,
+            pending,
+            changes,
+        } => NativeWorkspacePartialCommitError::new_err((
+            "workspace patch committed only part of its operations",
+            landed,
+            pending,
+            changes
+                .into_iter()
+                .map(change_to_native)
+                .collect::<Vec<_>>(),
+        )),
         WorkspaceError::Write(message) => NativeWorkspaceWriteError::new_err(message),
         WorkspaceError::Cancelled => {
             NativeWorkspaceWriteError::new_err("workspace operation was cancelled")

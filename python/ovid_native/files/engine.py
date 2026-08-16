@@ -213,14 +213,7 @@ class WorkspaceFilesEngine:
             matching_strategy=cast(Literal['exact', 'fuzzy'] | None, strategy),
             confidence=confidence,
         )
-        for change in mapped_changes:
-            self._change_events.publish(
-                path=change.path,
-                operation=change.operation,
-                destination=change.destination,
-                generation=change.file_generation,
-                revision=change.revision,
-            )
+        self._publish_changes(mapped_changes)
         return result
 
     def _change(self, native: _native.NativeWorkspaceFileChange) -> WorkspaceFileChange:
@@ -245,6 +238,16 @@ class WorkspaceFilesEngine:
             complete_presentation=complete,
         )
 
+    def _publish_changes(self, changes: tuple[WorkspaceFileChange, ...]) -> None:
+        for change in changes:
+            self._change_events.publish(
+                path=change.path,
+                operation=change.operation,
+                destination=change.destination,
+                generation=change.file_generation,
+                revision=change.revision,
+            )
+
     async def _mutate[Result](
         self,
         operation: Callable[[_native.NativeWorkspaceCancellation], Result],
@@ -253,6 +256,10 @@ class WorkspaceFilesEngine:
         self._ensure_open()
         try:
             return await run_native(lambda: operation(cancellation), cancellation=cancellation)
+        except _native.NativeWorkspacePartialCommitError as error:
+            _, _, _, native_changes = error.args
+            self._publish_changes(tuple(self._change(change) for change in native_changes))
+            raise translate_native_workspace_error(error) from error
         except _NATIVE_ERRORS as error:
             raise translate_native_workspace_error(error) from error
 

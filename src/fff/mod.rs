@@ -44,13 +44,13 @@ impl From<crate::workspace::WorkspaceError> for FffError {
             | crate::workspace::WorkspaceError::Patch(message)
             | crate::workspace::WorkspaceError::Write(message) => Self::Runtime(message),
             crate::workspace::WorkspaceError::Limit(message) => Self::Limit(message),
-            crate::workspace::WorkspaceError::PartialCommit { landed, pending } => {
-                Self::Runtime(format!(
-                    "workspace operation committed [{}] with pending [{}]",
-                    landed.join(", "),
-                    pending.join(", ")
-                ))
-            }
+            crate::workspace::WorkspaceError::PartialCommit {
+                landed, pending, ..
+            } => Self::Runtime(format!(
+                "workspace operation committed [{}] with pending [{}]",
+                landed.join(", "),
+                pending.join(", ")
+            )),
             crate::workspace::WorkspaceError::Closed => Self::Closed,
             crate::workspace::WorkspaceError::Deadline => Self::IndexNotReady,
         }
