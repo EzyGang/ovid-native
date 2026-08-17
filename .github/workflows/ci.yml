@@ -30,7 +30,7 @@ jobs:
           path: ovid-core
           persist-credentials: false
       - name: Install uv and Python
-        uses: astral-sh/setup-uv@v10
+        uses: astral-sh/setup-uv@v10.0.1
         with:
           python-version: '3.14'
           working-directory: ovid-native
