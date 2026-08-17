@@ -249,3 +249,35 @@ fn destructive_hashline_precondition_rejects_changed_source() {
         Err(WorkspaceError::Stale(_))
     ));
 }
+
+#[test]
+fn hashline_uses_normalized_observation_paths() {
+    let root = tempfile::tempdir().expect("workspace");
+    let path = root.path().join("source.txt");
+    fs::write(&path, "one\n").expect("source");
+    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let read = workspace
+        .read_file("./source.txt", &[])
+        .expect("observation");
+    let receipt = read.observation.expect("receipt");
+    let operation = put_range(
+        1,
+        &read.lines[0].short_hash,
+        1,
+        &read.lines[0].short_hash,
+        &["changed"],
+    );
+
+    workspace
+        .apply_hashline(
+            &[HashlineSection {
+                path: "./source.txt".to_owned(),
+                tag: receipt.tag,
+                operations: vec![operation],
+            }],
+            &context(&workspace),
+        )
+        .expect("hashline");
+
+    assert_eq!(fs::read_to_string(path).expect("source"), "changed\n");
+}

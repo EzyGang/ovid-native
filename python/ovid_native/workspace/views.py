@@ -1,9 +1,16 @@
+import asyncio
 import difflib
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from ovid_native.ast.engine import AstEngine
-from ovid_native.ast.errors import AstProposalNotFoundError, AstProposalStaleError, AstWriteError
+from ovid_native.ast.errors import (
+    AstProposalExpiredError,
+    AstProposalNotFoundError,
+    AstProposalStaleError,
+    AstWriteError,
+)
 from ovid_native.ast.models import (
     AstRewriteApplyRequest,
     AstRewriteApplyResult,
@@ -21,12 +28,14 @@ from ovid_native.fff.models import (
     FffIndexStatus,
     FffMultiGrepRequest,
 )
+from ovid_native.files.edit_modes import EditMode, EditModeState
 from ovid_native.files.models import ApplyPatchEditRequest, WorkspaceFileReadRequest
 from ovid_native.search.engine import SearchEngine
 from ovid_native.search.models import GlobRequest, GlobResult, GrepRequest, GrepResult
 from ovid_native.workspace.errors import WorkspaceStaleError
 from ovid_native.workspace.models import (
     WorkspaceFilesProvider,
+    WorkspaceMutation,
     WorkspaceView,
     WorkspaceViewProvider,
     WorkspaceViewPurpose,
@@ -60,6 +69,11 @@ class NativeViewAstProvider:
         self._provider = provider
         self._files = files
         self._proposals: dict[str, _ViewAstProposal] = {}
+        self._proposal_lock = asyncio.Lock()
+        self._edit_mode: EditModeState | None = None
+
+    def bind_edit_mode(self, state: EditModeState) -> None:
+        self._edit_mode = state
 
     async def search(self, request: AstSearchRequest) -> AstSearchResult:
         async with self._provider.acquire_view(WorkspaceViewPurpose.AST) as view:
@@ -75,17 +89,17 @@ class NativeViewAstProvider:
                 return preview
             files = await engine.proposal_files(preview.proposal_id)
             await engine.reject_rewrite(preview.proposal_id)
-        self._proposals[preview.proposal_id] = _ViewAstProposal(
-            preview=preview,
-            files=files,
-            revision=view.revision,
+        await self._store(
+            _ViewAstProposal(
+                preview=preview,
+                files=files,
+                revision=view.revision,
+            )
         )
         return preview
 
     async def apply_rewrite(self, request: AstRewriteApplyRequest) -> AstRewriteApplyResult:
-        proposal = self._proposals.pop(request.proposal_id, None)
-        if proposal is None:
-            raise AstProposalNotFoundError(f'AST rewrite proposal not found: {request.proposal_id}')
+        proposal = await self._take(request.proposal_id)
 
         async with self._provider.acquire_view(WorkspaceViewPurpose.AST) as view:
             _require_read_only(view)
@@ -97,7 +111,7 @@ class NativeViewAstProvider:
             patches = await self._patches(proposal)
             patch_body = '\n'.join(patches)
             envelope = f'*** Begin Patch\n{patch_body}\n*** End Patch'
-            await self._files.apply_patch(ApplyPatchEditRequest(input=envelope))
+            await self._files.apply_patch(ApplyPatchEditRequest(input=envelope), mutation=self._mutation())
 
         return AstRewriteApplyResult(
             proposal_id=request.proposal_id,
@@ -121,34 +135,77 @@ class NativeViewAstProvider:
 
         return patches
 
+    async def _store(self, proposal: _ViewAstProposal) -> None:
+        async with self._proposal_lock:
+            self._purge_expired()
+            while len(self._proposals) >= 32:
+                del self._proposals[next(iter(self._proposals))]
+            self._proposals[proposal.preview.proposal_id] = proposal
+
+    async def _take(self, proposal_id: str) -> _ViewAstProposal:
+        async with self._proposal_lock:
+            proposal = self._proposals.pop(proposal_id, None)
+            self._purge_expired()
+        if proposal is None:
+            raise AstProposalNotFoundError(f'AST rewrite proposal not found: {proposal_id}')
+        if proposal.preview.expires_at <= datetime.now(UTC):
+            raise AstProposalExpiredError(f'AST rewrite proposal expired: {proposal_id}')
+        return proposal
+
+    def _mutation(self) -> WorkspaceMutation:
+        if self._edit_mode is None:
+            raise AstWriteError('view-backed AST provider is not bound to an edit mode')
+        mutation = self._edit_mode.capture()
+        if mutation.mode != EditMode.APPLY_PATCH:
+            raise AstWriteError('view-backed AST rewrites require apply_patch edit mode')
+        return mutation
+
+    def _purge_expired(self) -> None:
+        now = datetime.now(UTC)
+        expired = [
+            proposal_id for proposal_id, proposal in self._proposals.items() if proposal.preview.expires_at <= now
+        ]
+        for proposal_id in expired:
+            del self._proposals[proposal_id]
+
 
 class NativeViewFffProvider:
     def __init__(self, provider: WorkspaceViewProvider) -> None:
         self._provider = provider
         self._context: AbstractAsyncContextManager[WorkspaceView] | None = None
-        self._view: WorkspaceView | None = None
         self._engine: FffEngine | None = None
         self._revision = ''
+        self._lifecycle_lock = asyncio.Lock()
 
     async def start(self) -> FffIndexStatus:
-        if self._engine is None:
-            context = self._provider.acquire_view(WorkspaceViewPurpose.FFF)
-            view = await context.__aenter__()
+        async with self._lifecycle_lock:
+            if self._engine is None:
+                await self._start()
+            else:
+                await self._validate_revision()
+
+            engine, _ = self._require_engine()
+            return await engine.start()
+
+    async def _start(self) -> None:
+        context = self._provider.acquire_view(WorkspaceViewPurpose.FFF)
+        view = await context.__aenter__()
+        engine: FffEngine | None = None
+        try:
+            _require_read_only(view)
+            engine = FffEngine(root=view.root)
+            await engine.start()
+        except BaseException:
             try:
-                _require_read_only(view)
-                engine = FffEngine(root=view.root)
-                await engine.start()
-            except BaseException:
+                if engine is not None:
+                    await engine.close()
+            finally:
                 await context.__aexit__(None, None, None)
-                raise
-            self._context = context
-            self._view = view
-            self._revision = view.revision
-            self._engine = engine
-        else:
-            await self._validate_revision()
-        engine, _ = self._require_engine()
-        return await engine.start()
+            raise
+
+        self._context = context
+        self._revision = view.revision
+        self._engine = engine
 
     async def wait_ready(self, *, timeout_seconds: float | None = None) -> FffIndexStatus:
         engine, _ = self._require_engine()
@@ -173,14 +230,19 @@ class NativeViewFffProvider:
         return result.model_copy(update={'workspace_revision': revision})
 
     async def close(self) -> None:
-        if self._engine is not None:
-            await self._engine.close()
+        async with self._lifecycle_lock:
+            engine = self._engine
+            context = self._context
             self._engine = None
-        if self._context is not None:
-            await self._context.__aexit__(None, None, None)
             self._context = None
-            self._view = None
-        self._revision = ''
+            self._revision = ''
+
+            try:
+                if engine is not None:
+                    await engine.close()
+            finally:
+                if context is not None:
+                    await context.__aexit__(None, None, None)
 
     def _require_engine(self) -> tuple[FffEngine, str]:
         if self._engine is None:

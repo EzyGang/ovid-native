@@ -59,6 +59,7 @@ def test_native_operations_use_stable_custom_views_and_ast_commits_through_files
         workspace = (
             WorkspaceSessionBuilder()
             .with_files_provider(backing.files)
+            .with_edit_mode('apply_patch')
             .with_view_provider(views)
             .with_observation_store(NativeObservationStore())
             .with_native_search()
@@ -139,6 +140,41 @@ def test_fff_revision_validation_does_not_acquire_another_view(tmp_path: Path) -
 
         assert views.active == 1
         await provider.close()
+        assert views.active == 0
+
+    asyncio.run(run())
+
+
+def test_fff_start_failure_closes_engine_and_view(tmp_path: Path, mocker: MockerFixture) -> None:
+    async def run() -> None:
+        views = StableViewProvider(tmp_path)
+        engine = mocker.Mock()
+        engine.start = mocker.AsyncMock(side_effect=RuntimeError('index failed'))
+        engine.close = mocker.AsyncMock()
+        mocker.patch('ovid_native.workspace.views.FffEngine', return_value=engine)
+
+        with pytest.raises(RuntimeError, match='index failed'):
+            await NativeViewFffProvider(views).start()
+
+        engine.close.assert_awaited_once()
+        assert views.active == 0
+
+    asyncio.run(run())
+
+
+def test_fff_close_releases_view_after_engine_failure(tmp_path: Path, mocker: MockerFixture) -> None:
+    async def run() -> None:
+        views = StableViewProvider(tmp_path)
+        engine = mocker.Mock()
+        engine.start = mocker.AsyncMock(return_value=mocker.Mock())
+        engine.close = mocker.AsyncMock(side_effect=RuntimeError('close failed'))
+        mocker.patch('ovid_native.workspace.views.FffEngine', return_value=engine)
+        provider = NativeViewFffProvider(views)
+
+        await provider.start()
+        with pytest.raises(RuntimeError, match='close failed'):
+            await provider.close()
+
         assert views.active == 0
 
     asyncio.run(run())

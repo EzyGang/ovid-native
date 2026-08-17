@@ -36,6 +36,7 @@ from ovid_native.workspace.observations import (
 from ovid_native.workspace.operations import WorkspaceOperation, workspace_ref
 from ovid_native.workspace.policy import WorkspacePolicy, WorkspacePolicyState
 from ovid_native.workspace.stores import NativeObservationStore
+from ovid_native.workspace.views import NativeViewAstProvider
 
 
 def workspace_binding(
@@ -114,6 +115,8 @@ class NativeWorkspaceSession:
         self._ast = ast_provider
         if self._ast is None and WorkspaceOperation.AST in operations:
             self._ast = AstEngine._from_workspace(native, session_id=session_id.root)
+        if isinstance(self._ast, NativeViewAstProvider):
+            self._ast.bind_edit_mode(self._edit_mode)
         self._fff = fff_provider
         if self._fff is None and WorkspaceOperation.FFF in operations:
             self._fff = FffEngine._from_workspace(native)

@@ -364,8 +364,9 @@ impl Workspace {
         ranges: &[LineRange],
     ) -> Result<WorkspaceFileRead, WorkspaceError> {
         self.ensure_open()?;
+        let path = path::normalize_relative(path)?;
         let policy = self.policy()?;
-        let target = path::resolve_contained_file(self.root(), path)?;
+        let target = path::resolve_contained_file(self.root(), &path)?;
         let metadata = fs::metadata(&target)
             .map_err(|error| WorkspaceError::Read(format!("cannot inspect {path}: {error}")))?;
         let initial_total_bytes = metadata.len();
@@ -409,9 +410,9 @@ impl Workspace {
                         end: total_lines,
                     }]);
         let observation = if complete_identity {
-            let generation = self.file_generation(path)?;
+            let generation = self.file_generation(&path)?;
             Some(self.observations()?.record(
-                path,
+                &path,
                 &text,
                 generation,
                 &lines,
