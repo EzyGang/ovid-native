@@ -26,3 +26,4 @@ class WorkspaceOperation(StrEnum):
     FFF = 'fff'
     OBSERVATIONS = 'observations'
     CHANGE_EVENTS = 'change_events'
+    VIEW = 'view'

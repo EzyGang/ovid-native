@@ -11,7 +11,7 @@ use crate::ast::types::{
     FileChange, FileComputation, PreviewResult, RewriteComputation, RewriteRequest,
 };
 use crate::ast::{AstError, source_range};
-use crate::workspace::{WorkspaceEntry, sha256};
+use crate::workspace::{NormalizedText, WorkspaceEntry, sha256};
 
 struct Edit {
     range: ByteRange<usize>,
@@ -113,9 +113,11 @@ pub fn preview(root: &Path, request: RewriteRequest) -> Result<PreviewResult, As
                 source_range(&source, edit.range.clone()),
             )
         }));
+        let normalized = NormalizedText::decode(source.as_bytes().to_vec())?;
         computation_files.push(FileComputation {
             path: candidate.relative,
             original_sha256: sha256(source.as_bytes()),
+            normalized_original_sha256: sha256(normalized.source.as_bytes()),
             updated_sha256: sha256(updated.as_bytes()),
             updated,
             replacements: edits.len(),

@@ -1,8 +1,9 @@
 import asyncio
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 from uuid import uuid4
 
+import pytest
 from ovid_core.adapters.pydantic_ai import PydanticAIToolsetAdapter
 from ovid_core.agents import AgentDefinition, AgentFactory
 from ovid_core.config.models import ModelConfig, OvidConfig
@@ -17,7 +18,14 @@ from pydantic_ai.models.test import TestModel
 from pydantic_ai.usage import RunUsage
 from pytest_mock import MockerFixture
 
-from ovid_native.files import EditMode, ReadLineRange, WorkspaceFileReadRequest, WorkspaceFilesCapability
+from ovid_native.files import (
+    EditMode,
+    EditModeToolset,
+    ReadLineRange,
+    WorkspaceFileReadRequest,
+    WorkspaceFilesCapability,
+)
+from ovid_native.workspace.operations import WorkspaceOperation
 from ovid_native.workspace.service import NativeWorkspaceSession, workspace_binding
 
 
@@ -82,18 +90,18 @@ def test_bound_edit_call_keeps_captured_mode_and_policy_generation(tmp_path: Pat
 
     first_step = asyncio.run(adapter.for_run_step(context))
     first_definitions = asyncio.run(first_step.get_tools(context))
-    assert tuple(first_definitions) == ('apply_patch',)
-    assert first_definitions['apply_patch'].tool_def.kind == 'unapproved'
-    assert first_definitions['apply_patch'].tool_def.metadata['ovid_input_format'] == 'text'
+    assert tuple(first_definitions) == ('edit',)
+    assert first_definitions['edit'].tool_def.kind == 'unapproved'
+    assert first_definitions['edit'].tool_def.metadata['ovid_input_format'] == 'text'
     workspace.edit_mode.set(EditMode.REPLACE)
     workspace.policy.update(allow_fuzzy_replace=True)
     patch = '*** Begin Patch\n*** Update File: source.txt\n@@\n-one\n+two\n*** End Patch'
     first_result = asyncio.run(
         first_step.call_tool(
-            'apply_patch',
+            'edit',
             {'input': patch},
             context,
-            first_definitions['apply_patch'],
+            first_definitions['edit'],
         )
     )
     assert source.read_text() == 'two\n'
@@ -130,7 +138,7 @@ def test_real_agent_sees_mode_schema_change_without_rebuild(tmp_path: Path, mock
         seen.append(names)
         returns = [part for message in messages for part in message.parts if isinstance(part, ToolReturnPart)]
         if not returns:
-            assert 'apply_patch' in names
+            assert 'edit' in names
             workspace.edit_mode.set(EditMode.REPLACE)
             return ModelResponse(parts=[ToolCallPart('read', {'path': 'source.txt'})])
         assert 'edit' in names
@@ -158,4 +166,50 @@ def test_real_agent_sees_mode_schema_change_without_rebuild(tmp_path: Path, mock
 
     assert asyncio.run(run()) == 'observed dynamic files'
     assert len(seen) == 2
+    asyncio.run(workspace.close())
+
+
+def test_custom_edit_mode_binds_captured_selection_and_requires_approval(
+    tmp_path: Path,
+    mocker: MockerFixture,
+) -> None:
+    custom_tool = mocker.Mock()
+    custom_tool.approval = ToolApproval(required=True, reason='Custom workspace mutation')
+    provider = mocker.Mock()
+    provider.id = 'example.semantic_patch'
+    provider.required_operations = frozenset((WorkspaceOperation.FILES, WorkspaceOperation.OBSERVATIONS))
+    provider.bind.return_value = custom_tool
+    workspace = NativeWorkspaceSession(
+        root=tmp_path,
+        edit_mode=provider.id,
+        edit_mode_providers=(provider,),
+    )
+    capability = WorkspaceFilesCapability[None]().bind(AgentServices((workspace_binding(workspace),)))
+    toolset = capability.contributions.toolsets[0]
+    bound = asyncio.run(toolset.for_step(cast('Any', None)))
+    tools = asyncio.run(bound.get_tools(cast('Any', None)))
+
+    assert tuple(tools) == (custom_tool,)
+    provider.bind.assert_called_once_with(workspace, workspace.edit_mode.current)
+
+    missing_provider = EditModeToolset[None](
+        provider=workspace.files,
+        state=workspace.edit_mode,
+        workspace=workspace,
+    )
+    with pytest.raises(ValueError, match='provider is unavailable'):
+        asyncio.run(missing_provider.for_step(cast('Any', None)))
+
+    missing_workspace = EditModeToolset[None](
+        provider=workspace.files,
+        state=workspace.edit_mode,
+        mode_providers=(provider,),
+    )
+    with pytest.raises(ValueError, match='requires a workspace session'):
+        asyncio.run(missing_workspace.for_step(cast('Any', None)))
+
+    custom_tool.approval = ToolApproval()
+    with pytest.raises(ValueError, match='must require approval'):
+        asyncio.run(toolset.for_step(cast('Any', None)))
+
     asyncio.run(workspace.close())

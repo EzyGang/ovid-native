@@ -189,8 +189,13 @@ fn ast_apply_rewrite(
     let cancellation = cancellation.token();
     py.detach(move || {
         workspace.ensure_open().map_err(AstError::from)?;
+        let _coordinator = workspace.write_guard().map_err(AstError::from)?;
         let result = apply(workspace.root(), computation, &cancellation)?;
-        workspace.mark_changed();
+        for file in &result.0 {
+            workspace
+                .mark_file_changed(&file.0)
+                .map_err(AstError::from)?;
+        }
         Ok(result)
     })
     .map_err(to_python_error)

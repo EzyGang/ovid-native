@@ -2,8 +2,8 @@ use std::fs;
 
 use crate::workspace::patch::{PatchOperation, PatchOperationKind};
 use crate::workspace::{
-    Cancellation, LineRange, MutationContext, Workspace, WorkspaceError, WorkspacePolicy,
-    parse_apply_patch, parse_structured_patch,
+    Cancellation, LineEnding, LineRange, MutationContext, Workspace, WorkspaceError,
+    WorkspacePolicy, WorkspaceTextSerialization, parse_apply_patch, parse_structured_patch,
 };
 
 fn context(workspace: &Workspace, mode: &str) -> MutationContext {
@@ -34,6 +34,14 @@ fn workspace_reads_normalized_source_and_guards_whole_file_writes() {
     assert_eq!(partial.lines.len(), 1);
     assert_eq!(partial.lines[0].text, "one");
     assert!(!partial.complete_presentation);
+    assert_eq!(
+        partial.serialization,
+        Some(WorkspaceTextSerialization {
+            bom: true,
+            line_ending: LineEnding::CrLf,
+            terminal_newline: true,
+        })
+    );
     let partial_tag = partial.observation.expect("partial observation").tag;
     let replacement = workspace.replace_text_file(
         "source.txt",
@@ -313,6 +321,25 @@ fn patch_limits_and_destination_conflicts_fail_before_commit() {
         fs::read_to_string(root.path().join("source.txt")).expect("source"),
         "one\n"
     );
+    let alias_conflict = [
+        PatchOperation {
+            kind: PatchOperationKind::Create,
+            path: "./created.txt".to_owned(),
+            destination: None,
+            body: Some("first".to_owned()),
+        },
+        PatchOperation {
+            kind: PatchOperationKind::Create,
+            path: "created.txt".to_owned(),
+            destination: None,
+            body: Some("second".to_owned()),
+        },
+    ];
+    assert!(matches!(
+        workspace.apply_patch_operations(&alias_conflict, &mutation, "apply_patch"),
+        Err(WorkspaceError::Patch(_))
+    ));
+    assert!(!root.path().join("created.txt").exists());
 
     let invalid_destination = parse_structured_patch(
         "created.txt",

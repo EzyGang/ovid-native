@@ -3,9 +3,10 @@ use pyo3::exceptions::{PyException, PyValueError};
 use pyo3::prelude::*;
 
 use crate::workspace::{
-    Cancellation, EditResult, FileChange, LineRange, MutationContext, ObservationReceipt,
-    PolicyGeneration, PostEditSource, RenderedLine, Workspace, WorkspaceDirectoryRead,
-    WorkspaceError, WorkspaceFileRead, WorkspacePolicy, parse_apply_patch, parse_structured_patch,
+    Cancellation, EditResult, FileChange, HashlineOperation, HashlineSection, LineEnding,
+    LineRange, MutationContext, ObservationReceipt, PolicyGeneration, PostEditSource, RenderedLine,
+    Workspace, WorkspaceDirectoryRead, WorkspaceError, WorkspaceFileRead, WorkspacePolicy,
+    WorkspaceTextSerialization, parse_apply_patch, parse_structured_patch,
 };
 
 create_exception!(_native, NativeWorkspaceReadError, PyException);
@@ -116,6 +117,7 @@ impl NativeWorkspaceCancellation {
 
 type NativeObservationReceipt = (String, String, String, u64, Vec<(usize, usize)>, bool);
 type NativeRenderedLine = (usize, String, String);
+type NativeTextSerialization = (bool, String, bool);
 type NativeFileRead = (
     String,
     Option<NativeObservationReceipt>,
@@ -125,6 +127,7 @@ type NativeFileRead = (
     bool,
     u64,
     u64,
+    Option<NativeTextSerialization>,
 );
 type NativeDirectoryRead = (String, Vec<(String, String, Option<u64>)>, bool);
 type NativeFileChange = (
@@ -155,6 +158,18 @@ type NativeEditResult = (
     Option<f64>,
 );
 type NativePolicy = (bool, f64, u64, u64, usize, usize, bool, u64);
+type NativeHashlineOperation = (
+    String,
+    Option<usize>,
+    Option<String>,
+    Option<usize>,
+    Option<String>,
+    Vec<String>,
+    Option<String>,
+    Option<String>,
+);
+type NativeHashlineSection = (String, String, Vec<NativeHashlineOperation>);
+type NativeObservedSource = (NativeObservationReceipt, Vec<NativeRenderedLine>);
 
 #[pyfunction]
 fn workspace_create(root: String) -> PyResult<NativeWorkspace> {
@@ -246,7 +261,11 @@ fn workspace_capture_mutation(
     let selection = workspace.inner.edit_mode().map_err(to_python_error)?;
     let policy = workspace.inner.policy().map_err(to_python_error)?;
     let captured_mode = mode.unwrap_or(selection.mode);
-    if !matches!(captured_mode.as_str(), "replace" | "patch" | "apply_patch") {
+    if !workspace
+        .inner
+        .supports_edit_mode(&captured_mode)
+        .map_err(to_python_error)?
+    {
         return Err(to_python_error(WorkspaceError::EditMode(format!(
             "workspace edit mode is not registered: {captured_mode}"
         ))));
@@ -261,6 +280,17 @@ fn workspace_capture_mutation(
             policy: policy.policy,
         },
     })
+}
+
+#[pyfunction]
+fn workspace_register_edit_mode(
+    workspace: PyRef<'_, NativeWorkspace>,
+    mode: String,
+) -> PyResult<()> {
+    workspace
+        .inner
+        .register_edit_mode(&mode)
+        .map_err(to_python_error)
 }
 
 #[pyfunction]
@@ -331,6 +361,29 @@ fn workspace_validate_observed_lines(
         workspace
             .validate_observed_lines(&path, &tag, &lines)
             .map(receipt_to_native)
+            .map_err(to_python_error)
+    })
+}
+
+#[pyfunction]
+fn workspace_observe_source_lines(
+    py: Python<'_>,
+    workspace: PyRef<'_, NativeWorkspace>,
+    path: String,
+    claims: Vec<(usize, String)>,
+    spans: Vec<(usize, usize, usize, usize)>,
+    complete_presentation: bool,
+) -> PyResult<NativeObservedSource> {
+    let workspace = workspace.inner.clone();
+    py.detach(move || {
+        workspace
+            .observe_source_lines(&path, &claims, &spans, complete_presentation)
+            .map(|(receipt, lines)| {
+                (
+                    receipt_to_native(receipt),
+                    lines.into_iter().map(line_to_native).collect(),
+                )
+            })
             .map_err(to_python_error)
     })
 }
@@ -447,6 +500,49 @@ fn workspace_apply_patch(
         let operations = parse_apply_patch(&input).map_err(to_python_error)?;
         workspace
             .apply_patch_operations(&operations, &context, "apply_patch")
+            .map(edit_result_to_native)
+            .map_err(to_python_error)
+    })
+}
+
+#[pyfunction]
+fn workspace_hashline(
+    py: Python<'_>,
+    workspace: PyRef<'_, NativeWorkspace>,
+    mutation: PyRef<'_, NativeWorkspaceMutation>,
+    sections: Vec<NativeHashlineSection>,
+    cancellation: PyRef<'_, NativeWorkspaceCancellation>,
+) -> PyResult<NativeEditResult> {
+    let workspace = workspace.inner.clone();
+    let mut context = mutation.context.clone();
+    context.cancellation = cancellation.token();
+    let sections = sections
+        .into_iter()
+        .map(|(path, tag, operations)| HashlineSection {
+            path,
+            tag,
+            operations: operations
+                .into_iter()
+                .map(
+                    |(kind, start, start_hash, end, end_hash, body, register, destination)| {
+                        HashlineOperation {
+                            kind,
+                            start,
+                            start_hash,
+                            end,
+                            end_hash,
+                            body,
+                            register,
+                            destination,
+                        }
+                    },
+                )
+                .collect(),
+        })
+        .collect::<Vec<_>>();
+    py.detach(move || {
+        workspace
+            .apply_hashline(&sections, &context)
             .map(edit_result_to_native)
             .map_err(to_python_error)
     })
@@ -571,15 +667,18 @@ pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(workspace_edit_mode, module)?)?;
     module.add_function(wrap_pyfunction!(workspace_set_edit_mode, module)?)?;
     module.add_function(wrap_pyfunction!(workspace_capture_mutation, module)?)?;
+    module.add_function(wrap_pyfunction!(workspace_register_edit_mode, module)?)?;
     module.add_function(wrap_pyfunction!(workspace_read_file, module)?)?;
     module.add_function(wrap_pyfunction!(workspace_list_directory, module)?)?;
     module.add_function(wrap_pyfunction!(workspace_resolve_observation, module)?)?;
     module.add_function(wrap_pyfunction!(workspace_validate_observed_lines, module)?)?;
+    module.add_function(wrap_pyfunction!(workspace_observe_source_lines, module)?)?;
     module.add_function(wrap_pyfunction!(workspace_create_file, module)?)?;
     module.add_function(wrap_pyfunction!(workspace_replace_file, module)?)?;
     module.add_function(wrap_pyfunction!(workspace_replace_text, module)?)?;
     module.add_function(wrap_pyfunction!(workspace_patch, module)?)?;
     module.add_function(wrap_pyfunction!(workspace_apply_patch, module)?)?;
+    module.add_function(wrap_pyfunction!(workspace_hashline, module)?)?;
     module.add_function(wrap_pyfunction!(workspace_delete_file, module)?)?;
     module.add_function(wrap_pyfunction!(workspace_move_file, module)?)?;
     Ok(())
@@ -618,6 +717,14 @@ fn line_to_native(line: RenderedLine) -> NativeRenderedLine {
     (line.number, line.short_hash, line.text)
 }
 
+fn serialization_to_native(value: WorkspaceTextSerialization) -> NativeTextSerialization {
+    let line_ending = match value.line_ending {
+        LineEnding::Lf => "lf",
+        LineEnding::CrLf => "crlf",
+        LineEnding::Cr => "cr",
+    };
+    (value.bom, line_ending.to_owned(), value.terminal_newline)
+}
 fn file_read_to_native(result: WorkspaceFileRead) -> NativeFileRead {
     (
         result.path,
@@ -628,6 +735,7 @@ fn file_read_to_native(result: WorkspaceFileRead) -> NativeFileRead {
         result.editable,
         result.total_bytes,
         result.observation_limit,
+        result.serialization.map(serialization_to_native),
     )
 }
 

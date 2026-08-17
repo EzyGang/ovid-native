@@ -27,6 +27,9 @@ pub(crate) struct FileChange {
     pub revision: u64,
 }
 
+#[derive(Debug)]
+pub(crate) struct FileIdentity(same_file::Handle);
+
 #[derive(Clone, Debug)]
 pub(crate) struct PostEditSource {
     pub path: String,
@@ -46,6 +49,30 @@ pub(crate) struct EditResult {
     pub commit_complete: bool,
     pub matching_strategy: Option<String>,
     pub confidence: Option<f64>,
+}
+
+pub(crate) fn file_identity(target: &Path, relative: &str) -> Result<FileIdentity, WorkspaceError> {
+    same_file::Handle::from_path(target)
+        .map(FileIdentity)
+        .map_err(|error| WorkspaceError::Stale(format!("cannot inspect {relative}: {error}")))
+}
+
+pub(crate) fn ensure_current_file(
+    target: &Path,
+    relative: &str,
+    expected_sha256: &str,
+    expected_identity: &FileIdentity,
+) -> Result<(), WorkspaceError> {
+    if same_file::Handle::from_path(target)
+        .map_err(|error| WorkspaceError::Stale(format!("cannot inspect {relative}: {error}")))?
+        != expected_identity.0
+    {
+        return Err(WorkspaceError::Stale(format!(
+            "rewrite target identity changed: {relative}"
+        )));
+    }
+
+    ensure_current_path(target, relative, expected_sha256)
 }
 
 pub(crate) fn sha256(contents: &[u8]) -> String {
@@ -149,6 +176,21 @@ pub(crate) fn atomic_replace_path(
         }
         other => other,
     })
+}
+
+pub(crate) fn ensure_current_path(
+    target: &Path,
+    relative: &str,
+    expected_sha256: &str,
+) -> Result<(), WorkspaceError> {
+    let current = fs::read(target)
+        .map_err(|_| WorkspaceError::Stale(format!("cannot read rewrite target: {relative}")))?;
+    if sha256(NormalizedText::decode(current)?.source.as_bytes()) != expected_sha256 {
+        return Err(WorkspaceError::Stale(format!(
+            "rewrite target changed: {relative}"
+        )));
+    }
+    Ok(())
 }
 
 pub(crate) fn move_file_noclobber(

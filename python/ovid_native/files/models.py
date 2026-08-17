@@ -45,6 +45,12 @@ class WorkspaceReadRequest(BaseModel):
     directory_depth: int = Field(default=1, ge=1, le=2)
 
 
+class WorkspaceTextSerialization(BaseModel):
+    bom: bool
+    line_ending: Literal['lf', 'crlf', 'cr']
+    terminal_newline: bool
+
+
 class WorkspaceReadFileResult(BaseModel):
     kind: Literal['file'] = 'file'
     path: str
@@ -55,6 +61,7 @@ class WorkspaceReadFileResult(BaseModel):
     editable: bool
     total_bytes: int = Field(ge=0)
     observation_limit: int = Field(ge=1)
+    serialization: WorkspaceTextSerialization | None
 
     def render(self) -> str:
         header_tag = self.observation.tag if self.observation is not None else '----'
@@ -198,6 +205,10 @@ class PatchEditRequest(BaseModel):
 
 
 class ApplyPatchEditRequest(BaseModel):
+    input: str = Field(min_length=1)
+
+
+class HashlineEditRequest(BaseModel):
     input: str = Field(min_length=1)
 
 

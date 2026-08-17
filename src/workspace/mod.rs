@@ -1,6 +1,15 @@
 mod content;
 mod control;
+mod evidence;
 mod file_mutations;
+mod hashline;
+mod hashline_apply;
+mod hashline_block;
+mod hashline_locator;
+mod hashline_plan;
+#[cfg(test)]
+mod hashline_tests;
+mod hashline_types;
 mod line_hash;
 #[cfg(test)]
 mod observation_tests;
@@ -19,7 +28,7 @@ mod workflow_tests;
 mod workflows;
 mod write;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, OpenOptions};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -28,10 +37,11 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use fs2::FileExt;
 
 pub(crate) use content::{
-    NormalizedText, ReadExtent, WorkspaceDirectoryEntry, WorkspaceDirectoryRead, WorkspaceFileRead,
-    inspect_text, read_content,
+    LineEnding, NormalizedText, ReadExtent, WorkspaceDirectoryEntry, WorkspaceDirectoryRead,
+    WorkspaceFileRead, WorkspaceTextSerialization, inspect_text, read_content,
 };
 pub(crate) use control::{Cancellation, WorkControl, WorkStopped};
+pub(crate) use hashline_types::{HashlineOperation, HashlineRegister, HashlineSection};
 pub(crate) use observation_types::{LineRange, ObservationReceipt, RenderedLine};
 pub(crate) use observations::ObservationLedger;
 pub(crate) use patch::{parse_apply_patch, parse_structured_patch};
@@ -42,8 +52,8 @@ pub(crate) use types::{
 };
 pub(crate) use workflows::MutationContext;
 pub(crate) use write::{
-    EditResult, FileChange, PostEditSource, atomic_replace_path, create_file, move_file_noclobber,
-    preflight_write, replace_file, sha256,
+    EditResult, FileChange, FileIdentity, PostEditSource, atomic_replace_path, create_file,
+    ensure_current_file, file_identity, move_file_noclobber, preflight_write, replace_file, sha256,
 };
 
 #[derive(Debug)]
@@ -121,9 +131,11 @@ struct WorkspaceState {
     revision: AtomicU64,
     write_coordinator: Mutex<()>,
     observations: Mutex<ObservationLedger>,
+    named_registers: Mutex<HashMap<String, HashlineRegister>>,
     file_generations: Mutex<HashMap<String, u64>>,
     policy: Mutex<PolicyGeneration>,
     edit_mode: Mutex<EditModeSelection>,
+    registered_edit_modes: Mutex<HashSet<String>>,
 }
 
 #[derive(Debug)]
@@ -141,6 +153,7 @@ impl Workspace {
                 revision: AtomicU64::new(1),
                 write_coordinator: Mutex::new(()),
                 observations: Mutex::new(ObservationLedger::default()),
+                named_registers: Mutex::new(HashMap::new()),
                 file_generations: Mutex::new(HashMap::new()),
                 policy: Mutex::new(PolicyGeneration {
                     policy: WorkspacePolicy::default(),
@@ -150,6 +163,7 @@ impl Workspace {
                     mode: "apply_patch".to_owned(),
                     generation: 1,
                 }),
+                registered_edit_modes: Mutex::new(registered_edit_modes()),
             }),
         })
     }
@@ -162,6 +176,7 @@ impl Workspace {
                 revision: AtomicU64::new(1),
                 write_coordinator: Mutex::new(()),
                 observations: Mutex::new(ObservationLedger::default()),
+                named_registers: Mutex::new(HashMap::new()),
                 file_generations: Mutex::new(HashMap::new()),
                 policy: Mutex::new(PolicyGeneration {
                     policy: WorkspacePolicy::default(),
@@ -171,6 +186,7 @@ impl Workspace {
                     mode: "apply_patch".to_owned(),
                     generation: 1,
                 }),
+                registered_edit_modes: Mutex::new(registered_edit_modes()),
             }),
         }
     }
@@ -189,6 +205,9 @@ impl Workspace {
 
     pub(crate) fn close(&self) {
         self.state.closed.store(true, Ordering::Release);
+        if let Ok(mut registers) = self.state.named_registers.lock() {
+            registers.clear();
+        }
     }
 
     pub(crate) fn is_closed(&self) -> bool {
@@ -232,7 +251,7 @@ impl Workspace {
         let _coordinator = self.write_guard()?;
 
         self.ensure_open()?;
-        if !matches!(mode, "replace" | "patch" | "apply_patch") {
+        if !self.lock(&self.state.registered_edit_modes)?.contains(mode) {
             return Err(WorkspaceError::EditMode(format!(
                 "workspace edit mode is not registered: {mode}"
             )));
@@ -243,6 +262,23 @@ impl Workspace {
             current.generation = current.generation.saturating_add(1);
         }
         Ok(current.clone())
+    }
+
+    pub(crate) fn register_edit_mode(&self, mode: &str) -> Result<(), WorkspaceError> {
+        self.ensure_open()?;
+        if !mode.contains('.') || mode.starts_with('.') || mode.ends_with('.') {
+            return Err(WorkspaceError::EditMode(format!(
+                "custom workspace edit mode must be namespaced: {mode}"
+            )));
+        }
+        self.lock(&self.state.registered_edit_modes)?
+            .insert(mode.to_owned());
+        Ok(())
+    }
+
+    pub(crate) fn supports_edit_mode(&self, mode: &str) -> Result<bool, WorkspaceError> {
+        self.ensure_open()?;
+        Ok(self.lock(&self.state.registered_edit_modes)?.contains(mode))
     }
 
     pub(crate) fn write_guard(&self) -> Result<WorkspaceWriteGuard<'_>, WorkspaceError> {
@@ -290,6 +326,20 @@ impl Workspace {
         self.lock(&self.state.observations)
     }
 
+    pub(crate) fn named_registers(
+        &self,
+    ) -> Result<HashMap<String, HashlineRegister>, WorkspaceError> {
+        Ok(self.lock(&self.state.named_registers)?.clone())
+    }
+
+    pub(crate) fn replace_named_registers(
+        &self,
+        registers: HashMap<String, HashlineRegister>,
+    ) -> Result<(), WorkspaceError> {
+        *self.lock(&self.state.named_registers)? = registers;
+        Ok(())
+    }
+
     pub(crate) fn file_generation(&self, path: &str) -> Result<u64, WorkspaceError> {
         let mut generations = self.lock(&self.state.file_generations)?;
         Ok(*generations.entry(path.to_owned()).or_insert(1))
@@ -314,8 +364,9 @@ impl Workspace {
         ranges: &[LineRange],
     ) -> Result<WorkspaceFileRead, WorkspaceError> {
         self.ensure_open()?;
+        let path = path::normalize_relative(path)?;
         let policy = self.policy()?;
-        let target = path::resolve_contained_file(self.root(), path)?;
+        let target = path::resolve_contained_file(self.root(), &path)?;
         let metadata = fs::metadata(&target)
             .map_err(|error| WorkspaceError::Read(format!("cannot inspect {path}: {error}")))?;
         let initial_total_bytes = metadata.len();
@@ -359,9 +410,9 @@ impl Workspace {
                         end: total_lines,
                     }]);
         let observation = if complete_identity {
-            let generation = self.file_generation(path)?;
+            let generation = self.file_generation(&path)?;
             Some(self.observations()?.record(
-                path,
+                &path,
                 &text,
                 generation,
                 &lines,
@@ -374,6 +425,11 @@ impl Workspace {
         } else {
             None
         };
+        let serialization = complete_identity.then_some(WorkspaceTextSerialization {
+            bom: text.serialization.bom,
+            line_ending: text.serialization.line_ending,
+            terminal_newline: text.source.ends_with('\n'),
+        });
 
         Ok(WorkspaceFileRead {
             path: path.to_owned(),
@@ -384,6 +440,7 @@ impl Workspace {
             editable: complete_identity,
             total_bytes,
             observation_limit: policy.policy.max_observation_file_bytes,
+            serialization,
         })
     }
 
@@ -392,13 +449,14 @@ impl Workspace {
         path: &str,
         depth: usize,
     ) -> Result<WorkspaceDirectoryRead, WorkspaceError> {
+        let path = path::normalize_relative_directory(path)?;
         self.ensure_open()?;
         if !(1..=2).contains(&depth) {
             return Err(WorkspaceError::Limit(
                 "workspace directory depth must be between one and two".to_owned(),
             ));
         }
-        let target = path::resolve_contained_directory(self.root(), path)?;
+        let target = path::resolve_contained_directory(self.root(), &path)?;
         let mut entries = Vec::new();
         let mut truncated = false;
         collect_directory_entries(
@@ -412,7 +470,7 @@ impl Workspace {
         entries.sort_by(|left, right| left.path.cmp(&right.path));
 
         Ok(WorkspaceDirectoryRead {
-            path: path.to_owned(),
+            path,
             entries,
             truncated,
         })
@@ -563,4 +621,10 @@ fn collect_directory_entries(
         }
     }
     Ok(())
+}
+fn registered_edit_modes() -> HashSet<String> {
+    ["hashline", "replace", "patch", "apply_patch"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect()
 }

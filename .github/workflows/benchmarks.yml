@@ -3,14 +3,14 @@ name: Benchmark smoke
 on:
   pull_request:
     paths:
-      - '.github/workflows/benchmarks.yml'
-      - 'benchmarks/**'
-      - 'python/ovid_native/ast/**'
-      - 'python/ovid_native/fff/**'
-      - 'python/ovid_native/search/**'
-      - 'src/**'
-      - 'pyproject.toml'
-      - 'uv.lock'
+      - ".github/workflows/benchmarks.yml"
+      - "benchmarks/**"
+      - "python/ovid_native/ast/**"
+      - "python/ovid_native/fff/**"
+      - "python/ovid_native/search/**"
+      - "src/**"
+      - "pyproject.toml"
+      - "uv.lock"
   workflow_dispatch:
 
 permissions:
@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   benchmark-smoke:
-    runs-on: ubuntu-24.04
+    runs-on: self-hosted
     timeout-minutes: 20
     steps:
       - name: Check out ovid-native
@@ -33,9 +33,9 @@ jobs:
           path: ovid-core
           persist-credentials: false
       - name: Install uv and Python
-        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d
+        uses: astral-sh/setup-uv@v10.0.1
         with:
-          python-version: '3.14'
+          python-version: "3.14"
           working-directory: ovid-native
           enable-cache: true
       - name: Install benchmark environment

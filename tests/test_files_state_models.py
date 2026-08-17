@@ -91,6 +91,17 @@ def test_edit_mode_state_notifies_once_and_translates_failures(tmp_path: Path, m
     with pytest.raises(WorkspaceEditModeError, match='not registered'):
         workspace.edit_mode.set('unsupported')
 
+    assert workspace.edit_mode.register('example.semantic_patch').root == 'example.semantic_patch'
+    with pytest.raises(WorkspaceEditModeError, match='globally namespaced'):
+        workspace.edit_mode.register('invalid')
+    with pytest.raises(WorkspaceEditModeError, match='already registered'):
+        workspace.edit_mode.register('example.semantic_patch')
+
+    register_error = _native.NativeWorkspaceEditModeError('native registration failure')
+    mocker.patch.object(_native, 'workspace_register_edit_mode', side_effect=register_error)
+    with pytest.raises(WorkspaceEditModeError, match='native registration failure'):
+        workspace.edit_mode.register('example.native_failure')
+
     native_error = _native.NativeWorkspaceEditModeError('native mode failure')
     mocker.patch.object(_native, 'workspace_set_edit_mode', side_effect=native_error)
     with pytest.raises(WorkspaceEditModeError, match='native mode failure'):
@@ -101,6 +112,7 @@ def test_edit_mode_state_notifies_once_and_translates_failures(tmp_path: Path, m
 def test_observation_service_revision_resolution_and_closed_state(tmp_path: Path) -> None:
     (tmp_path / 'source.txt').write_text('one\ntwo\n')
     workspace = NativeWorkspaceSession(root=tmp_path)
+    assert workspace.observations.session_id == workspace.id
     observed = asyncio.run(
         workspace.observations.observe_file(
             WorkspaceObservationRequest(

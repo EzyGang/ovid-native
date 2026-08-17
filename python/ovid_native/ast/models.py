@@ -5,6 +5,8 @@ from ovid_core.models import BaseModel
 from ovid_core.tools.models import ToolResult
 from pydantic import Field
 
+from ovid_native.workspace.evidence import WorkspaceSourceLineClaim
+
 
 AstStrictness = Literal['cst', 'smart', 'ast', 'relaxed', 'signature', 'template']
 AstIssueKind = Literal['unsupported_language', 'invalid_pattern', 'parse_error', 'read_error', 'limit_reached']
@@ -73,6 +75,7 @@ class AstMatch(BaseModel):
     text: str
     range: AstRange
     captures: tuple[AstCapture, ...] = ()
+    source_lines: tuple[WorkspaceSourceLineClaim, ...] = ()
 
 
 class AstSearchResult(BaseModel):

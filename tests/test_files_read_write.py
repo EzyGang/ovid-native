@@ -16,6 +16,7 @@ from ovid_native.files import (
     WorkspaceObservationNotFoundError,
     WorkspaceReplaceRequest,
     WorkspaceStaleError,
+    WorkspaceTextSerialization,
     WorkspaceUnseenLineError,
     WorkspaceWriteError,
 )
@@ -54,6 +55,7 @@ def test_text_reads_normalize_hash_render_and_authorize_exact_lines(tmp_path: Pa
     assert result.total_lines == 3
     assert result.complete_presentation is False
     assert result.editable is True
+    assert result.serialization == WorkspaceTextSerialization(bom=True, line_ending='crlf', terminal_newline=True)
     assert result.render().startswith(f'[source.txt#{expected_sha[:4].upper()}]\n1:')
     validation = asyncio.run(
         workspace.observations.validate_observed_lines(
@@ -70,7 +72,7 @@ def test_text_reads_normalize_hash_render_and_authorize_exact_lines(tmp_path: Pa
 
 def test_read_limits_ranges_and_large_file_identity(tmp_path: Path) -> None:
     source = tmp_path / 'large.txt'
-    source.write_text('one\ntwo\nthree\n')
+    source.write_bytes(b'one\ntwo\nthree\n')
     workspace = NativeWorkspaceSession(
         root=tmp_path,
         policy=WorkspacePolicy(max_read_bytes=4, max_observation_file_bytes=1024),
@@ -82,12 +84,14 @@ def test_read_limits_ranges_and_large_file_identity(tmp_path: Path) -> None:
     assert partial.observation is not None
     assert [(line_range.start, line_range.end) for line_range in partial.observation.visible_ranges] == [(1, 1)]
     assert partial.complete_presentation is False
+    assert partial.serialization == WorkspaceTextSerialization(bom=False, line_ending='lf', terminal_newline=True)
 
     workspace.policy.update(max_observation_file_bytes=4)
     oversized = asyncio.run(workspace.files.read_file(WorkspaceFileReadRequest(path='large.txt')))
     assert oversized.observation is None
     assert oversized.editable is False
     assert oversized.total_lines == 3
+    assert oversized.serialization is None
 
     with pytest.raises(ValidationError, match='cannot overlap'):
         WorkspaceFileReadRequest(

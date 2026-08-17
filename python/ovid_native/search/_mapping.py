@@ -87,13 +87,14 @@ def _grep_file(value: _native.NativeGrepFileMatches) -> GrepFileMatches:
 
 
 def _grep_match(value: _native.NativeGrepMatch) -> GrepMatch:
-    text, match_range, line_text, line_truncated, context_before, context_after = value
+    text, match_range, line_text, line_truncated, matched_lines, context_before, context_after = value
 
     return GrepMatch(
         text=text,
         range=_grep_range(match_range),
         line_text=line_text,
         line_truncated=line_truncated,
+        matched_lines=tuple(_context_line(line) for line in matched_lines),
         context_before=tuple(_context_line(line) for line in context_before),
         context_after=tuple(_context_line(line) for line in context_after),
     )

@@ -180,6 +180,13 @@ class AstEngine:
             self._purge_expired(now)
             return proposal is not None and proposal.expires_monotonic > now
 
+    async def proposal_files(self, proposal_id: str) -> tuple[tuple[str, str, str, int], ...]:
+        async with self._proposal_lock:
+            proposal = self._proposals.get(proposal_id)
+            if proposal is None:
+                raise AstProposalNotFoundError(f'AST rewrite proposal not found: {proposal_id}')
+            return tuple(proposal.computation.files())
+
     async def _store(
         self,
         computation: _native.NativeAstRewriteComputation,

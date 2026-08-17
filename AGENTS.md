@@ -221,7 +221,6 @@ This distribution contains the complete native surface, but no agent receives al
 - Capabilities contribute tools or toolsets only when the application passes that capability to `AgentFactory`.
 - Capability IDs and tool IDs are stable and namespaced under `ovid_native`.
 - Duplicate IDs and implicit overrides are errors.
-- Search, AST, and FFF agent capabilities resolve Ovid-owned provider protocols from one explicitly named `WorkspaceSession`; their constructors must not accept independently rooted engines. Applications own session construction and shutdown.
 - Rust operations remain domain-neutral. Coding-agent concepts such as repository policy, agent roles, prompts, review workflow, and UI rendering stay in the consuming application.
 - Platform availability is explicit and typed. Do not silently turn an unavailable native operation into a no-op or unrelated Python implementation.
 

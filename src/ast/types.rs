@@ -8,7 +8,14 @@ pub(crate) use crate::workspace::Cancellation;
 pub type Position = (usize, usize, usize);
 pub type Range = (Position, Position);
 pub type Capture = (String, String, Option<Range>);
-pub type Match = (String, String, String, Range, Vec<Capture>);
+pub type Match = (
+    String,
+    String,
+    String,
+    Range,
+    Vec<Capture>,
+    Vec<(usize, String)>,
+);
 pub type Issue = (Option<String>, Option<String>, String, String);
 pub type SearchResult = (Vec<Match>, usize, usize, usize, usize, bool, Vec<Issue>);
 pub type Change = (String, String, String, String, Range);
@@ -67,6 +74,7 @@ pub struct RewriteRequest {
 pub struct FileComputation {
     pub path: String,
     pub original_sha256: String,
+    pub normalized_original_sha256: String,
     pub updated_sha256: String,
     pub updated: String,
     pub replacements: usize,
@@ -115,5 +123,23 @@ impl NativeAstRewriteComputation {
         Self {
             inner: Arc::new(computation),
         }
+    }
+}
+
+#[pymethods]
+impl NativeAstRewriteComputation {
+    pub fn files(&self) -> Vec<(String, String, String, usize)> {
+        self.inner
+            .files
+            .iter()
+            .map(|file| {
+                (
+                    file.path.clone(),
+                    file.normalized_original_sha256.clone(),
+                    file.updated.clone(),
+                    file.replacements,
+                )
+            })
+            .collect()
     }
 }

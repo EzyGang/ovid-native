@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::ops::Range;
 
 use crate::workspace::content::NormalizedText;
+use crate::workspace::path::normalize_relative;
 use crate::workspace::workflows::{edit_result, load_current};
 use crate::workspace::{
     EditResult, FileChange, LineRange, MutationContext, Workspace, WorkspaceError, WorkspacePolicy,
@@ -22,12 +23,13 @@ impl Workspace {
                 "replace old string must be non-empty".to_owned(),
             ));
         }
+        let path = normalize_relative(path)?;
         let _coordinator = self.write_guard()?;
         self.validate_mutation(context, "replace")?;
 
-        let (target, current) = load_current(self, path, &context.policy)?;
+        let (target, current) = load_current(self, &path, &context.policy)?;
         let before = sha256(current.source.as_bytes());
-        let authorization = self.observations()?.current(path, &before)?;
+        let authorization = self.observations()?.current(&path, &before)?;
         let old = NormalizedText::from_replacement(old_string).source;
         let new = NormalizedText::from_replacement(new_string).source;
         let exact = current
@@ -61,23 +63,23 @@ impl Workspace {
             .iter()
             .flat_map(|range| source_lines(&current.source, range.clone()))
             .collect::<HashSet<_>>();
-        authorization.require_lines(path, &current, &required)?;
+        authorization.require_lines(&path, &current, &required)?;
         let source = apply_replacements(&current.source, selected, &new);
         let replacement = NormalizedText::from_replacement(&source);
         context.ensure_active()?;
 
         atomic_replace_path(
             &target,
-            path,
+            &path,
             &before,
             &current.serialize_with_current(&replacement.source),
         )?;
-        let (file_generation, revision) = self.mark_file_changed(path)?;
+        let (file_generation, revision) = self.mark_file_changed(&path)?;
         let after = sha256(replacement.source.as_bytes());
         let changed_lines =
             changed_line_range(&current.source, selected, &new, replacement.total_lines());
         let post = self.record_post_edit(
-            path,
+            &path,
             &replacement,
             file_generation,
             changed_lines,

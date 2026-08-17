@@ -6,7 +6,7 @@ from ovid_core.services import AgentServiceRequirement, AgentServices
 from ovid_core.tools.base import BaseTool
 
 from ovid_native.fff.errors import FffConfigurationError
-from ovid_native.fff.tools import FffFindTool, FffGrepTool, FffMultiGrepTool
+from ovid_native.fff.tools import FffFindTool, FffSourceToolset
 from ovid_native.search.tools import GlobTool
 from ovid_native.workspace.operations import WORKSPACE_SERVICE_KEY, WorkspaceOperation, workspace_ref
 
@@ -28,9 +28,13 @@ class FffCapability[Deps](BaseCapability[Deps]):
         if not any((self.include_glob, self.include_find_files, self.include_grep, self.include_multi_grep)):
             raise FffConfigurationError('at least one FFF tool must be enabled')
 
-        required_features = {WorkspaceOperation.FFF.value}
+        required_features: set[str] = set()
+        if any((self.include_find_files, self.include_grep, self.include_multi_grep)):
+            required_features.add(WorkspaceOperation.FFF.value)
         if self.include_glob:
             required_features.add(WorkspaceOperation.SEARCH.value)
+        if self.include_grep or self.include_multi_grep:
+            required_features.update((WorkspaceOperation.FILES.value, WorkspaceOperation.OBSERVATIONS.value))
 
         object.__setattr__(self, 'contributions', CapabilityContributions())
         object.__setattr__(
@@ -55,10 +59,6 @@ class FffCapability[Deps](BaseCapability[Deps]):
             tools.append(GlobTool(provider=session.search))
         if self.include_find_files:
             tools.append(FffFindTool(provider=session.fff))
-        if self.include_grep:
-            tools.append(FffGrepTool(provider=session.fff))
-        if self.include_multi_grep:
-            tools.append(FffMultiGrepTool(provider=session.fff))
 
         bound = type(self)(
             workspace=self.workspace,
@@ -73,6 +73,17 @@ class FffCapability[Deps](BaseCapability[Deps]):
             CapabilityContributions(
                 instructions=(self._instructions(),),
                 tools=tuple(tools),
+                toolsets=(
+                    FffSourceToolset(
+                        provider=session.fff,
+                        state=session.edit_mode,
+                        observations=session.observations,
+                        include_grep=self.include_grep,
+                        include_multi_grep=self.include_multi_grep,
+                    ),
+                )
+                if self.include_grep or self.include_multi_grep
+                else (),
             ),
         )
         return bound
