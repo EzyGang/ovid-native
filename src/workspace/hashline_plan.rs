@@ -5,9 +5,9 @@ use crate::workspace::hashline_locator::resolve_operations;
 use crate::workspace::hashline_types::{
     HashlineFilePlan, HashlinePlan, HashlineSection, PreparedHashlineSection,
 };
-use crate::workspace::path::{normalize_relative, resolve_new_file};
+use crate::workspace::path::normalize_relative;
 use crate::workspace::workflows::load_current;
-use crate::workspace::{MutationContext, Workspace, WorkspaceError, sha256};
+use crate::workspace::{MutationContext, Workspace, WorkspaceError};
 
 pub(crate) fn build_plan(
     workspace: &Workspace,
@@ -38,7 +38,6 @@ pub(crate) fn build_plan(
         }
         prepared.push(prepare_section(workspace, section, &path, context)?);
     }
-    validate_path_conflicts(workspace, &prepared, &seen_paths)?;
 
     let mut named = workspace.named_registers()?;
     let mut anonymous = None;
@@ -84,13 +83,10 @@ fn prepare_section(
     let remove = directives
         .first()
         .is_some_and(|operation| operation.kind == "remove");
-    if remove && section.operations.len() > 1 {
-        return Err(WorkspaceError::Patch(format!(
-            "Hashline REM cannot be combined with edits: {path}"
-        )));
-    }
     if remove || destination.is_some() {
-        require_current_complete(path, &current.source, &authorization)?;
+        return Err(WorkspaceError::Patch(format!(
+            "Hashline REM and MV are unavailable without atomic file identity binding: {path}"
+        )));
     }
 
     let editable = section
@@ -113,39 +109,4 @@ fn prepare_section(
         },
         operations,
     })
-}
-
-fn require_current_complete(
-    path: &str,
-    source: &str,
-    authorization: &crate::workspace::observation_types::Authorization,
-) -> Result<(), WorkspaceError> {
-    authorization.require_complete(path)?;
-    if authorization.receipt.content_sha256 != sha256(source.as_bytes()) {
-        return Err(WorkspaceError::Stale(format!(
-            "complete Hashline observation changed; reread {path}"
-        )));
-    }
-    Ok(())
-}
-
-fn validate_path_conflicts(
-    workspace: &Workspace,
-    sections: &[PreparedHashlineSection],
-    sources: &HashSet<String>,
-) -> Result<(), WorkspaceError> {
-    let mut destinations = HashSet::new();
-    for section in sections {
-        let Some(destination) = section.file.destination.as_deref() else {
-            continue;
-        };
-        let destination = normalize_relative(destination)?;
-        if sources.contains(&destination) || !destinations.insert(destination.clone()) {
-            return Err(WorkspaceError::Patch(format!(
-                "Hashline move destination conflicts with another section: {destination}"
-            )));
-        }
-        resolve_new_file(workspace.root(), &destination, false)?;
-    }
-    Ok(())
 }

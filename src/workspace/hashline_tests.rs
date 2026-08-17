@@ -281,3 +281,35 @@ fn hashline_uses_normalized_observation_paths() {
 
     assert_eq!(fs::read_to_string(path).expect("source"), "changed\n");
 }
+
+#[test]
+fn hashline_rejects_destructive_directives_without_identity_binding() {
+    let root = tempfile::tempdir().expect("workspace");
+    fs::write(root.path().join("source.txt"), "one\n").expect("source");
+    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let read = workspace.read_file("source.txt", &[]).expect("observation");
+    let receipt = read.observation.expect("receipt");
+    let remove = HashlineOperation {
+        kind: "remove".to_owned(),
+        start: None,
+        start_hash: None,
+        end: None,
+        end_hash: None,
+        body: Vec::new(),
+        register: None,
+        destination: None,
+    };
+
+    let error = workspace
+        .apply_hashline(
+            &[HashlineSection {
+                path: "source.txt".to_owned(),
+                tag: receipt.tag,
+                operations: vec![remove],
+            }],
+            &context(&workspace),
+        )
+        .expect_err("destructive Hashline directives must be unavailable");
+
+    assert!(matches!(error, WorkspaceError::Patch(message) if message.contains("unavailable")));
+}
