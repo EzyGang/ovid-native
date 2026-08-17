@@ -7,7 +7,7 @@ use crate::workspace::path::resolve_new_file;
 use crate::workspace::workflows::edit_result;
 use crate::workspace::{
     EditResult, FileChange, MutationContext, Workspace, WorkspaceError, atomic_replace_path,
-    move_file_noclobber, sha256,
+    ensure_current_path, move_file_noclobber, sha256,
 };
 
 impl Workspace {
@@ -58,6 +58,7 @@ impl Workspace {
     ) -> Result<(FileChange, Option<crate::workspace::PostEditSource>), WorkspaceError> {
         let before = sha256(file.current.source.as_bytes());
         if file.remove {
+            ensure_current_path(&file.target, &file.path, &before)?;
             fs::remove_file(&file.target).map_err(|error| {
                 WorkspaceError::Write(format!("cannot delete {}: {error}", file.path))
             })?;
@@ -75,6 +76,8 @@ impl Workspace {
         }
         let final_path = match file.destination.as_deref() {
             Some(destination) => {
+                let expected = sha256(file.final_source.as_bytes());
+                ensure_current_path(&file.target, &file.path, &expected)?;
                 let destination_path = resolve_new_file(self.root(), destination, false)?;
                 move_file_noclobber(&file.target, &destination_path, &file.path, destination)?;
                 destination

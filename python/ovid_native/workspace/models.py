@@ -152,7 +152,11 @@ class WorkspaceViewProvider(Protocol):
     def acquire_view(
         self,
         purpose: WorkspaceViewPurpose,
-    ) -> AbstractAsyncContextManager[WorkspaceView]: ...
+    ) -> AbstractAsyncContextManager[WorkspaceView]:
+        """Acquires a stable view that coordinates operations for its lifetime."""
+
+    async def current_revision(self, purpose: WorkspaceViewPurpose) -> str:
+        """Returns the current revision without acquiring another view."""
 
 
 class WorkspaceSession(Protocol):

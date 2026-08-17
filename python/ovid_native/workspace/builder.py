@@ -97,7 +97,7 @@ class WorkspaceSessionBuilder:
 
     def with_view_provider(self, provider: WorkspaceViewProvider) -> Self:
         self._select('view')
-        _require_methods(provider, operation='view', methods=('acquire_view',))
+        _require_methods(provider, operation='view', methods=('acquire_view', 'current_revision'))
         self._view_provider = provider
         return self
 

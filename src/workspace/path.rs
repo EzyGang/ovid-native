@@ -316,6 +316,32 @@ pub(crate) fn validate_relative(value: &str) -> Result<(), WorkspaceError> {
     Ok(())
 }
 
+pub(crate) fn normalize_relative(value: &str) -> Result<String, WorkspaceError> {
+    validate_relative(value)?;
+    let mut normalized = PathBuf::new();
+    for component in Path::new(value).components() {
+        match component {
+            Component::CurDir => (),
+            Component::Normal(component) => normalized.push(component),
+            Component::Prefix(_) | Component::RootDir | Component::ParentDir => {
+                return Err(WorkspaceError::Path(format!(
+                    "workspace path must remain relative: {value}"
+                )));
+            }
+        }
+    }
+    if normalized.as_os_str().is_empty() {
+        return Err(WorkspaceError::Path(format!(
+            "workspace paths must identify a file: {value}"
+        )));
+    }
+
+    normalized
+        .to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| WorkspaceError::Path(format!("workspace path is not valid UTF-8: {value}")))
+}
+
 fn normalize(path: &str) -> String {
     let normalized = path.replace('\\', "/");
     let trimmed = normalized.trim_start_matches("./");

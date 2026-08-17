@@ -52,8 +52,8 @@ pub(crate) use types::{
 };
 pub(crate) use workflows::MutationContext;
 pub(crate) use write::{
-    EditResult, FileChange, PostEditSource, atomic_replace_path, create_file, move_file_noclobber,
-    preflight_write, replace_file, sha256,
+    EditResult, FileChange, PostEditSource, atomic_replace_path, create_file, ensure_current_path,
+    move_file_noclobber, preflight_write, replace_file, sha256,
 };
 
 #[derive(Debug)]

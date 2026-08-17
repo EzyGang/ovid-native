@@ -5,7 +5,7 @@ use crate::workspace::hashline_locator::resolve_operations;
 use crate::workspace::hashline_types::{
     HashlineFilePlan, HashlinePlan, HashlineSection, PreparedHashlineSection,
 };
-use crate::workspace::path::{resolve_new_file, validate_relative};
+use crate::workspace::path::{normalize_relative, resolve_new_file};
 use crate::workspace::workflows::load_current;
 use crate::workspace::{MutationContext, Workspace, WorkspaceError, sha256};
 
@@ -29,14 +29,14 @@ pub(crate) fn build_plan(
     let mut prepared = Vec::new();
     for section in sections {
         context.ensure_active()?;
-        validate_relative(&section.path)?;
-        if !seen_paths.insert(section.path.clone()) {
+        let path = normalize_relative(&section.path)?;
+        if !seen_paths.insert(path.clone()) {
             return Err(WorkspaceError::Patch(format!(
                 "duplicate Hashline file section: {}",
                 section.path
             )));
         }
-        prepared.push(prepare_section(workspace, section, context)?);
+        prepared.push(prepare_section(workspace, section, &path, context)?);
     }
     validate_path_conflicts(workspace, &prepared, &seen_paths)?;
 
@@ -55,19 +55,17 @@ pub(crate) fn build_plan(
 fn prepare_section(
     workspace: &Workspace,
     section: &HashlineSection,
+    path: &str,
     context: &MutationContext,
 ) -> Result<PreparedHashlineSection, WorkspaceError> {
     let (target, current) =
-        load_current(workspace, &section.path, &context.policy).map_err(|error| match error {
+        load_current(workspace, path, &context.policy).map_err(|error| match error {
             WorkspaceError::Read(_) => WorkspaceError::Patch(format!(
-                "Hashline cannot edit a missing path; use write: {}",
-                section.path
+                "Hashline cannot edit a missing path; use write: {path}"
             )),
             other => other,
         })?;
-    let authorization = workspace
-        .observations()?
-        .resolve_tag(&section.path, &section.tag)?;
+    let authorization = workspace.observations()?.resolve_tag(path, &section.tag)?;
     let directives = section
         .operations
         .iter()
@@ -75,24 +73,24 @@ fn prepare_section(
         .collect::<Vec<_>>();
     if directives.len() > 1 {
         return Err(WorkspaceError::Patch(format!(
-            "Hashline section has incompatible file directives: {}",
-            section.path
+            "Hashline section has incompatible file directives: {path}"
         )));
     }
     let destination = directives
         .first()
-        .and_then(|operation| operation.destination.clone());
+        .and_then(|operation| operation.destination.as_deref())
+        .map(normalize_relative)
+        .transpose()?;
     let remove = directives
         .first()
         .is_some_and(|operation| operation.kind == "remove");
     if remove && section.operations.len() > 1 {
         return Err(WorkspaceError::Patch(format!(
-            "Hashline REM cannot be combined with edits: {}",
-            section.path
+            "Hashline REM cannot be combined with edits: {path}"
         )));
     }
     if remove || destination.is_some() {
-        require_current_complete(&section.path, &current.source, &authorization)?;
+        require_current_complete(path, &current.source, &authorization)?;
     }
 
     let editable = section
@@ -101,11 +99,11 @@ fn prepare_section(
         .filter(|operation| !matches!(operation.kind.as_str(), "remove" | "move"))
         .cloned()
         .collect::<Vec<_>>();
-    let operations = resolve_operations(&section.path, &current, &authorization, &editable)?;
+    let operations = resolve_operations(path, &current, &authorization, &editable)?;
 
     Ok(PreparedHashlineSection {
         file: HashlineFilePlan {
-            path: section.path.clone(),
+            path: path.to_owned(),
             destination,
             remove,
             target,
@@ -141,13 +139,13 @@ fn validate_path_conflicts(
         let Some(destination) = section.file.destination.as_deref() else {
             continue;
         };
-        validate_relative(destination)?;
-        if sources.contains(destination) || !destinations.insert(destination.to_owned()) {
+        let destination = normalize_relative(destination)?;
+        if sources.contains(&destination) || !destinations.insert(destination.clone()) {
             return Err(WorkspaceError::Patch(format!(
                 "Hashline move destination conflicts with another section: {destination}"
             )));
         }
-        resolve_new_file(workspace.root(), destination, false)?;
+        resolve_new_file(workspace.root(), &destination, false)?;
     }
     Ok(())
 }

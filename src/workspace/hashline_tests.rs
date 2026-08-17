@@ -2,7 +2,10 @@ use std::fs;
 
 use crate::workspace::hashline_types::{HashlineOperation, HashlineSection};
 use crate::workspace::line_hash::short_line_hash;
-use crate::workspace::{Cancellation, LineRange, MutationContext, Workspace, WorkspaceError};
+use crate::workspace::{
+    Cancellation, LineRange, MutationContext, Workspace, WorkspaceError, ensure_current_path,
+    sha256,
+};
 
 fn context(workspace: &Workspace) -> MutationContext {
     let mode = workspace.set_edit_mode("hashline").expect("edit mode");
@@ -193,4 +196,56 @@ fn hashline_resolves_cross_file_registers_in_authored_order() {
         fs::read_to_string(root.path().join("target.txt")).expect("target"),
         "target\nmove me\n"
     );
+}
+
+#[test]
+fn hashline_rejects_duplicate_normalized_paths_before_committing() {
+    let root = tempfile::tempdir().expect("workspace");
+    let path = root.path().join("source.txt");
+    fs::write(&path, "one\n").expect("source");
+    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let read = workspace.read_file("source.txt", &[]).expect("observation");
+    let receipt = read.observation.expect("receipt");
+    let operation = put_range(
+        1,
+        &read.lines[0].short_hash,
+        1,
+        &read.lines[0].short_hash,
+        &["changed"],
+    );
+
+    let error = workspace
+        .apply_hashline(
+            &[
+                HashlineSection {
+                    path: "source.txt".to_owned(),
+                    tag: receipt.tag.clone(),
+                    operations: vec![operation.clone()],
+                },
+                HashlineSection {
+                    path: "./source.txt".to_owned(),
+                    tag: receipt.tag,
+                    operations: vec![operation],
+                },
+            ],
+            &context(&workspace),
+        )
+        .expect_err("duplicate normalized paths must fail");
+
+    assert!(matches!(error, WorkspaceError::Patch(message) if message.contains("duplicate")));
+    assert_eq!(fs::read_to_string(path).expect("source"), "one\n");
+}
+
+#[test]
+fn destructive_hashline_precondition_rejects_changed_source() {
+    let root = tempfile::tempdir().expect("workspace");
+    let path = root.path().join("source.txt");
+    fs::write(&path, "one\n").expect("source");
+    let expected = sha256(b"one\n");
+    fs::write(&path, "changed\n").expect("external change");
+
+    assert!(matches!(
+        ensure_current_path(&path, "source.txt", &expected),
+        Err(WorkspaceError::Stale(_))
+    ));
 }

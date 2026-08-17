@@ -26,13 +26,16 @@ from ovid_native.workspace.views import NativeViewAstProvider, NativeViewFffProv
 
 
 class StableViewProvider:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, *, exclusive: bool = False) -> None:
         self._root = root
+        self._exclusive = exclusive
         self.active = 0
         self.revision_suffix = ''
 
     @asynccontextmanager
     async def acquire_view(self, purpose: WorkspaceViewPurpose) -> AsyncIterator[WorkspaceView]:
+        if self._exclusive and self.active:
+            raise RuntimeError('concurrent view acquisition')
         self.active += 1
         try:
             yield WorkspaceView(
@@ -42,6 +45,9 @@ class StableViewProvider:
             )
         finally:
             self.active -= 1
+
+    async def current_revision(self, purpose: WorkspaceViewPurpose) -> str:
+        return f'revision:{purpose}{self.revision_suffix}'
 
 
 def test_native_operations_use_stable_custom_views_and_ast_commits_through_files(tmp_path: Path) -> None:
@@ -122,6 +128,22 @@ def test_native_operations_use_stable_custom_views_and_ast_commits_through_files
     asyncio.run(run())
 
 
+def test_fff_revision_validation_does_not_acquire_another_view(tmp_path: Path) -> None:
+    async def run() -> None:
+        views = StableViewProvider(tmp_path, exclusive=True)
+        provider = NativeViewFffProvider(views)
+
+        await provider.start()
+        await provider.wait_ready(timeout_seconds=10)
+        await provider.find(FffFindRequest(query='missing'))
+
+        assert views.active == 1
+        await provider.close()
+        assert views.active == 0
+
+    asyncio.run(run())
+
+
 def test_view_backed_ast_rejects_stale_source_before_commit(tmp_path: Path) -> None:
     async def run() -> None:
         source = tmp_path / 'source.py'
@@ -175,6 +197,9 @@ def test_view_adapters_reject_invalid_and_unstarted_views(tmp_path: Path) -> Non
                 )
             finally:
                 self.active -= 1
+
+        async def current_revision(self, purpose: WorkspaceViewPurpose) -> str:
+            return f'revision:{purpose}'
 
     async def run() -> None:
         writable = InvalidViewProvider(root=tmp_path, read_only=False)

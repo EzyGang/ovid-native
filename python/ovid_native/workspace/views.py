@@ -86,12 +86,26 @@ class NativeViewAstProvider:
         proposal = self._proposals.pop(request.proposal_id, None)
         if proposal is None:
             raise AstProposalNotFoundError(f'AST rewrite proposal not found: {request.proposal_id}')
+
         async with self._provider.acquire_view(WorkspaceViewPurpose.AST) as view:
             _require_read_only(view)
             if view.revision != proposal.revision:
                 raise AstProposalStaleError(
                     f'AST rewrite proposal has a stale workspace revision: {request.proposal_id}'
                 )
+
+            patches = await self._patches(proposal)
+            patch_body = '\n'.join(patches)
+            envelope = f'*** Begin Patch\n{patch_body}\n*** End Patch'
+            await self._files.apply_patch(ApplyPatchEditRequest(input=envelope))
+
+        return AstRewriteApplyResult(
+            proposal_id=request.proposal_id,
+            files=proposal.preview.files,
+            total_replacements=proposal.preview.total_replacements,
+        )
+
+    async def _patches(self, proposal: _ViewAstProposal) -> list[str]:
         patches = []
         for path, original_sha256, updated, _ in proposal.files:
             current = await self._files.read_file(WorkspaceFileReadRequest(path=path))
@@ -104,14 +118,8 @@ class NativeViewAstProvider:
             diff_lines = list(difflib.unified_diff(before, after, lineterm=''))[2:]
             body = '\n'.join(diff_lines)
             patches.append(f'*** Update File: {path}\n{body}')
-        patch_body = '\n'.join(patches)
-        envelope = f'*** Begin Patch\n{patch_body}\n*** End Patch'
-        await self._files.apply_patch(ApplyPatchEditRequest(input=envelope))
-        return AstRewriteApplyResult(
-            proposal_id=request.proposal_id,
-            files=proposal.preview.files,
-            total_replacements=proposal.preview.total_replacements,
-        )
+
+        return patches
 
 
 class NativeViewFffProvider:
@@ -180,10 +188,9 @@ class NativeViewFffProvider:
         return self._engine, self._revision
 
     async def _validate_revision(self) -> None:
-        async with self._provider.acquire_view(WorkspaceViewPurpose.FFF) as view:
-            _require_read_only(view)
-            if view.revision != self._revision:
-                raise WorkspaceStaleError('FFF workspace view revision changed; restart the workspace session')
+        revision = await self._provider.current_revision(WorkspaceViewPurpose.FFF)
+        if revision != self._revision:
+            raise WorkspaceStaleError('FFF workspace view revision changed; restart the workspace session')
 
 
 def _require_read_only(view: WorkspaceView) -> None:

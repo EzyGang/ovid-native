@@ -151,6 +151,21 @@ pub(crate) fn atomic_replace_path(
     })
 }
 
+pub(crate) fn ensure_current_path(
+    target: &Path,
+    relative: &str,
+    expected_sha256: &str,
+) -> Result<(), WorkspaceError> {
+    let current = fs::read(target)
+        .map_err(|_| WorkspaceError::Stale(format!("cannot read rewrite target: {relative}")))?;
+    if sha256(NormalizedText::decode(current)?.source.as_bytes()) != expected_sha256 {
+        return Err(WorkspaceError::Stale(format!(
+            "rewrite target changed: {relative}"
+        )));
+    }
+    Ok(())
+}
+
 pub(crate) fn move_file_noclobber(
     source: &Path,
     destination: &Path,
