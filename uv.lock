@@ -852,7 +852,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [{ name = "ovid-core", editable = "../ovid-core" }]
-provides-extras = ["ast", "search", "fff", "all"]
+provides-extras = ["ast", "search", "fff", "files", "all"]
 
 [package.metadata.requires-dev]
 benchmark = [{ name = "pyperf", specifier = ">=2.9,<3" }]

@@ -24,9 +24,25 @@ impl From<crate::workspace::WorkspaceError> for SearchError {
                 Self::Configuration(message)
             }
             crate::workspace::WorkspaceError::Path(message) => Self::Path(message),
-            crate::workspace::WorkspaceError::Read(message) => Self::Read(message),
-            crate::workspace::WorkspaceError::Stale(message)
+            crate::workspace::WorkspaceError::Read(message)
+            | crate::workspace::WorkspaceError::Encoding(message)
+            | crate::workspace::WorkspaceError::Binary(message)
+            | crate::workspace::WorkspaceError::ObservationNotFound(message)
+            | crate::workspace::WorkspaceError::ObservationCollision(message)
+            | crate::workspace::WorkspaceError::UnseenLine(message)
+            | crate::workspace::WorkspaceError::ObservedLineChanged(message)
+            | crate::workspace::WorkspaceError::Stale(message)
+            | crate::workspace::WorkspaceError::EditMode(message)
+            | crate::workspace::WorkspaceError::Patch(message)
             | crate::workspace::WorkspaceError::Write(message) => Self::Read(message),
+            crate::workspace::WorkspaceError::Limit(message) => Self::Limit(message),
+            crate::workspace::WorkspaceError::PartialCommit {
+                landed, pending, ..
+            } => Self::Read(format!(
+                "workspace operation committed [{}] with pending [{}]",
+                landed.join(", "),
+                pending.join(", ")
+            )),
             crate::workspace::WorkspaceError::Closed => {
                 Self::Read("workspace is closed".to_owned())
             }
