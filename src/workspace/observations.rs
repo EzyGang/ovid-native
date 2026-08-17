@@ -2,75 +2,10 @@ use std::collections::{HashMap, HashSet};
 
 use crate::workspace::WorkspaceError;
 use crate::workspace::content::NormalizedText;
+use crate::workspace::observation_types::{
+    Authorization, LineRange, ObservationReceipt, RenderedLine,
+};
 use crate::workspace::write::sha256;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct LineRange {
-    pub start: usize,
-    pub end: usize,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct RenderedLine {
-    pub number: usize,
-    pub short_hash: String,
-    pub text: String,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ObservationReceipt {
-    pub path: String,
-    pub tag: String,
-    pub content_sha256: String,
-    pub generation: u64,
-    pub visible_ranges: Vec<LineRange>,
-    pub complete_presentation: bool,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct Authorization {
-    pub receipt: ObservationReceipt,
-    line_digests: HashMap<usize, String>,
-}
-
-impl Authorization {
-    pub(crate) fn require_lines(
-        &self,
-        path: &str,
-        text: &NormalizedText,
-        lines: &HashSet<usize>,
-    ) -> Result<(), WorkspaceError> {
-        for line in lines {
-            let retained = self.line_digests.get(line).ok_or_else(|| {
-                WorkspaceError::UnseenLine(format!(
-                    "workspace line was not observed: {path}:{line}"
-                ))
-            })?;
-            let current = text.line(*line).ok_or_else(|| {
-                WorkspaceError::ObservedLineChanged(format!(
-                    "observed workspace line no longer exists: {path}:{line}"
-                ))
-            })?;
-            if *retained != sha256(current.as_bytes()) {
-                return Err(WorkspaceError::ObservedLineChanged(format!(
-                    "observed workspace line changed: {path}:{line}"
-                )));
-            }
-        }
-
-        Ok(())
-    }
-
-    pub(crate) fn require_complete(&self, path: &str) -> Result<(), WorkspaceError> {
-        if !self.receipt.complete_presentation {
-            return Err(WorkspaceError::UnseenLine(format!(
-                "complete workspace file observation is required: {path}"
-            )));
-        }
-
-        Ok(())
-    }
-}
 
 #[derive(Debug)]
 struct ObservationEntry {
@@ -227,10 +162,10 @@ impl ObservationLedger {
 
         self.clock = self.clock.saturating_add(1);
         entry.last_used = self.clock;
-        Ok(Authorization {
-            receipt: entry.receipt.clone(),
-            line_digests: entry.line_digests.clone(),
-        })
+        Ok(Authorization::new(
+            entry.receipt.clone(),
+            entry.line_digests.clone(),
+        ))
     }
 
     fn register_tag(&mut self, key: &(String, String), digest: &str) {
@@ -264,11 +199,6 @@ impl ObservationLedger {
         }
     }
 }
-
-pub(crate) fn short_line_hash(input: &[u8]) -> u8 {
-    (xxh32(input) & 0xff) as u8
-}
-
 fn merge_rendered(entry: &mut ObservationEntry, text: &NormalizedText, rendered: &[RenderedLine]) {
     for line in rendered {
         if let Some(source) = text.line(line.number) {
@@ -300,76 +230,4 @@ fn ranges_from_lines(lines: impl Iterator<Item = usize>) -> Vec<LineRange> {
         }
     }
     ranges
-}
-
-fn xxh32(input: &[u8]) -> u32 {
-    const PRIME1: u32 = 2_654_435_761;
-    const PRIME2: u32 = 2_246_822_519;
-    const PRIME3: u32 = 3_266_489_917;
-    const PRIME4: u32 = 668_265_263;
-    const PRIME5: u32 = 374_761_393;
-
-    let mut index = 0;
-    let mut hash = if input.len() >= 16 {
-        let mut v1 = PRIME1.wrapping_add(PRIME2);
-        let mut v2 = PRIME2;
-        let mut v3 = 0;
-        let mut v4 = 0_u32.wrapping_sub(PRIME1);
-        while index <= input.len() - 16 {
-            v1 = xxh_round(v1, read_u32(&input[index..]));
-            v2 = xxh_round(v2, read_u32(&input[index + 4..]));
-            v3 = xxh_round(v3, read_u32(&input[index + 8..]));
-            v4 = xxh_round(v4, read_u32(&input[index + 12..]));
-            index += 16;
-        }
-        v1.rotate_left(1)
-            .wrapping_add(v2.rotate_left(7))
-            .wrapping_add(v3.rotate_left(12))
-            .wrapping_add(v4.rotate_left(18))
-    } else {
-        PRIME5
-    };
-    hash = hash.wrapping_add(input.len() as u32);
-    while index + 4 <= input.len() {
-        hash = hash
-            .wrapping_add(read_u32(&input[index..]).wrapping_mul(PRIME3))
-            .rotate_left(17)
-            .wrapping_mul(PRIME4);
-        index += 4;
-    }
-    while index < input.len() {
-        hash = hash
-            .wrapping_add(u32::from(input[index]).wrapping_mul(PRIME5))
-            .rotate_left(11)
-            .wrapping_mul(PRIME1);
-        index += 1;
-    }
-    hash ^= hash >> 15;
-    hash = hash.wrapping_mul(PRIME2);
-    hash ^= hash >> 13;
-    hash = hash.wrapping_mul(PRIME3);
-    hash ^ (hash >> 16)
-}
-
-fn xxh_round(value: u32, input: u32) -> u32 {
-    value
-        .wrapping_add(input.wrapping_mul(2_246_822_519))
-        .rotate_left(13)
-        .wrapping_mul(2_654_435_761)
-}
-
-fn read_u32(input: &[u8]) -> u32 {
-    u32::from_le_bytes([input[0], input[1], input[2], input[3]])
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn xxh32_matches_reference_vectors() {
-        assert_eq!(xxh32(b""), 0x02cc_5d05);
-        assert_eq!(xxh32(b"a"), 0x550d_7456);
-        assert_eq!(xxh32(b"hello"), 0xfb00_77f9);
-    }
 }

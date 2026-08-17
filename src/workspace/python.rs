@@ -238,15 +238,24 @@ fn workspace_set_edit_mode(
 }
 
 #[pyfunction]
+#[pyo3(signature = (workspace, mode=None))]
 fn workspace_capture_mutation(
     workspace: PyRef<'_, NativeWorkspace>,
+    mode: Option<String>,
 ) -> PyResult<NativeWorkspaceMutation> {
-    let mode = workspace.inner.edit_mode().map_err(to_python_error)?;
+    let selection = workspace.inner.edit_mode().map_err(to_python_error)?;
     let policy = workspace.inner.policy().map_err(to_python_error)?;
+    let captured_mode = mode.unwrap_or(selection.mode);
+    if !matches!(captured_mode.as_str(), "replace" | "patch" | "apply_patch") {
+        return Err(to_python_error(WorkspaceError::EditMode(format!(
+            "workspace edit mode is not registered: {captured_mode}"
+        ))));
+    }
+
     Ok(NativeWorkspaceMutation {
         context: MutationContext {
-            mode: mode.mode,
-            mode_generation: mode.generation,
+            mode: captured_mode,
+            mode_generation: selection.generation,
             policy_generation: policy.generation,
             cancellation: Cancellation::new(),
             policy: policy.policy,

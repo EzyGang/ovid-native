@@ -3,7 +3,6 @@ from pathlib import Path
 from typing import cast
 from uuid import uuid4
 
-import pytest
 from ovid_core.adapters.pydantic_ai import PydanticAIToolsetAdapter
 from ovid_core.agents import AgentDefinition, AgentFactory
 from ovid_core.config.models import ModelConfig, OvidConfig
@@ -18,13 +17,7 @@ from pydantic_ai.models.test import TestModel
 from pydantic_ai.usage import RunUsage
 from pytest_mock import MockerFixture
 
-from ovid_native.files import (
-    EditMode,
-    ReadLineRange,
-    WorkspaceEditModeError,
-    WorkspaceFileReadRequest,
-    WorkspaceFilesCapability,
-)
+from ovid_native.files import EditMode, ReadLineRange, WorkspaceFileReadRequest, WorkspaceFilesCapability
 from ovid_native.workspace.service import NativeWorkspaceSession, workspace_binding
 
 
@@ -95,16 +88,18 @@ def test_bound_edit_call_keeps_captured_mode_and_policy_generation(tmp_path: Pat
     workspace.edit_mode.set(EditMode.REPLACE)
     workspace.policy.update(allow_fuzzy_replace=True)
     patch = '*** Begin Patch\n*** Update File: source.txt\n@@\n-one\n+two\n*** End Patch'
-    with pytest.raises(WorkspaceEditModeError):
-        asyncio.run(
-            first_step.call_tool(
-                'apply_patch',
-                {'input': patch},
-                context,
-                first_definitions['apply_patch'],
-            )
+    first_result = asyncio.run(
+        first_step.call_tool(
+            'apply_patch',
+            {'input': patch},
+            context,
+            first_definitions['apply_patch'],
         )
-    assert source.read_text() == 'one\n'
+    )
+    assert source.read_text() == 'two\n'
+    assert first_result['metadata']['mode'] == 'apply_patch'
+    assert first_result['metadata']['mode_generation'] == 1
+    assert first_result['metadata']['policy_generation'] == 1
 
     second_step = asyncio.run(adapter.for_run_step(context))
     second_definitions = asyncio.run(second_step.get_tools(context))
@@ -112,7 +107,7 @@ def test_bound_edit_call_keeps_captured_mode_and_policy_generation(tmp_path: Pat
     second_result = asyncio.run(
         second_step.call_tool(
             'edit',
-            {'path': 'source.txt', 'old_string': 'one', 'new_string': 'three'},
+            {'path': 'source.txt', 'old_string': 'two', 'new_string': 'three'},
             context,
             second_definitions['edit'],
         )

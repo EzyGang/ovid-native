@@ -145,7 +145,7 @@ class WorkspaceFilesEngine:
         *,
         mutation: _native.NativeWorkspaceMutation | None = None,
     ) -> WorkspaceEditResult:
-        captured = mutation if mutation is not None else _native.workspace_capture_mutation(self._workspace)
+        captured = mutation if mutation is not None else _native.workspace_capture_mutation(self._workspace, 'replace')
         native = await self._mutate(
             lambda cancellation: _native.workspace_replace_text(
                 self._workspace,
@@ -163,7 +163,7 @@ class WorkspaceFilesEngine:
         *,
         mutation: _native.NativeWorkspaceMutation | None = None,
     ) -> WorkspaceEditResult:
-        captured = mutation if mutation is not None else _native.workspace_capture_mutation(self._workspace)
+        captured = mutation if mutation is not None else _native.workspace_capture_mutation(self._workspace, 'patch')
         edits: list[tuple[str, str | None, str | None]] = [
             (entry.operation, entry.diff, entry.destination) for entry in request.edits
         ]
@@ -184,7 +184,9 @@ class WorkspaceFilesEngine:
         *,
         mutation: _native.NativeWorkspaceMutation | None = None,
     ) -> WorkspaceEditResult:
-        captured = mutation if mutation is not None else _native.workspace_capture_mutation(self._workspace)
+        captured = (
+            mutation if mutation is not None else _native.workspace_capture_mutation(self._workspace, 'apply_patch')
+        )
         native = await self._mutate(
             lambda cancellation: _native.workspace_apply_patch(
                 self._workspace,

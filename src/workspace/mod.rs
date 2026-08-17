@@ -1,9 +1,15 @@
 mod content;
 mod control;
+mod file_mutations;
+mod line_hash;
+#[cfg(test)]
+mod observation_tests;
+mod observation_types;
 mod observations;
 mod patch;
 mod path;
 pub(crate) mod python;
+mod replace;
 mod scan;
 #[cfg(test)]
 mod tests;
@@ -26,7 +32,8 @@ pub(crate) use content::{
     inspect_text, read_content,
 };
 pub(crate) use control::{Cancellation, WorkControl, WorkStopped};
-pub(crate) use observations::{LineRange, ObservationLedger, ObservationReceipt, RenderedLine};
+pub(crate) use observation_types::{LineRange, ObservationReceipt, RenderedLine};
+pub(crate) use observations::ObservationLedger;
 pub(crate) use patch::{parse_apply_patch, parse_structured_patch};
 pub(crate) use python::NativeWorkspace;
 pub(crate) use types::{
@@ -268,27 +275,14 @@ impl Workspace {
         context: &MutationContext,
         expected_mode: &str,
     ) -> Result<(), WorkspaceError> {
-        let mode = self.edit_mode()?;
-        if mode.mode != expected_mode || mode.generation != context.mode_generation {
-            return Err(WorkspaceError::EditMode(
-                "workspace edit mode changed before mutation".to_owned(),
-            ));
+        if context.mode != expected_mode {
+            return Err(WorkspaceError::EditMode(format!(
+                "captured edit mode does not match mutation: {} != {expected_mode}",
+                context.mode
+            )));
         }
 
-        self.validate_policy(context)?;
-
-        Ok(())
-    }
-
-    pub(crate) fn validate_policy(&self, context: &MutationContext) -> Result<(), WorkspaceError> {
-        let policy = self.policy()?;
-        if policy.generation != context.policy_generation {
-            return Err(WorkspaceError::Stale(
-                "workspace policy changed before mutation".to_owned(),
-            ));
-        }
-
-        Ok(())
+        context.ensure_active()
     }
 
     pub(crate) fn observations(&self) -> Result<MutexGuard<'_, ObservationLedger>, WorkspaceError> {
@@ -501,7 +495,7 @@ fn bounded_render(
             used = used.saturating_add(line_bytes);
             lines.push(RenderedLine {
                 number,
-                short_hash: format!("{:02X}", observations::short_line_hash(source.as_bytes())),
+                short_hash: format!("{:02X}", line_hash::short_line_hash(source.as_bytes())),
                 text: source.to_owned(),
             });
         }

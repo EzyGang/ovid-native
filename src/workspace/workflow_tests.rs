@@ -132,19 +132,21 @@ fn replace_requires_current_seen_lines_and_respects_fuzzy_policy() {
 }
 
 #[test]
-fn mutations_reject_stale_mode_and_policy_contexts() {
+fn mutations_retain_captured_mode_and_policy_contexts() {
     let root = tempfile::tempdir().expect("workspace");
     fs::write(root.path().join("source.txt"), "source\n").expect("source");
     let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
-    let stale_mode = context(&workspace, "replace");
+    workspace.read_file("source.txt", &[]).expect("observation");
+    let captured_mode = context(&workspace, "replace");
     workspace.set_edit_mode("patch").expect("mode change");
 
-    assert!(matches!(
-        workspace.replace_text("source.txt", "source", "changed", false, &stale_mode),
-        Err(WorkspaceError::EditMode(_))
-    ));
+    let mode_result = workspace
+        .replace_text("source.txt", "source", "changed", false, &captured_mode)
+        .expect("captured mode");
+    assert_eq!(mode_result.mode, "replace");
+    assert_eq!(mode_result.mode_generation, captured_mode.mode_generation);
 
-    let stale_policy = context(&workspace, "replace");
+    let captured_policy = context(&workspace, "replace");
     workspace
         .set_policy(WorkspacePolicy {
             allow_fuzzy_replace: true,
@@ -152,22 +154,35 @@ fn mutations_reject_stale_mode_and_policy_contexts() {
         })
         .expect("policy change");
 
-    assert!(matches!(
-        workspace.replace_text("source.txt", "source", "changed", false, &stale_policy),
-        Err(WorkspaceError::Stale(_))
-    ));
+    let policy_result = workspace
+        .replace_text("source.txt", "changed", "updated", false, &captured_policy)
+        .expect("captured policy");
+    assert_eq!(
+        policy_result.policy_generation,
+        captured_policy.policy_generation
+    );
 
-    let stale_direct_policy =
+    workspace
+        .set_policy(WorkspacePolicy {
+            create_parent_directories: true,
+            ..WorkspacePolicy::default()
+        })
+        .expect("parent policy");
+    let captured_direct_policy =
         MutationContext::write(workspace.policy().expect("policy"), Cancellation::new());
     workspace
         .set_policy(WorkspacePolicy::default())
         .expect("policy revocation");
 
-    assert!(matches!(
-        workspace.create_text_file("created.txt", "created", false, &stale_direct_policy),
-        Err(WorkspaceError::Stale(_))
-    ));
-    assert!(!root.path().join("created.txt").exists());
+    workspace
+        .create_text_file(
+            "nested/created.txt",
+            "created",
+            true,
+            &captured_direct_policy,
+        )
+        .expect("captured direct policy");
+    assert!(root.path().join("nested/created.txt").exists());
 }
 
 #[test]

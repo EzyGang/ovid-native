@@ -8,6 +8,7 @@ from pytest_mock import MockerFixture
 
 from ovid_native import _native
 from ovid_native.files import (
+    ApplyPatchEditRequest,
     EditMode,
     ReadLineRange,
     WorkspaceEditModeError,
@@ -26,6 +27,7 @@ from ovid_native.workspace.errors import (
     translate_native_workspace_error,
 )
 from ovid_native.workspace.observations import (
+    WorkspaceChangeEvent,
     WorkspaceChangeSubscription,
     WorkspaceLineRange,
     WorkspaceObservationRequest,
@@ -154,6 +156,31 @@ def test_observation_expected_revision_and_generic_read_dispatch(tmp_path: Path)
                 )
             )
         )
+    asyncio.run(workspace.close())
+
+
+def test_partial_commit_publishes_landed_changes(tmp_path: Path, mocker: MockerFixture) -> None:
+    workspace = NativeWorkspaceSession(root=tmp_path)
+    events: list[WorkspaceChangeEvent] = []
+    subscription = workspace.change_events.subscribe(events.append)
+    native_change = ('landed.txt', 'create', None, None, None, None, 2, 2)
+    native_error = _native.NativeWorkspacePartialCommitError(
+        'partial',
+        ['landed.txt'],
+        ['pending.txt'],
+        [native_change],
+    )
+    mocker.patch.object(_native, 'workspace_apply_patch', side_effect=native_error)
+
+    with pytest.raises(WorkspacePartialCommitError) as raised:
+        asyncio.run(workspace.files.apply_patch(ApplyPatchEditRequest(input='invalid')))
+
+    assert raised.value.landed == ('landed.txt',)
+    assert raised.value.pending == ('pending.txt',)
+    assert [(event.path, event.operation, event.generation, event.revision) for event in events] == [
+        ('landed.txt', 'create', 2, 2)
+    ]
+    subscription.close()
     asyncio.run(workspace.close())
 
 
