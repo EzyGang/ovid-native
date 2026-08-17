@@ -144,6 +144,11 @@ def test_configured_ast_limits_apply_to_native_and_view_backends(tmp_path: Path)
         assert direct.total_matches == 1
         assert direct.truncated is True
 
+        selected = WorkspaceSessionBuilder.native(root=tmp_path, ast_limits=limits).with_native_ast().build()
+        selected_result = await selected.ast.search(AstSearchRequest(pattern='print($A)'))
+        assert selected_result.total_matches == 1
+        assert selected_result.truncated is True
+
         views = StableViewProvider(tmp_path)
         view_backed = (
             WorkspaceSessionBuilder()
@@ -158,6 +163,7 @@ def test_configured_ast_limits_apply_to_native_and_view_backends(tmp_path: Path)
         assert viewed.truncated is True
 
         await view_backed.close()
+        await selected.close()
         await native.close()
 
     asyncio.run(run())

@@ -291,17 +291,20 @@ fn hashline_rejects_normalized_destination_conflicts_before_committing() {
 }
 
 #[test]
-fn destructive_hashline_precondition_rejects_same_content_replacement() {
+fn destructive_hashline_precondition_rejects_replacement_after_initial_validation() {
     let root = tempfile::tempdir().expect("workspace");
     let path = root.path().join("source.txt");
+    let replacement = root.path().join("replacement.txt");
     fs::write(&path, "one\n").expect("source");
     let expected = sha256(b"one\n");
-    let mut identity = file_identity(&path, "source.txt").expect("identity");
-    fs::remove_file(&path).expect("remove original");
+    let identity = file_identity(&path, "source.txt").expect("identity");
+
+    ensure_current_file(&path, "source.txt", &expected, &identity).expect("initial validation");
+    fs::rename(&path, &replacement).expect("move original");
     fs::write(&path, "one\n").expect("replacement");
 
     assert!(matches!(
-        ensure_current_file(&path, "source.txt", &expected, &mut identity),
+        ensure_current_file(&path, "source.txt", &expected, &identity),
         Err(WorkspaceError::Stale(_))
     ));
 }

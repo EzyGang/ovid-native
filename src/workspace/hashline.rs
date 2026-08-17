@@ -8,7 +8,7 @@ use crate::workspace::path::resolve_new_file;
 use crate::workspace::workflows::edit_result;
 use crate::workspace::{
     EditResult, FileChange, MutationContext, Workspace, WorkspaceError, atomic_replace_path,
-    ensure_current_file, ensure_current_path, sha256,
+    ensure_current_file, sha256,
 };
 
 impl Workspace {
@@ -58,7 +58,7 @@ impl Workspace {
         context: &MutationContext,
     ) -> Result<(FileChange, Option<crate::workspace::PostEditSource>), WorkspaceError> {
         let before = sha256(file.current.source.as_bytes());
-        ensure_current_file(&file.target, &file.path, &before, &mut file.identity)?;
+        ensure_current_file(&file.target, &file.path, &before, &file.identity)?;
         if file.remove {
             stage_hashline_file(file, &before)?.remove()?;
             let (generation, revision) = self.mark_file_changed(&file.path)?;
@@ -210,7 +210,7 @@ impl StagedHashlineFile {
     }
 
     fn restore_or(self, error: WorkspaceError) -> WorkspaceError {
-        if fs::rename(&self.source, &self.original).is_ok() {
+        if fs::hard_link(&self.source, &self.original).is_ok() {
             return error;
         }
         let pending = self.relative.clone();
@@ -253,7 +253,9 @@ fn stage_hashline_file(
         original: file.target.clone(),
         relative: file.path.clone(),
     };
-    if let Err(error) = ensure_current_path(&staged.source, &file.path, expected_sha256) {
+    if let Err(error) =
+        ensure_current_file(&staged.source, &file.path, expected_sha256, &file.identity)
+    {
         return Err(staged.restore_or(error));
     }
     Ok(staged)

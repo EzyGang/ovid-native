@@ -120,7 +120,8 @@ class WorkspaceSessionBuilder:
     def with_native_ast(self, *, limits: AstLimits | None = None) -> Self:
         self._select('ast')
         self._native_selected.add('ast')
-        self._ast_limits = limits if limits is not None else AstLimits()
+        if limits is not None:
+            self._ast_limits = limits
         return self
 
     def with_native_fff(self) -> Self:
