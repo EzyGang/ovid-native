@@ -13,6 +13,7 @@ from ovid_native.ast.models import (
     AstRange,
     AstSearchResult,
 )
+from ovid_native.workspace.evidence import WorkspaceSourceLineClaim
 
 
 def language_info(value: _native.NativeAstLanguageInfo) -> AstLanguageInfo:
@@ -66,13 +67,16 @@ def _capture(value: _native.NativeAstCapture) -> AstCapture:
 
 
 def _match(value: _native.NativeAstMatch) -> AstMatch:
-    path, language, text, match_range, captures = value
+    path, language, text, match_range, captures, source_lines = value
     return AstMatch(
         path=path,
         language=language,
         text=text,
         range=_range(match_range),
         captures=tuple(_capture(capture) for capture in captures),
+        source_lines=tuple(
+            WorkspaceSourceLineClaim(line_number=line_number, text=line) for line_number, line in source_lines
+        ),
     )
 
 

@@ -19,6 +19,7 @@ from ovid_native.files.errors import WorkspaceStaleError as WorkspaceStaleError
 from ovid_native.files.errors import WorkspaceUnseenLineError as WorkspaceUnseenLineError
 from ovid_native.files.errors import WorkspaceWriteError as WorkspaceWriteError
 from ovid_native.files.models import ApplyPatchEditRequest as ApplyPatchEditRequest
+from ovid_native.files.models import HashlineEditRequest as HashlineEditRequest
 from ovid_native.files.models import PatchEditEntry as PatchEditEntry
 from ovid_native.files.models import PatchEditRequest as PatchEditRequest
 from ovid_native.files.models import ReadLineRange as ReadLineRange
@@ -38,8 +39,9 @@ from ovid_native.files.models import WorkspaceReadFileResult as WorkspaceReadFil
 from ovid_native.files.models import WorkspaceReadRequest as WorkspaceReadRequest
 from ovid_native.files.models import WorkspaceReadResult as WorkspaceReadResult
 from ovid_native.files.models import WorkspaceReplaceRequest as WorkspaceReplaceRequest
+from ovid_native.files.models import WorkspaceTextSerialization as WorkspaceTextSerialization
 from ovid_native.files.models import WorkspaceWriteRequest as WorkspaceWriteRequest
 from ovid_native.files.models import WorkspaceWriteResult as WorkspaceWriteResult
-from ovid_native.files.tools import EditModeToolset as EditModeToolset
 from ovid_native.files.tools import ReadTool as ReadTool
 from ovid_native.files.tools import WriteTool as WriteTool
+from ovid_native.files.toolset import EditModeToolset as EditModeToolset

@@ -1,5 +1,8 @@
+from typing import Literal
+
 type NativeWorkspaceObservationReceipt = tuple[str, str, str, int, list[tuple[int, int]], bool]
 type NativeWorkspaceRenderedLine = tuple[int, str, str]
+type NativeWorkspaceTextSerialization = tuple[bool, Literal['lf', 'crlf', 'cr'], bool]
 type NativeWorkspacePolicy = tuple[bool, float, int, int, int, int, bool, int]
 type NativeWorkspaceFileRead = tuple[
     str,
@@ -10,6 +13,7 @@ type NativeWorkspaceFileRead = tuple[
     bool,
     int,
     int,
+    NativeWorkspaceTextSerialization | None,
 ]
 type NativeWorkspaceDirectoryRead = tuple[str, list[tuple[str, str, int | None]], bool]
 type NativeWorkspaceFileChange = tuple[
@@ -39,11 +43,30 @@ type NativeWorkspaceEditResult = tuple[
     str | None,
     float | None,
 ]
+type NativeHashlineOperation = tuple[
+    str,
+    int | None,
+    str | None,
+    int | None,
+    str | None,
+    list[str],
+    str | None,
+    str | None,
+]
+type NativeHashlineSection = tuple[str, str, list[NativeHashlineOperation]]
+type NativeWorkspaceObservedSource = tuple[NativeWorkspaceObservationReceipt, list[NativeWorkspaceRenderedLine]]
 
 type NativeAstPosition = tuple[int, int, int]
 type NativeAstRange = tuple[NativeAstPosition, NativeAstPosition]
 type NativeAstCapture = tuple[str, str, NativeAstRange | None]
-type NativeAstMatch = tuple[str, str, str, NativeAstRange, list[NativeAstCapture]]
+type NativeAstMatch = tuple[
+    str,
+    str,
+    str,
+    NativeAstRange,
+    list[NativeAstCapture],
+    list[tuple[int, str]],
+]
 type NativeAstIssue = tuple[str | None, str | None, str, str]
 type NativeAstSearchResult = tuple[list[NativeAstMatch], int, int, int, int, bool, list[NativeAstIssue]]
 type NativeAstChange = tuple[str, str, str, str, NativeAstRange]
@@ -59,6 +82,7 @@ type NativeGrepMatch = tuple[
     NativeGrepRange,
     str,
     bool,
+    list[NativeGrepContextLine],
     list[NativeGrepContextLine],
     list[NativeGrepContextLine],
 ]
@@ -312,7 +336,8 @@ class NativeAstRewriteRequest:
     ) -> NativeAstRewriteRequest: ...
 
 
-class NativeAstRewriteComputation: ...
+class NativeAstRewriteComputation:
+    def files(self) -> list[tuple[str, str, str, int]]: ...
 
 
 def runtime_info() -> tuple[str, str, int]: ...
@@ -328,6 +353,7 @@ def workspace_set_policy(
 def workspace_edit_mode(workspace: NativeWorkspace) -> tuple[str, int]: ...
 def workspace_set_edit_mode(workspace: NativeWorkspace, mode: str) -> tuple[str, int]: ...
 def workspace_capture_mutation(workspace: NativeWorkspace, mode: str | None = None) -> NativeWorkspaceMutation: ...
+def workspace_register_edit_mode(workspace: NativeWorkspace, mode: str) -> None: ...
 def workspace_read_file(
     workspace: NativeWorkspace,
     path: str,
@@ -349,6 +375,13 @@ def workspace_validate_observed_lines(
     tag: str,
     lines: list[int],
 ) -> NativeWorkspaceObservationReceipt: ...
+def workspace_observe_source_lines(
+    workspace: NativeWorkspace,
+    path: str,
+    claims: list[tuple[int, str]],
+    spans: list[tuple[int, int, int, int]],
+    complete_presentation: bool,
+) -> NativeWorkspaceObservedSource: ...
 def workspace_create_file(
     workspace: NativeWorkspace,
     path: str,
@@ -381,6 +414,12 @@ def workspace_apply_patch(
     workspace: NativeWorkspace,
     mutation: NativeWorkspaceMutation,
     input: str,
+    cancellation: NativeWorkspaceCancellation,
+) -> NativeWorkspaceEditResult: ...
+def workspace_hashline(
+    workspace: NativeWorkspace,
+    mutation: NativeWorkspaceMutation,
+    sections: list[NativeHashlineSection],
     cancellation: NativeWorkspaceCancellation,
 ) -> NativeWorkspaceEditResult: ...
 def workspace_delete_file(

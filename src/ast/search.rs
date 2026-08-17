@@ -226,13 +226,31 @@ where
     } else {
         Vec::new()
     };
+    let range = source_range(source, byte_range.clone());
+    let source_lines = matched_source_lines(source, &range);
     (
         candidate.relative.clone(),
         canonical_name(language).to_owned(),
-        source[byte_range.clone()].to_owned(),
-        source_range(source, byte_range),
+        source[byte_range].to_owned(),
+        range,
         captures,
+        source_lines,
     )
+}
+
+fn matched_source_lines(source: &str, range: &crate::ast::types::Range) -> Vec<(usize, String)> {
+    let start = range.0.0;
+    let end = if range.1.1 == 1 && range.1.0 > start {
+        range.1.0 - 1
+    } else {
+        range.1.0
+    };
+    source
+        .lines()
+        .enumerate()
+        .filter(|(index, _)| (start..=end).contains(&(index + 1)))
+        .map(|(index, line)| (index + 1, line.to_owned()))
+        .collect()
 }
 
 fn captures<D>(source: &str, matched: &ast_grep_core::NodeMatch<'_, D>) -> Vec<Capture>

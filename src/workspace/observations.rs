@@ -124,6 +124,41 @@ impl ObservationLedger {
         self.authorization(path, current_digest)
     }
 
+    pub(crate) fn resolve_tag(
+        &mut self,
+        path: &str,
+        tag: &str,
+    ) -> Result<Authorization, WorkspaceError> {
+        let normalized_tag = tag.to_ascii_uppercase();
+        let tag_key = (path.to_owned(), normalized_tag.clone());
+        let digest = match self.tags.get(&tag_key) {
+            Some(TagState::Collision) => {
+                return Err(WorkspaceError::ObservationCollision(format!(
+                    "workspace observation tag is ambiguous: {path}#{normalized_tag}"
+                )));
+            }
+            Some(TagState::Digest(digest)) => digest.clone(),
+            None => {
+                return Err(WorkspaceError::ObservationNotFound(format!(
+                    "workspace observation was not retained: {path}#{normalized_tag}"
+                )));
+            }
+        };
+        let key = (path.to_owned(), digest);
+        let entry = self.entries.get_mut(&key).ok_or_else(|| {
+            WorkspaceError::ObservationNotFound(format!(
+                "workspace observation was evicted: {path}#{normalized_tag}"
+            ))
+        })?;
+
+        self.clock = self.clock.saturating_add(1);
+        entry.last_used = self.clock;
+        Ok(Authorization::new(
+            entry.receipt.clone(),
+            entry.line_digests.clone(),
+        ))
+    }
+
     pub(crate) fn current(
         &mut self,
         path: &str,

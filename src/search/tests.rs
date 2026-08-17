@@ -117,11 +117,33 @@ fn grep_reports_positions_context_and_per_file_truncation() {
 
     assert_eq!(matched.0, "needle");
     assert_eq!(matched.1.0, (2, 1, 5));
-    assert_eq!(matched.4, [(1, "zero".to_owned(), false)]);
-    assert_eq!(matched.5, [(3, "after".to_owned(), false)]);
+    assert_eq!(matched.4, [(2, "needle one".to_owned(), false)]);
+    assert_eq!(matched.5, [(1, "zero".to_owned(), false)]);
+    assert_eq!(matched.6, [(3, "after".to_owned(), false)]);
     assert_eq!(file.2, 2);
     assert!(file.3);
     assert!(file.4);
+}
+
+#[test]
+fn grep_returns_every_complete_line_intersecting_a_multiline_match() {
+    let root = workspace();
+    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let mut request = grep_request("needle one.*needle two");
+    request.paths = vec!["a.txt".to_owned()];
+    request.multiline = true;
+
+    let result = grep(&workspace, request).expect("grep");
+    let matched = &result.0[0].1[0];
+
+    assert_eq!(
+        matched.4,
+        [
+            (2, "needle one".to_owned(), false),
+            (3, "after".to_owned(), false),
+            (4, "needle two".to_owned(), false),
+        ]
+    );
 }
 
 #[test]

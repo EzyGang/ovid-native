@@ -1,5 +1,4 @@
 from collections.abc import Callable
-from threading import Lock
 from typing import Literal, Protocol
 
 from ovid_core.models import BaseModel
@@ -8,7 +7,11 @@ from pydantic import Field
 from ovid_native import _native
 from ovid_native._native_execution import run_native
 from ovid_native.workspace.errors import _NATIVE_ERRORS, WorkspaceStaleError, translate_native_workspace_error
-from ovid_native.workspace.models import WorkspaceSessionId
+from ovid_native.workspace.events import NativeWorkspaceChangeEvents as NativeWorkspaceChangeEvents
+from ovid_native.workspace.events import WorkspaceChangeEvent as WorkspaceChangeEvent
+from ovid_native.workspace.events import WorkspaceChangeEvents as WorkspaceChangeEvents
+from ovid_native.workspace.events import WorkspaceChangeSubscription as WorkspaceChangeSubscription
+from ovid_native.workspace.models import WorkspaceFilesProvider, WorkspaceSessionId
 
 
 class WorkspaceLineRange(BaseModel):
@@ -24,7 +27,7 @@ class WorkspaceObservedLine(BaseModel):
 
 class WorkspaceRenderedLine(BaseModel):
     line_number: int = Field(ge=1)
-    short_hash: str = Field(pattern=r'^[0-9A-F]{2}$')
+    short_hash: str = Field(pattern=r'^(?:[0-9A-F]{2}|--)$')
     text: str
 
 
@@ -51,77 +54,6 @@ class WorkspaceLineValidationRequest(BaseModel):
     line_numbers: tuple[int, ...] = Field(min_length=1)
 
 
-class WorkspaceChangeEvent(BaseModel):
-    session_id: WorkspaceSessionId
-    path: str
-    operation: Literal['create', 'update', 'delete', 'move']
-    destination: str | None = None
-    generation: int = Field(ge=1)
-    revision: int = Field(ge=1)
-
-
-type WorkspaceChangeListener = Callable[[WorkspaceChangeEvent], None]
-
-
-class WorkspaceChangeSubscription:
-    def __init__(self, cancel: Callable[[], None]) -> None:
-        self._cancel = cancel
-        self._closed = False
-        self._lock = Lock()
-
-    def close(self) -> None:
-        with self._lock:
-            if self._closed:
-                return
-            self._closed = True
-        self._cancel()
-
-
-class WorkspaceChangeEvents(Protocol):
-    def subscribe(self, listener: WorkspaceChangeListener) -> WorkspaceChangeSubscription: ...
-
-
-class NativeWorkspaceChangeEvents:
-    def __init__(self, *, session_id: WorkspaceSessionId) -> None:
-        self._session_id = session_id
-        self._listeners: dict[int, WorkspaceChangeListener] = {}
-        self._lock = Lock()
-        self._next_listener = 0
-
-    def subscribe(self, listener: WorkspaceChangeListener) -> WorkspaceChangeSubscription:
-        with self._lock:
-            listener_id = self._next_listener
-            self._next_listener += 1
-            self._listeners[listener_id] = listener
-        return WorkspaceChangeSubscription(lambda: self._remove(listener_id))
-
-    def publish(
-        self,
-        *,
-        path: str,
-        operation: Literal['create', 'update', 'delete', 'move'],
-        destination: str | None,
-        generation: int,
-        revision: int,
-    ) -> None:
-        event = WorkspaceChangeEvent(
-            session_id=self._session_id,
-            path=path,
-            operation=operation,
-            destination=destination,
-            generation=generation,
-            revision=revision,
-        )
-        with self._lock:
-            listeners = tuple(self._listeners.values())
-        for listener in listeners:
-            listener(event)
-
-    def _remove(self, listener_id: int) -> None:
-        with self._lock:
-            self._listeners.pop(listener_id, None)
-
-
 class WorkspaceLineValidationResult(BaseModel):
     observation: WorkspaceObservationReceipt
     valid: Literal[True] = True
@@ -137,6 +69,8 @@ class ObservedWorkspaceFile(BaseModel):
 
 
 class WorkspaceObservationService(Protocol):
+    @property
+    def session_id(self) -> WorkspaceSessionId: ...
     async def observe_file(self, request: WorkspaceObservationRequest) -> ObservedWorkspaceFile: ...
 
     async def resolve_observation(self, path: str, tag: str) -> WorkspaceObservationReceipt: ...
@@ -146,11 +80,33 @@ class WorkspaceObservationService(Protocol):
         request: WorkspaceLineValidationRequest,
     ) -> WorkspaceLineValidationResult: ...
 
+    async def observe_claims(
+        self,
+        *,
+        path: str,
+        claims: tuple[tuple[int, str], ...],
+        spans: tuple[tuple[int, int, int, int], ...],
+        complete_presentation: bool,
+    ) -> ObservedWorkspaceFile: ...
+
+
+class WorkspaceObservationStore(Protocol):
+    def bind(
+        self,
+        *,
+        session_id: WorkspaceSessionId,
+        files: WorkspaceFilesProvider,
+    ) -> WorkspaceObservationService: ...
+
 
 class NativeWorkspaceObservationService:
     def __init__(self, workspace: _native.NativeWorkspace, *, session_id: WorkspaceSessionId) -> None:
         self._workspace = workspace
         self._session_id = session_id
+
+    @property
+    def session_id(self) -> WorkspaceSessionId:
+        return self._session_id
 
     async def observe_file(self, request: WorkspaceObservationRequest) -> ObservedWorkspaceFile:
         if request.expected_revision is not None:
@@ -162,19 +118,45 @@ class NativeWorkspaceObservationService:
             (line_range.start, line_range.end) for line_range in request.visible_ranges
         ]
         native = await self._call(lambda: _native.workspace_read_file(self._workspace, request.path, native_ranges))
-        path, receipt, lines, total_lines, complete, editable, _, _ = native
+        path, receipt, lines, total_lines, complete, editable, _, _, _ = native
         return ObservedWorkspaceFile(
             path=path,
-            observation=None if receipt is None else self.receipt(receipt),
+            observation=None if receipt is None else self._receipt(receipt),
             lines=tuple(WorkspaceRenderedLine(line_number=line[0], short_hash=line[1], text=line[2]) for line in lines),
             total_lines=total_lines,
             complete_presentation=complete,
             editable=editable,
         )
 
+    async def observe_claims(
+        self,
+        *,
+        path: str,
+        claims: tuple[tuple[int, str], ...],
+        spans: tuple[tuple[int, int, int, int], ...],
+        complete_presentation: bool,
+    ) -> ObservedWorkspaceFile:
+        receipt, lines = await self._call(
+            lambda: _native.workspace_observe_source_lines(
+                self._workspace,
+                path,
+                list(claims),
+                list(spans),
+                complete_presentation,
+            )
+        )
+        return ObservedWorkspaceFile(
+            path=path,
+            observation=self._receipt(receipt),
+            lines=tuple(WorkspaceRenderedLine(line_number=line[0], short_hash=line[1], text=line[2]) for line in lines),
+            total_lines=len(lines),
+            complete_presentation=complete_presentation,
+            editable=True,
+        )
+
     async def resolve_observation(self, path: str, tag: str) -> WorkspaceObservationReceipt:
         native = await self._call(lambda: _native.workspace_resolve_observation(self._workspace, path, tag))
-        return self.receipt(native)
+        return self._receipt(native)
 
     async def validate_observed_lines(
         self,
@@ -188,9 +170,9 @@ class NativeWorkspaceObservationService:
                 list(request.line_numbers),
             )
         )
-        return WorkspaceLineValidationResult(observation=self.receipt(native))
+        return WorkspaceLineValidationResult(observation=self._receipt(native))
 
-    def receipt(self, native: _native.NativeWorkspaceObservationReceipt) -> WorkspaceObservationReceipt:
+    def _receipt(self, native: _native.NativeWorkspaceObservationReceipt) -> WorkspaceObservationReceipt:
         path, tag, content_sha256, generation, ranges, complete = native
         return WorkspaceObservationReceipt(
             session_id=self._session_id,

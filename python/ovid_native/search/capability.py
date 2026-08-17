@@ -4,7 +4,7 @@ from typing import Self
 from ovid_core.capabilities.base import BaseCapability, CapabilityContributions
 from ovid_core.services import AgentServiceRequirement, AgentServices
 
-from ovid_native.search.tools import SEARCH_TOOL_INSTRUCTIONS, GlobTool, GrepTool
+from ovid_native.search.tools import SEARCH_TOOL_INSTRUCTIONS, GlobTool, SearchSourceToolset
 from ovid_native.workspace.operations import WORKSPACE_SERVICE_KEY, WorkspaceOperation, workspace_ref
 
 
@@ -30,7 +30,13 @@ class SearchCapability[Deps](BaseCapability[Deps]):
                     service_id=WORKSPACE_SERVICE_KEY.id,
                     api_version=WORKSPACE_SERVICE_KEY.api_version,
                     name=self.workspace,
-                    required_features=frozenset((WorkspaceOperation.SEARCH.value,)),
+                    required_features=frozenset(
+                        (
+                            WorkspaceOperation.FILES.value,
+                            WorkspaceOperation.OBSERVATIONS.value,
+                            WorkspaceOperation.SEARCH.value,
+                        )
+                    ),
                 ),
             ),
         )
@@ -44,7 +50,14 @@ class SearchCapability[Deps](BaseCapability[Deps]):
             'contributions',
             CapabilityContributions(
                 instructions=(SEARCH_TOOL_INSTRUCTIONS,),
-                tools=(GlobTool(provider=session.search), GrepTool(provider=session.search)),
+                tools=(GlobTool(provider=session.search),),
+                toolsets=(
+                    SearchSourceToolset(
+                        provider=session.search,
+                        state=session.edit_mode,
+                        observations=session.observations,
+                    ),
+                ),
             ),
         )
         return bound

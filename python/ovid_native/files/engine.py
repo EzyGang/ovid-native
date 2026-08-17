@@ -4,53 +4,36 @@ from typing import Literal, cast
 from ovid_native import _native
 from ovid_native._native_execution import run_native
 from ovid_native.files.models import (
-    ApplyPatchEditRequest,
-    PatchEditRequest,
-    ReplaceEditRequest,
-    WorkspaceCreateRequest,
-    WorkspaceDeleteRequest,
     WorkspaceDirectoryEntry,
     WorkspaceDirectoryReadRequest,
-    WorkspaceEditResult,
-    WorkspaceFileChange,
     WorkspaceFileReadRequest,
-    WorkspaceMoveRequest,
-    WorkspacePostEditSource,
     WorkspaceReadDirectoryResult,
     WorkspaceReadFileResult,
     WorkspaceReadRequest,
     WorkspaceReadResult,
-    WorkspaceReplaceRequest,
-    WorkspaceWriteResult,
 )
+from ovid_native.files.results import rendered_line
+from ovid_native.files.workflows import WorkspaceFilesWorkflows
 from ovid_native.workspace.errors import (
     _NATIVE_ERRORS,
-    WorkspaceClosedError,
     WorkspacePathError,
     WorkspaceReadError,
     translate_native_workspace_error,
 )
 from ovid_native.workspace.models import WorkspaceSessionId
-from ovid_native.workspace.observations import (
-    NativeWorkspaceChangeEvents,
-    NativeWorkspaceObservationService,
-    WorkspaceRenderedLine,
-)
+from ovid_native.workspace.observations import NativeWorkspaceChangeEvents
 
 
-class WorkspaceFilesEngine:
+class WorkspaceFilesEngine(WorkspaceFilesWorkflows):
     def __init__(
         self,
         workspace: _native.NativeWorkspace,
         *,
         session_id: WorkspaceSessionId,
-        observations: NativeWorkspaceObservationService,
         change_events: NativeWorkspaceChangeEvents,
     ) -> None:
-        self._workspace = workspace
+        super().__init__(workspace, session_id=session_id, change_events=change_events)
         self._session_id = session_id
-        self._observations = observations
-        self._change_events = change_events
 
     async def read(self, request: WorkspaceReadRequest) -> WorkspaceReadResult:
         try:
@@ -68,16 +51,21 @@ class WorkspaceFilesEngine:
     async def read_file(self, request: WorkspaceFileReadRequest) -> WorkspaceReadFileResult:
         native_ranges = [(line_range.start, line_range.end) for line_range in request.ranges]
         native = await self._call(lambda: _native.workspace_read_file(self._workspace, request.path, native_ranges))
-        path, receipt, lines, total_lines, complete, editable, total_bytes, observation_limit = native
+        path, receipt, lines, total_lines, complete, editable, total_bytes, observation_limit, serialization = native
         return WorkspaceReadFileResult(
             path=path,
-            observation=None if receipt is None else self._observations.receipt(receipt),
-            lines=tuple(_rendered_line(line) for line in lines),
+            observation=None if receipt is None else self._receipt(receipt),
+            lines=tuple(rendered_line(line) for line in lines),
             total_lines=total_lines,
             complete_presentation=complete,
             editable=editable,
             total_bytes=total_bytes,
             observation_limit=observation_limit,
+            serialization=(
+                None
+                if serialization is None
+                else {'bom': serialization[0], 'line_ending': serialization[1], 'terminal_newline': serialization[2]}
+            ),
         )
 
     async def list_directory(self, request: WorkspaceDirectoryReadRequest) -> WorkspaceReadDirectoryResult:
@@ -98,184 +86,9 @@ class WorkspaceFilesEngine:
             truncated=truncated,
         )
 
-    async def create_file(self, request: WorkspaceCreateRequest) -> WorkspaceWriteResult:
-        native = await self._mutate(
-            lambda cancellation: _native.workspace_create_file(
-                self._workspace,
-                request.path,
-                request.content,
-                request.create_parents,
-                cancellation,
-            )
-        )
-        return self._write_result(native)
-
-    async def replace_file(self, request: WorkspaceReplaceRequest) -> WorkspaceWriteResult:
-        native = await self._mutate(
-            lambda cancellation: _native.workspace_replace_file(
-                self._workspace,
-                request.path,
-                request.content,
-                request.expected_observation,
-                cancellation,
-            )
-        )
-        return self._write_result(native)
-
-    async def delete_file(self, request: WorkspaceDeleteRequest) -> WorkspaceWriteResult:
-        native = await self._mutate(
-            lambda cancellation: _native.workspace_delete_file(self._workspace, request.path, cancellation)
-        )
-        return self._write_result(native)
-
-    async def move_file(self, request: WorkspaceMoveRequest) -> WorkspaceWriteResult:
-        native = await self._mutate(
-            lambda cancellation: _native.workspace_move_file(
-                self._workspace,
-                request.path,
-                request.destination,
-                cancellation,
-            )
-        )
-        return self._write_result(native)
-
-    async def replace(
-        self,
-        request: ReplaceEditRequest,
-        *,
-        mutation: _native.NativeWorkspaceMutation | None = None,
-    ) -> WorkspaceEditResult:
-        captured = mutation if mutation is not None else _native.workspace_capture_mutation(self._workspace, 'replace')
-        native = await self._mutate(
-            lambda cancellation: _native.workspace_replace_text(
-                self._workspace,
-                captured,
-                request.path,
-                (request.old_string, request.new_string, request.replace_all),
-                cancellation,
-            )
-        )
-        return self._edit_result(native)
-
-    async def patch(
-        self,
-        request: PatchEditRequest,
-        *,
-        mutation: _native.NativeWorkspaceMutation | None = None,
-    ) -> WorkspaceEditResult:
-        captured = mutation if mutation is not None else _native.workspace_capture_mutation(self._workspace, 'patch')
-        edits: list[tuple[str, str | None, str | None]] = [
-            (entry.operation, entry.diff, entry.destination) for entry in request.edits
-        ]
-        native = await self._mutate(
-            lambda cancellation: _native.workspace_patch(
-                self._workspace,
-                captured,
-                request.path,
-                edits,
-                cancellation,
-            )
-        )
-        return self._edit_result(native)
-
-    async def apply_patch(
-        self,
-        request: ApplyPatchEditRequest,
-        *,
-        mutation: _native.NativeWorkspaceMutation | None = None,
-    ) -> WorkspaceEditResult:
-        captured = (
-            mutation if mutation is not None else _native.workspace_capture_mutation(self._workspace, 'apply_patch')
-        )
-        native = await self._mutate(
-            lambda cancellation: _native.workspace_apply_patch(
-                self._workspace,
-                captured,
-                request.input,
-                cancellation,
-            )
-        )
-        return self._edit_result(native)
-
-    def _write_result(self, native: _native.NativeWorkspaceEditResult) -> WorkspaceWriteResult:
-        result = self._edit_result(native)
-        return WorkspaceWriteResult.model_validate(result.model_dump())
-
-    def _edit_result(self, native: _native.NativeWorkspaceEditResult) -> WorkspaceEditResult:
-        mode, mode_generation, policy_generation, changes, posts, preflight, commit, strategy, confidence = native
-        mapped_changes = tuple(self._change(change) for change in changes)
-        result = WorkspaceEditResult(
-            mode=mode,
-            mode_generation=mode_generation,
-            policy_generation=policy_generation,
-            changes=mapped_changes,
-            post_edit_sources=tuple(self._post_source(post) for post in posts),
-            preflight_complete=preflight,
-            commit_complete=commit,
-            matching_strategy=cast(Literal['exact', 'fuzzy'] | None, strategy),
-            confidence=confidence,
-        )
-        self._publish_changes(mapped_changes)
-        return result
-
-    def _change(self, native: _native.NativeWorkspaceFileChange) -> WorkspaceFileChange:
-        path, operation, destination, before, after, receipt, generation, revision = native
-        return WorkspaceFileChange(
-            path=path,
-            operation=cast(Literal['create', 'update', 'delete', 'move'], operation),
-            destination=destination,
-            before_sha256=before,
-            after_sha256=after,
-            observation=None if receipt is None else self._observations.receipt(receipt),
-            file_generation=generation,
-            revision=revision,
-        )
-
-    def _post_source(self, native: _native.NativeWorkspacePostEditSource) -> WorkspacePostEditSource:
-        path, receipt, lines, complete = native
-        return WorkspacePostEditSource(
-            path=path,
-            observation=self._observations.receipt(receipt),
-            lines=tuple(_rendered_line(line) for line in lines),
-            complete_presentation=complete,
-        )
-
-    def _publish_changes(self, changes: tuple[WorkspaceFileChange, ...]) -> None:
-        for change in changes:
-            self._change_events.publish(
-                path=change.path,
-                operation=change.operation,
-                destination=change.destination,
-                generation=change.file_generation,
-                revision=change.revision,
-            )
-
-    async def _mutate[Result](
-        self,
-        operation: Callable[[_native.NativeWorkspaceCancellation], Result],
-    ) -> Result:
-        cancellation = _native.NativeWorkspaceCancellation()
-        self._ensure_open()
-        try:
-            return await run_native(lambda: operation(cancellation), cancellation=cancellation)
-        except _native.NativeWorkspacePartialCommitError as error:
-            _, _, _, native_changes = error.args
-            self._publish_changes(tuple(self._change(change) for change in native_changes))
-            raise translate_native_workspace_error(error) from error
-        except _NATIVE_ERRORS as error:
-            raise translate_native_workspace_error(error) from error
-
     async def _call[Result](self, operation: Callable[[], Result]) -> Result:
         self._ensure_open()
         try:
             return await run_native(operation)
         except _NATIVE_ERRORS as error:
             raise translate_native_workspace_error(error) from error
-
-    def _ensure_open(self) -> None:
-        if _native.workspace_is_closed(self._workspace):
-            raise WorkspaceClosedError('Workspace session is closed')
-
-
-def _rendered_line(native: _native.NativeWorkspaceRenderedLine) -> WorkspaceRenderedLine:
-    return WorkspaceRenderedLine(line_number=native[0], short_hash=native[1], text=native[2])

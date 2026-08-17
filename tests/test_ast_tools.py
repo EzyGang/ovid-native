@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 from typing import cast
 
+from ovid_core.runtime.context import RunContext
 from ovid_core.services import AgentServices
 from ovid_core.tools.base import ToolExecutionContext
 
@@ -38,8 +39,10 @@ def test_capability_contributes_exact_ast_surface(tmp_path: Path) -> None:
     assert capability.description == 'Syntax-aware source search and staged structural rewrites'
     assert capability.defer_loading is True
     assert capability.contributions.instructions == (AST_TOOL_INSTRUCTIONS,)
-    assert [tool.id for tool in capability.contributions.tools] == ['ast_grep', 'ast_edit_preview', 'ast_edit_apply']
-    assert capability.contributions.toolsets == ()
+    assert [tool.id for tool in capability.contributions.tools] == ['ast_edit_preview', 'ast_edit_apply']
+    assert [toolset.id for toolset in capability.contributions.toolsets] == ['native_ast_source']
+    source_tools = asyncio.run(capability.contributions.toolsets[0].get_tools(cast('RunContext[None]', None)))
+    assert [tool.id for tool in source_tools] == ['ast_grep']
     assert engine.root == tmp_path.resolve()
     assert engine.limits == AstLimits()
     second_engine = AstEngine(root=tmp_path)

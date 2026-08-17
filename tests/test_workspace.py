@@ -25,6 +25,7 @@ from ovid_native.workspace.errors import (
 from ovid_native.workspace.models import WorkspaceSessionId
 from ovid_native.workspace.operations import WorkspaceOperation, workspace_ref
 from ovid_native.workspace.service import NativeWorkspaceSession, workspace_binding
+from ovid_native.workspace.stores import NativeObservationStore
 
 
 def test_session_identity_binding_and_shared_native_handle(tmp_path: Path) -> None:
@@ -92,6 +93,7 @@ def test_builder_overrides_one_provider_and_rejects_invalid_choices(tmp_path: Pa
     configured_session = configured.build()
     assert configured_session.ast is ast
     assert configured_session.fff is fff
+    files_provider = configured_session.files
     with pytest.raises(WorkspaceConfigurationError, match='AST provider'):
         configured.with_ast_provider(ast)
     with pytest.raises(WorkspaceConfigurationError, match='FFF provider'):
@@ -108,6 +110,89 @@ def test_builder_overrides_one_provider_and_rejects_invalid_choices(tmp_path: Pa
         _ = session.ast
 
     asyncio.run(session.close())
+
+    with pytest.raises(WorkspaceConfigurationError, match='Rootless workspace requires explicit providers'):
+        WorkspaceSessionBuilder().build()
+    with pytest.raises(WorkspaceConfigurationError, match='explicit observation store'):
+        WorkspaceSessionBuilder().with_files_provider(files_provider).build()
+    with pytest.raises(WorkspaceConfigurationError, match='observation store requires a files provider'):
+        WorkspaceSessionBuilder().with_search_provider(search).with_observation_store(NativeObservationStore()).build()
+    rootless_search = WorkspaceSessionBuilder().with_search_provider(search).build()
+    assert rootless_search.operations == frozenset((WorkspaceOperation.SEARCH,))
+    asyncio.run(rootless_search.close())
+    default_store = NativeWorkspaceSession(root=tmp_path, files_provider=mocker.Mock())
+    assert default_store.observations.session_id == default_store.id
+    asyncio.run(default_store.close())
+    rootless = (
+        WorkspaceSessionBuilder()
+        .with_files_provider(files_provider)
+        .with_search_provider(search)
+        .with_observation_store(NativeObservationStore())
+        .build()
+    )
+    assert rootless.operations == frozenset(
+        (
+            WorkspaceOperation.FILES,
+            WorkspaceOperation.CHANGE_EVENTS,
+            WorkspaceOperation.SEARCH,
+            WorkspaceOperation.OBSERVATIONS,
+        )
+    )
+    with pytest.raises(WorkspaceOperationUnavailableError, match='ast'):
+        _ = rootless.ast
+    asyncio.run(rootless.close())
+    view = mocker.Mock()
+    view.acquire_view = mocker.Mock()
+    view_session = (
+        WorkspaceSessionBuilder.native(root=tmp_path).with_view_provider(view).with_edit_mode('hashline').build()
+    )
+    assert view_session.view is view
+    asyncio.run(view_session.close())
+    with pytest.raises(WorkspaceConfigurationError, match='requires an explicit files provider'):
+        WorkspaceSessionBuilder.native(root=tmp_path).with_view_provider(view).with_native_ast().build()
+    search_view_session = (
+        WorkspaceSessionBuilder.native(root=tmp_path).with_view_provider(view).with_native_search().build()
+    )
+    asyncio.run(search_view_session.close())
+
+
+def test_builder_validates_custom_edit_mode_names_duplicates_and_operations(
+    tmp_path: Path,
+    mocker: MockerFixture,
+) -> None:
+    provider = mocker.Mock()
+    provider.id = 'example.semantic_patch'
+    provider.required_operations = frozenset((WorkspaceOperation.FILES,))
+    duplicate = mocker.Mock()
+    duplicate.id = provider.id
+    duplicate.required_operations = provider.required_operations
+    builder = WorkspaceSessionBuilder.native(root=tmp_path).with_edit_mode_provider(provider)
+
+    with pytest.raises(WorkspaceConfigurationError, match='Duplicate workspace edit mode provider'):
+        builder.with_edit_mode_provider(duplicate)
+
+    unnamespaced = mocker.Mock()
+    unnamespaced.id = 'semantic_patch'
+    unnamespaced.required_operations = frozenset((WorkspaceOperation.FILES,))
+    with pytest.raises(WorkspaceConfigurationError, match='globally namespaced'):
+        WorkspaceSessionBuilder.native(root=tmp_path).with_edit_mode_provider(unnamespaced)
+
+    unavailable = mocker.Mock()
+    unavailable.id = 'example.view_patch'
+    unavailable.required_operations = frozenset((WorkspaceOperation.VIEW,))
+    with pytest.raises(WorkspaceConfigurationError, match='requires unavailable operations'):
+        WorkspaceSessionBuilder.native(root=tmp_path).with_edit_mode_provider(unavailable).build()
+
+    with pytest.raises(WorkspaceConfigurationError, match='Duplicate workspace edit mode provider'):
+        NativeWorkspaceSession(root=tmp_path, edit_mode_providers=(provider, duplicate))
+    with pytest.raises(WorkspaceConfigurationError, match='globally namespaced'):
+        NativeWorkspaceSession(root=tmp_path, edit_mode_providers=(unnamespaced,))
+
+    invalid = mocker.Mock()
+    invalid.id = 'example.invalid_patch'
+    invalid.required_operations = {'files'}
+    with pytest.raises(WorkspaceConfigurationError, match='invalid required operations'):
+        NativeWorkspaceSession(root=tmp_path, edit_mode_providers=(invalid,))
 
 
 def test_close_is_idempotent_closes_native_handle_on_provider_failure(

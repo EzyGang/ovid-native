@@ -140,6 +140,7 @@ class FffGrepResult(BaseModel):
     files_with_matches: int
     next_file_offset: int | None
     index_complete: bool
+    workspace_revision: str | None = None
 
 
 class FffFindToolContent(BaseModel):

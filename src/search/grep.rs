@@ -459,6 +459,12 @@ fn build_match(
     let end_line = line_index(line_starts, matched_end);
     let (line_text, line_truncated) =
         display_line(source, line_starts, start_line, request.max_line_characters);
+    let matched_lines = context_lines(
+        source,
+        line_starts,
+        start_line..end_line + 1,
+        request.max_line_characters,
+    );
     let context_before = context_lines(
         source,
         line_starts,
@@ -480,6 +486,7 @@ fn build_match(
         ) as NativeGrepRange,
         line_text,
         line_truncated,
+        matched_lines,
         context_before,
         context_after,
     )

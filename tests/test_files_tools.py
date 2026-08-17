@@ -9,8 +9,10 @@ from ovid_core.tools.base import ToolExecutionContext
 from ovid_native.files import (
     EditMode,
     EditModeToolset,
+    HashlineEditRequest,
     PatchEditEntry,
     PatchEditRequest,
+    ReadLineRange,
     ReadTool,
     WorkspaceCreateRequest,
     WorkspaceDeleteRequest,
@@ -46,7 +48,7 @@ def test_read_and_write_tools_execute_both_dispatch_branches(tmp_path: Path) -> 
             WorkspaceWriteRequest(path='source.txt', content='one\n'),
         )
     )
-    assert created.content.startswith('[source.txt#')
+    assert created.content.startswith('[source.txt]')
     observed = asyncio.run(workspace.files.read_file(WorkspaceFileReadRequest(path='source.txt')))
     assert observed.observation is not None
     replaced = asyncio.run(
@@ -117,3 +119,35 @@ def test_files_capability_tool_contracts(tmp_path: Path) -> None:
     assert write.approval.required is True
     assert write.approval.reason == 'Create or replace a workspace file'
     asyncio.run(workspace.close())
+
+
+def test_read_and_hashline_tools_render_captured_source_modes(tmp_path: Path) -> None:
+    async def run() -> None:
+        source = tmp_path / 'source.txt'
+        source.write_text('one\ntwo\n')
+        workspace = NativeWorkspaceSession(root=tmp_path, edit_mode=EditMode.HASHLINE)
+        read_tool = ReadTool[None](provider=workspace.files, state=workspace.edit_mode)
+        observed = await read_tool.execute(tool_context(), WorkspaceReadRequest(path='source.txt'))
+        header, first, _ = cast(str, observed.content).splitlines()
+        assert header.startswith('[source.txt#')
+
+        toolset = EditModeToolset[None](
+            provider=workspace.files,
+            state=workspace.edit_mode,
+            workspace=workspace,
+        )
+        hashline = (await toolset.get_tools(run_context()))[0]
+        locator = first.split('|', maxsplit=1)[0]
+        patch = f'*** Begin Patch\n{header}\nPUT {locator}.={locator}:\n+changed\n*** End Patch\n'
+        edited = await hashline.execute(tool_context(), HashlineEditRequest(input=patch))
+        assert cast(str, edited.content).startswith('[source.txt#')
+
+        workspace.edit_mode.set(EditMode.APPLY_PATCH)
+        partial = await read_tool.execute(
+            tool_context(),
+            WorkspaceReadRequest(path='source.txt', ranges=(ReadLineRange(start=1, end=1),)),
+        )
+        assert cast(str, partial.content).splitlines() == ['[source.txt]', '1:changed', '[truncated: 1 of 2 lines]']
+        await workspace.close()
+
+    asyncio.run(run())

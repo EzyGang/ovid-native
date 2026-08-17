@@ -100,6 +100,8 @@ def test_zero_change_preview_creates_no_proposal(tmp_path: Path) -> None:
     assert preview.proposal_id == ''
     assert preview.total_replacements == 0
     assert asyncio.run(engine.reject_rewrite(preview.proposal_id)) is False
+    with pytest.raises(AstProposalNotFoundError):
+        asyncio.run(engine.proposal_files('missing'))
 
 
 def test_proposal_rejection_expiration_and_capacity(tmp_path: Path, mocker: MockerFixture) -> None:

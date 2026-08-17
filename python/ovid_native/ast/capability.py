@@ -4,7 +4,7 @@ from typing import Self
 from ovid_core.capabilities.base import BaseCapability, CapabilityContributions
 from ovid_core.services import AgentServiceRequirement, AgentServices
 
-from ovid_native.ast.tools import AST_TOOL_INSTRUCTIONS, AstEditApplyTool, AstEditPreviewTool, AstGrepTool
+from ovid_native.ast.tools import AST_TOOL_INSTRUCTIONS, AstEditApplyTool, AstEditPreviewTool, AstSourceToolset
 from ovid_native.workspace.operations import WORKSPACE_SERVICE_KEY, WorkspaceOperation, workspace_ref
 
 
@@ -30,7 +30,13 @@ class AstCapability[Deps](BaseCapability[Deps]):
                     service_id=WORKSPACE_SERVICE_KEY.id,
                     api_version=WORKSPACE_SERVICE_KEY.api_version,
                     name=self.workspace,
-                    required_features=frozenset((WorkspaceOperation.AST.value,)),
+                    required_features=frozenset(
+                        (
+                            WorkspaceOperation.AST.value,
+                            WorkspaceOperation.FILES.value,
+                            WorkspaceOperation.OBSERVATIONS.value,
+                        )
+                    ),
                 ),
             ),
         )
@@ -45,9 +51,15 @@ class AstCapability[Deps](BaseCapability[Deps]):
             CapabilityContributions(
                 instructions=(AST_TOOL_INSTRUCTIONS,),
                 tools=(
-                    AstGrepTool(provider=session.ast),
                     AstEditPreviewTool(provider=session.ast),
                     AstEditApplyTool(provider=session.ast),
+                ),
+                toolsets=(
+                    AstSourceToolset(
+                        provider=session.ast,
+                        state=session.edit_mode,
+                        observations=session.observations,
+                    ),
                 ),
             ),
         )

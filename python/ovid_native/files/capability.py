@@ -1,11 +1,11 @@
 from dataclasses import dataclass, field
-from typing import Self, cast
+from typing import Self
 
 from ovid_core.capabilities.base import BaseCapability, CapabilityContributions
 from ovid_core.services import AgentServiceRequirement, AgentServices
 
-from ovid_native.files.engine import WorkspaceFilesEngine
-from ovid_native.files.tools import FILES_TOOL_INSTRUCTIONS, EditModeToolset, ReadTool, WriteTool
+from ovid_native.files.tools import FILES_TOOL_INSTRUCTIONS, ReadTool, WriteTool
+from ovid_native.files.toolset import EditModeToolset
 from ovid_native.workspace.operations import WORKSPACE_SERVICE_KEY, WorkspaceOperation, workspace_ref
 
 
@@ -45,15 +45,25 @@ class WorkspaceFilesCapability[Deps](BaseCapability[Deps]):
     def bind(self, services: AgentServices) -> Self:
         super().bind(services)
         session = services.resolve(workspace_ref(self.workspace))
-        provider = cast(WorkspaceFilesEngine, session.files)
+        provider = session.files
         bound = type(self)(workspace=self.workspace)
         object.__setattr__(
             bound,
             'contributions',
             CapabilityContributions(
                 instructions=(FILES_TOOL_INSTRUCTIONS,),
-                tools=(ReadTool(provider=provider), WriteTool(provider=provider)),
-                toolsets=(EditModeToolset(provider=provider, state=session.edit_mode),),
+                tools=(
+                    ReadTool(provider=provider, state=session.edit_mode),
+                    WriteTool(provider=provider, state=session.edit_mode),
+                ),
+                toolsets=(
+                    EditModeToolset(
+                        provider=provider,
+                        state=session.edit_mode,
+                        workspace=session,
+                        mode_providers=session.edit_mode_providers,
+                    ),
+                ),
             ),
         )
         return bound

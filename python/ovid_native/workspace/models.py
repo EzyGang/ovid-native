@@ -25,15 +25,22 @@ if TYPE_CHECKING:
         FffIndexStatus,
         FffMultiGrepRequest,
     )
-    from ovid_native.files.edit_modes import EditModeState
+    from ovid_native.files.edit_modes import EditModeProvider, EditModeState
     from ovid_native.files.models import (
+        ApplyPatchEditRequest,
+        HashlineEditRequest,
+        PatchEditRequest,
+        ReplaceEditRequest,
         WorkspaceCreateRequest,
         WorkspaceDeleteRequest,
         WorkspaceDirectoryReadRequest,
+        WorkspaceEditResult,
         WorkspaceFileReadRequest,
         WorkspaceMoveRequest,
         WorkspaceReadDirectoryResult,
         WorkspaceReadFileResult,
+        WorkspaceReadRequest,
+        WorkspaceReadResult,
         WorkspaceReplaceRequest,
         WorkspaceWriteResult,
     )
@@ -45,6 +52,17 @@ from ovid_native.workspace.operations import WorkspaceOperation
 
 class WorkspaceSessionId(BaseRootModel[str]):
     pass
+
+
+class WorkspaceMutation(Protocol):
+    @property
+    def mode(self) -> str: ...
+
+    @property
+    def mode_generation(self) -> int: ...
+
+    @property
+    def policy_generation(self) -> int: ...
 
 
 class WorkspaceFilesProvider(Protocol):
@@ -59,6 +77,36 @@ class WorkspaceFilesProvider(Protocol):
     async def delete_file(self, request: WorkspaceDeleteRequest) -> WorkspaceWriteResult: ...
 
     async def move_file(self, request: WorkspaceMoveRequest) -> WorkspaceWriteResult: ...
+
+    async def read(self, request: WorkspaceReadRequest) -> WorkspaceReadResult: ...
+
+    async def replace(
+        self,
+        request: ReplaceEditRequest,
+        *,
+        mutation: WorkspaceMutation | None = None,
+    ) -> WorkspaceEditResult: ...
+
+    async def patch(
+        self,
+        request: PatchEditRequest,
+        *,
+        mutation: WorkspaceMutation | None = None,
+    ) -> WorkspaceEditResult: ...
+
+    async def apply_patch(
+        self,
+        request: ApplyPatchEditRequest,
+        *,
+        mutation: WorkspaceMutation | None = None,
+    ) -> WorkspaceEditResult: ...
+
+    async def hashline(
+        self,
+        request: HashlineEditRequest,
+        *,
+        mutation: WorkspaceMutation | None = None,
+    ) -> WorkspaceEditResult: ...
 
 
 class WorkspaceSearchProvider(Protocol):
@@ -118,6 +166,9 @@ class WorkspaceSession(Protocol):
     def edit_mode(self) -> EditModeState: ...
 
     @property
+    def edit_mode_providers(self) -> tuple[EditModeProvider, ...]: ...
+
+    @property
     def policy(self) -> WorkspacePolicyState: ...
 
     @property
@@ -134,6 +185,9 @@ class WorkspaceSession(Protocol):
 
     @property
     def ast(self) -> WorkspaceAstProvider: ...
+
+    @property
+    def view(self) -> WorkspaceViewProvider: ...
 
     @property
     def fff(self) -> WorkspaceFffProvider: ...

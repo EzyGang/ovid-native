@@ -28,7 +28,7 @@ pub(crate) enum LineEnding {
     Cr,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct TextSerialization {
     pub bom: bool,
     pub line_ending: LineEnding,
@@ -108,6 +108,26 @@ impl NormalizedText {
             .map(|bounds| &self.source[bounds.clone()])
     }
 
+    pub(crate) fn line_bounds(&self, number: usize) -> Option<Range<usize>> {
+        number
+            .checked_sub(1)
+            .and_then(|index| self.line_bounds.get(index))
+            .cloned()
+    }
+
+    pub(crate) fn serialized_line_bounds(&self, number: usize) -> Option<Range<usize>> {
+        let mut bounds = self.line_bounds(number)?;
+        let bom_bytes = usize::from(self.serialization.bom) * 3;
+        let line_ending_bytes = match self.serialization.line_ending {
+            LineEnding::CrLf => number.checked_sub(1)?,
+            LineEnding::Lf | LineEnding::Cr => 0,
+        };
+        let offset = bom_bytes.saturating_add(line_ending_bytes);
+        bounds.start = bounds.start.saturating_add(offset);
+        bounds.end = bounds.end.saturating_add(offset);
+        Some(bounds)
+    }
+
     pub(crate) fn serialize(&self) -> Vec<u8> {
         serialize_source(&self.source, &self.serialization)
     }
@@ -115,6 +135,13 @@ impl NormalizedText {
     pub(crate) fn serialize_with_current(&self, source: &str) -> Vec<u8> {
         serialize_source(source, &self.serialization)
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct WorkspaceTextSerialization {
+    pub bom: bool,
+    pub line_ending: LineEnding,
+    pub terminal_newline: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -127,6 +154,7 @@ pub(crate) struct WorkspaceFileRead {
     pub editable: bool,
     pub total_bytes: u64,
     pub observation_limit: u64,
+    pub serialization: Option<WorkspaceTextSerialization>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

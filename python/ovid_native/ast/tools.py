@@ -1,7 +1,13 @@
-from ovid_core.tools.base import BaseTool, ToolExecutionContext
+import asyncio
+from collections.abc import Sequence
+from typing import Any
+
+from ovid_core.runtime.context import RunContext
+from ovid_core.tools.base import BaseTool, BaseToolset, ToolExecutionContext
 from ovid_core.tools.models import ToolApproval
 
 from ovid_native.ast.models import (
+    AstMatch,
     AstRewriteApplyRequest,
     AstRewriteApplyToolContent,
     AstRewriteApplyToolResult,
@@ -9,10 +15,22 @@ from ovid_native.ast.models import (
     AstRewritePreviewToolContent,
     AstRewritePreviewToolResult,
     AstSearchRequest,
+    AstSearchResult,
     AstSearchToolContent,
     AstSearchToolResult,
 )
+from ovid_native.files.edit_modes import EditModeState
+from ovid_native.workspace.evidence import (
+    EditableSourceGroup,
+    WorkspaceEvidence,
+    WorkspaceObservationRequest,
+    WorkspaceSourceLineClaim,
+    WorkspaceSourcePresenter,
+    WorkspaceSourceSpanClaim,
+    capture_source_presentation,
+)
 from ovid_native.workspace.models import WorkspaceAstProvider
+from ovid_native.workspace.observations import WorkspaceLineRange, WorkspaceObservationService
 
 
 AST_GREP_DESCRIPTION = (
@@ -46,8 +64,14 @@ class AstGrepTool[Deps](BaseTool[Deps, AstSearchRequest, AstSearchToolResult]):
     timeout_seconds = 30.0
     defer_loading = True
 
-    def __init__(self, *, provider: WorkspaceAstProvider) -> None:
+    def __init__(
+        self,
+        *,
+        provider: WorkspaceAstProvider,
+        presenter: WorkspaceSourcePresenter | None = None,
+    ) -> None:
         self._provider = provider
+        self._presenter = presenter
 
     async def execute(
         self,
@@ -56,8 +80,59 @@ class AstGrepTool[Deps](BaseTool[Deps, AstSearchRequest, AstSearchToolResult]):
     ) -> AstSearchToolResult:
         del context
         result = await self._provider.search(arguments)
-        content = AstSearchToolContent(result=result).model_dump(mode='json')
-        return AstSearchToolResult(content=content)
+        content_model = AstSearchToolContent(result=result).model_dump(mode='json')
+        if self._presenter is None:
+            return AstSearchToolResult(content=content_model)
+        groups = await _ast_source_groups(result, self._presenter)
+        if self._presenter.presentation.format == 'hashline':
+            content = '\n\n'.join(group.render(self._presenter.presentation) for group in groups)
+            return AstSearchToolResult(content=content, metadata=content_model)
+        return AstSearchToolResult(content=content_model)
+
+
+class AstSourceToolset[Deps](BaseToolset[Deps]):
+    id = 'native_ast_source'
+
+    def __init__(
+        self,
+        *,
+        provider: WorkspaceAstProvider,
+        state: EditModeState,
+        observations: WorkspaceObservationService,
+    ) -> None:
+        self._provider = provider
+        self._state = state
+        self._observations = observations
+
+    async def for_step(self, context: RunContext[Deps]) -> BaseToolset[Deps]:
+        del context
+        selection = self._state.current
+        presenter = WorkspaceSourcePresenter(
+            observations=self._observations,
+            presentation=capture_source_presentation(selection.mode, selection.generation),
+        )
+        return _BoundAstSourceToolset(
+            owner=self,
+            tool=AstGrepTool(provider=self._provider, presenter=presenter),
+        )
+
+    async def get_tools(self, context: RunContext[Deps]) -> Sequence[BaseTool[Deps, Any, Any]]:
+        return await (await self.for_step(context)).get_tools(context)
+
+
+class _BoundAstSourceToolset[Deps](BaseToolset[Deps]):
+    id = 'native_ast_source'
+
+    def __init__(self, *, owner: AstSourceToolset[Deps], tool: BaseTool[Deps, Any, Any]) -> None:
+        self._owner = owner
+        self._tool = tool
+
+    async def for_step(self, context: RunContext[Deps]) -> BaseToolset[Deps]:
+        return await self._owner.for_step(context)
+
+    async def get_tools(self, context: RunContext[Deps]) -> Sequence[BaseTool[Deps, Any, Any]]:
+        del context
+        return (self._tool,)
 
 
 class AstEditPreviewTool[Deps](BaseTool[Deps, AstRewritePreviewRequest, AstRewritePreviewToolResult]):
@@ -103,3 +178,56 @@ class AstEditApplyTool[Deps](BaseTool[Deps, AstRewriteApplyRequest, AstRewriteAp
         result = await self._provider.apply_rewrite(arguments)
         content = AstRewriteApplyToolContent(result=result).model_dump(mode='json')
         return AstRewriteApplyToolResult(content=content)
+
+
+async def _ast_source_groups(
+    result: AstSearchResult,
+    presenter: WorkspaceSourcePresenter,
+) -> tuple[EditableSourceGroup, ...]:
+    grouped: dict[str, list[AstMatch]] = {}
+    for match in result.matches:
+        grouped.setdefault(match.path, []).append(match)
+    return tuple(
+        await asyncio.gather(*(_observe_ast_path(path, matches, presenter) for path, matches in grouped.items()))
+    )
+
+
+async def _observe_ast_path(
+    path: str,
+    matches: list[AstMatch],
+    presenter: WorkspaceSourcePresenter,
+) -> EditableSourceGroup:
+    claimed = {line.line_number: line.text for match in matches for line in match.source_lines}
+    spans = tuple(
+        WorkspaceSourceSpanClaim(
+            start_line=match.range.start.line,
+            start_byte=match.range.start.byte_offset,
+            end_line=match.range.end.line,
+            end_byte=match.range.end.byte_offset,
+        )
+        for match in matches
+    )
+    evidence = WorkspaceEvidence(
+        path=path,
+        revision=None,
+        lines=tuple(WorkspaceSourceLineClaim(line_number=line, text=text) for line, text in sorted(claimed.items())),
+        visible_ranges=_line_ranges(tuple(claimed)),
+        spans=spans,
+    )
+    return await presenter.observe(
+        WorkspaceObservationRequest(
+            evidence=evidence,
+            purpose='ast_grep',
+            presentation=presenter.presentation,
+        )
+    )
+
+
+def _line_ranges(lines: tuple[int, ...]) -> tuple[WorkspaceLineRange, ...]:
+    ranges: list[WorkspaceLineRange] = []
+    for line in sorted(lines):
+        if ranges and line == ranges[-1].end + 1:
+            ranges[-1] = WorkspaceLineRange(start=ranges[-1].start, end=line)
+        else:
+            ranges.append(WorkspaceLineRange(start=line, end=line))
+    return tuple(ranges)

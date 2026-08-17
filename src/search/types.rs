@@ -14,6 +14,7 @@ pub(crate) type NativeGrepMatch = (
     bool,
     Vec<NativeGrepContextLine>,
     Vec<NativeGrepContextLine>,
+    Vec<NativeGrepContextLine>,
 );
 pub(crate) type NativeGrepCoverage = (u64, u64, bool);
 pub(crate) type NativeGrepFileMatches = (

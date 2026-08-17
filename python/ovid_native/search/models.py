@@ -101,6 +101,7 @@ class GrepMatch(BaseModel):
     range: GrepRange
     line_text: str
     line_truncated: bool = False
+    matched_lines: tuple[GrepContextLine, ...]
     context_before: tuple[GrepContextLine, ...] = ()
     context_after: tuple[GrepContextLine, ...] = ()
 
