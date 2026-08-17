@@ -57,7 +57,12 @@ fn workspace_prunes_unrelated_selection_subtrees() {
     }
     let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
 
-    for selection in ["selected/target.txt", "selected", "selected/*.txt"] {
+    for selection in [
+        "selected/target.txt",
+        r"selected\target.txt",
+        "selected",
+        "selected/*.txt",
+    ] {
         let result = workspace
             .scan(
                 &scan_request(&[selection]),
@@ -79,8 +84,12 @@ fn workspace_rejects_traversal_and_reports_limits() {
     let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
     let control = WorkControl::new(Cancellation::new(), None);
 
-    let traversal = workspace.scan(&scan_request(&["../outside"]), &control);
-    assert!(matches!(traversal, Err(WorkspaceError::Path(_))));
+    for traversal in ["../outside", r"..\outside", r"C:\outside"] {
+        assert!(matches!(
+            workspace.scan(&scan_request(&[traversal]), &control),
+            Err(WorkspaceError::Path(_))
+        ));
+    }
 
     let mut limited = scan_request(&["."]);
     limited.max_files = 1;

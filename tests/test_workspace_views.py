@@ -6,8 +6,14 @@ from pathlib import Path
 import pytest
 from pytest_mock import MockerFixture
 
-from ovid_native.ast.errors import AstProposalNotFoundError, AstProposalStaleError, AstWriteError
+from ovid_native.ast.errors import (
+    AstProposalExpiredError,
+    AstProposalNotFoundError,
+    AstProposalStaleError,
+    AstWriteError,
+)
 from ovid_native.ast.models import (
+    AstLimits,
     AstRewriteApplyRequest,
     AstRewriteOperation,
     AstRewritePreviewRequest,
@@ -124,6 +130,107 @@ def test_native_operations_use_stable_custom_views_and_ast_commits_through_files
         views.revision_suffix = ''
         await workspace.close()
         assert views.active == 0
+        await backing.close()
+
+    asyncio.run(run())
+
+
+def test_configured_ast_limits_apply_to_native_and_view_backends(tmp_path: Path) -> None:
+    async def run() -> None:
+        (tmp_path / 'source.py').write_text('print(1)\nprint(2)\n')
+        limits = AstLimits(max_matches=1)
+        native = WorkspaceSessionBuilder.native(root=tmp_path, ast_limits=limits).build()
+        direct = await native.ast.search(AstSearchRequest(pattern='print($A)'))
+        assert direct.total_matches == 1
+        assert direct.truncated is True
+
+        views = StableViewProvider(tmp_path)
+        view_backed = (
+            WorkspaceSessionBuilder()
+            .with_files_provider(native.files)
+            .with_view_provider(views)
+            .with_observation_store(NativeObservationStore())
+            .with_native_ast(limits=limits)
+            .build()
+        )
+        viewed = await view_backed.ast.search(AstSearchRequest(pattern='print($A)'))
+        assert viewed.total_matches == 1
+        assert viewed.truncated is True
+
+        await view_backed.close()
+        await native.close()
+
+    asyncio.run(run())
+
+
+def test_view_backed_ast_uses_configured_retention_limits(tmp_path: Path, mocker: MockerFixture) -> None:
+    async def run() -> None:
+        source = tmp_path / 'source.py'
+        source.write_text('print(1)\n')
+        backing = NativeWorkspaceSession(root=tmp_path)
+        views = StableViewProvider(tmp_path)
+        request = AstRewritePreviewRequest(
+            operations=(AstRewriteOperation(pattern='print($A)', replacement='write($A)'),),
+            scan=AstScanOptions(paths=('source.py',)),
+        )
+        bounded = NativeViewAstProvider(
+            views,
+            backing.files,
+            limits=AstLimits(max_pending_proposals=1),
+        )
+        first = await bounded.preview_rewrite(request)
+        second = await bounded.preview_rewrite(request)
+        with pytest.raises(AstProposalNotFoundError):
+            await bounded.apply_rewrite(AstRewriteApplyRequest(proposal_id=first.proposal_id))
+        assert second.proposal_id
+
+        clock = mocker.patch(
+            'ovid_native.workspace.views.monotonic',
+            side_effect=(0.0, 0.0, 2.0, 2.0, 3.0, 4.0, 4.0, 6.0, 6.0),
+        )
+        expiring = NativeViewAstProvider(
+            views,
+            backing.files,
+            limits=AstLimits(proposal_ttl_seconds=1),
+        )
+        purged_preview = await expiring.preview_rewrite(request)
+        retained_preview = await expiring.preview_rewrite(request)
+        with pytest.raises(AstProposalNotFoundError):
+            await expiring.apply_rewrite(AstRewriteApplyRequest(proposal_id=purged_preview.proposal_id))
+        assert retained_preview.proposal_id
+
+        expired_preview = await expiring.preview_rewrite(request)
+        with pytest.raises(AstProposalExpiredError):
+            await expiring.apply_rewrite(AstRewriteApplyRequest(proposal_id=expired_preview.proposal_id))
+        assert clock.call_count == 9
+
+        await backing.close()
+
+    asyncio.run(run())
+
+
+def test_view_backed_ast_requires_apply_patch_mode(tmp_path: Path) -> None:
+    async def run() -> None:
+        (tmp_path / 'source.py').write_text('print(1)\n')
+        backing = NativeWorkspaceSession(root=tmp_path)
+        views = StableViewProvider(tmp_path)
+        request = AstRewritePreviewRequest(
+            operations=(AstRewriteOperation(pattern='print($A)', replacement='write($A)'),),
+            scan=AstScanOptions(paths=('source.py',)),
+        )
+
+        unbound = NativeViewAstProvider(views, backing.files)
+        unbound_preview = await unbound.preview_rewrite(request)
+        with pytest.raises(AstWriteError, match='not bound'):
+            await unbound.apply_rewrite(AstRewriteApplyRequest(proposal_id=unbound_preview.proposal_id))
+
+        backing.edit_mode.set('replace')
+        wrong_mode = NativeViewAstProvider(views, backing.files)
+        wrong_mode.bind_edit_mode(backing.edit_mode)
+        wrong_mode_preview = await wrong_mode.preview_rewrite(request)
+        with pytest.raises(AstWriteError, match='require apply_patch'):
+            await wrong_mode.apply_rewrite(AstRewriteApplyRequest(proposal_id=wrong_mode_preview.proposal_id))
+
         await backing.close()
 
     asyncio.run(run())

@@ -321,6 +321,25 @@ fn patch_limits_and_destination_conflicts_fail_before_commit() {
         fs::read_to_string(root.path().join("source.txt")).expect("source"),
         "one\n"
     );
+    let alias_conflict = [
+        PatchOperation {
+            kind: PatchOperationKind::Create,
+            path: "./created.txt".to_owned(),
+            destination: None,
+            body: Some("first".to_owned()),
+        },
+        PatchOperation {
+            kind: PatchOperationKind::Create,
+            path: "created.txt".to_owned(),
+            destination: None,
+            body: Some("second".to_owned()),
+        },
+    ];
+    assert!(matches!(
+        workspace.apply_patch_operations(&alias_conflict, &mutation, "apply_patch"),
+        Err(WorkspaceError::Patch(_))
+    ));
+    assert!(!root.path().join("created.txt").exists());
 
     let invalid_destination = parse_structured_patch(
         "created.txt",

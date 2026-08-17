@@ -3,8 +3,8 @@ use std::fs;
 use crate::workspace::hashline_types::{HashlineOperation, HashlineSection};
 use crate::workspace::line_hash::short_line_hash;
 use crate::workspace::{
-    Cancellation, LineRange, MutationContext, Workspace, WorkspaceError, ensure_current_path,
-    sha256,
+    Cancellation, LineRange, MutationContext, Workspace, WorkspaceError, ensure_current_file,
+    file_identity, sha256,
 };
 
 fn context(workspace: &Workspace) -> MutationContext {
@@ -237,15 +237,71 @@ fn hashline_rejects_duplicate_normalized_paths_before_committing() {
 }
 
 #[test]
-fn destructive_hashline_precondition_rejects_changed_source() {
+fn hashline_rejects_normalized_destination_conflicts_before_committing() {
+    let root = tempfile::tempdir().expect("workspace");
+    let source_path = root.path().join("source.txt");
+    let target_path = root.path().join("target.txt");
+    fs::write(&source_path, "source\n").expect("source");
+    fs::write(&target_path, "target\n").expect("target");
+    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let source = workspace
+        .read_file("source.txt", &[])
+        .expect("source observation");
+    let target = workspace
+        .read_file("target.txt", &[])
+        .expect("target observation");
+    let move_operation = HashlineOperation {
+        kind: "move".to_owned(),
+        start: None,
+        start_hash: None,
+        end: None,
+        end_hash: None,
+        body: Vec::new(),
+        register: None,
+        destination: Some("./target.txt".to_owned()),
+    };
+
+    let error = workspace
+        .apply_hashline(
+            &[
+                HashlineSection {
+                    path: "./source.txt".to_owned(),
+                    tag: source.observation.expect("receipt").tag,
+                    operations: vec![move_operation],
+                },
+                HashlineSection {
+                    path: "target.txt".to_owned(),
+                    tag: target.observation.expect("receipt").tag,
+                    operations: vec![put_range(
+                        1,
+                        &target.lines[0].short_hash,
+                        1,
+                        &target.lines[0].short_hash,
+                        &["changed"],
+                    )],
+                },
+            ],
+            &context(&workspace),
+        )
+        .expect_err("normalized destination conflict");
+
+    assert!(matches!(error, WorkspaceError::Patch(message) if message.contains("conflicting")));
+    assert_eq!(fs::read_to_string(source_path).expect("source"), "source\n");
+    assert_eq!(fs::read_to_string(target_path).expect("target"), "target\n");
+}
+
+#[test]
+fn destructive_hashline_precondition_rejects_same_content_replacement() {
     let root = tempfile::tempdir().expect("workspace");
     let path = root.path().join("source.txt");
     fs::write(&path, "one\n").expect("source");
     let expected = sha256(b"one\n");
-    fs::write(&path, "changed\n").expect("external change");
+    let mut identity = file_identity(&path, "source.txt").expect("identity");
+    fs::remove_file(&path).expect("remove original");
+    fs::write(&path, "one\n").expect("replacement");
 
     assert!(matches!(
-        ensure_current_path(&path, "source.txt", &expected),
+        ensure_current_file(&path, "source.txt", &expected, &mut identity),
         Err(WorkspaceError::Stale(_))
     ));
 }
@@ -283,12 +339,16 @@ fn hashline_uses_normalized_observation_paths() {
 }
 
 #[test]
-fn hashline_rejects_destructive_directives_without_identity_binding() {
+fn hashline_requires_complete_evidence_for_remove_and_commits_move_after_edit() {
     let root = tempfile::tempdir().expect("workspace");
-    fs::write(root.path().join("source.txt"), "one\n").expect("source");
+    let remove_path = root.path().join("remove.txt");
+    let move_path = root.path().join("move.txt");
+    fs::write(&remove_path, "one\ntwo\n").expect("remove source");
+    fs::write(&move_path, "before\n").expect("move source");
     let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
-    let read = workspace.read_file("source.txt", &[]).expect("observation");
-    let receipt = read.observation.expect("receipt");
+    let partial = workspace
+        .read_file("remove.txt", &[LineRange { start: 1, end: 1 }])
+        .expect("partial observation");
     let remove = HashlineOperation {
         kind: "remove".to_owned(),
         start: None,
@@ -299,17 +359,72 @@ fn hashline_rejects_destructive_directives_without_identity_binding() {
         register: None,
         destination: None,
     };
+    let incomplete = HashlineSection {
+        path: "remove.txt".to_owned(),
+        tag: partial.observation.expect("receipt").tag,
+        operations: vec![remove.clone()],
+    };
+    assert!(matches!(
+        workspace.apply_hashline(&[incomplete], &context(&workspace)),
+        Err(WorkspaceError::UnseenLine(_))
+    ));
+    assert!(remove_path.exists());
 
-    let error = workspace
+    let complete = workspace
+        .read_file("remove.txt", &[])
+        .expect("complete observation");
+    let removed = workspace
         .apply_hashline(
             &[HashlineSection {
-                path: "source.txt".to_owned(),
-                tag: receipt.tag,
+                path: "remove.txt".to_owned(),
+                tag: complete.observation.expect("receipt").tag,
                 operations: vec![remove],
             }],
             &context(&workspace),
         )
-        .expect_err("destructive Hashline directives must be unavailable");
+        .expect("remove");
+    assert!(!remove_path.exists());
+    assert_eq!(removed.changes[0].operation, "delete");
 
-    assert!(matches!(error, WorkspaceError::Patch(message) if message.contains("unavailable")));
+    let observed = workspace
+        .read_file("move.txt", &[])
+        .expect("move observation");
+    let move_operation = HashlineOperation {
+        kind: "move".to_owned(),
+        start: None,
+        start_hash: None,
+        end: None,
+        end_hash: None,
+        body: Vec::new(),
+        register: None,
+        destination: Some("./moved.txt".to_owned()),
+    };
+    let moved = workspace
+        .apply_hashline(
+            &[HashlineSection {
+                path: "./move.txt".to_owned(),
+                tag: observed.observation.expect("receipt").tag,
+                operations: vec![
+                    put_range(
+                        1,
+                        &observed.lines[0].short_hash,
+                        1,
+                        &observed.lines[0].short_hash,
+                        &["after"],
+                    ),
+                    move_operation,
+                ],
+            }],
+            &context(&workspace),
+        )
+        .expect("edit and move");
+    assert!(!move_path.exists());
+    assert_eq!(
+        fs::read_to_string(root.path().join("moved.txt")).expect("destination"),
+        "after\n"
+    );
+    assert_eq!(moved.changes[0].operation, "move");
+    assert_eq!(moved.changes[0].path, "move.txt");
+    assert_eq!(moved.changes[0].destination.as_deref(), Some("moved.txt"));
+    assert_eq!(moved.post_edit_sources[0].path, "moved.txt");
 }

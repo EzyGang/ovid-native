@@ -6,6 +6,7 @@ from ovid_native.workspace.errors import (
     WorkspaceObservationCollisionError,
     WorkspaceObservationNotFoundError,
     WorkspaceObservedLineChangedError,
+    WorkspacePathError,
     WorkspaceStaleError,
     WorkspaceUnseenLineError,
 )
@@ -96,7 +97,7 @@ class ProviderWorkspaceObservationService:
         request: WorkspaceLineValidationRequest,
     ) -> WorkspaceLineValidationResult:
         retained = self._resolve(request.path, request.tag)
-        result = await self._read(request.path, _line_ranges(request.line_numbers))
+        result = await self._read(retained.receipt.path, _line_ranges(request.line_numbers))
         self._require_receipt(result.path, result.observation)
         current = {line.line_number: line for line in result.lines}
 
@@ -118,17 +119,27 @@ class ProviderWorkspaceObservationService:
         path: str,
         ranges: tuple[WorkspaceLineRange, ...],
     ) -> WorkspaceReadFileResult:
+        normalized = _normalize_path(path)
         request = WorkspaceFileReadRequest(
-            path=path,
+            path=normalized,
             ranges=tuple(ReadLineRange(start=value.start, end=value.end) for value in ranges),
         )
-        return await self._files.read_file(request)
+        result = await self._files.read_file(request)
+        if result.path != normalized:
+            raise WorkspaceStaleError(f'Custom files provider returned a mismatched canonical path: {result.path}')
+        return result
 
     def _record(
         self,
         receipt: WorkspaceObservationReceipt,
         lines: tuple[WorkspaceRenderedLine, ...],
     ) -> WorkspaceObservationReceipt:
+        normalized = _normalize_path(receipt.path)
+        if receipt.path != normalized:
+            raise WorkspaceStaleError(
+                f'Custom files provider returned a non-canonical observation path: {receipt.path}'
+            )
+
         scoped = receipt.model_copy(update={'session_id': self._session_id, 'tag': receipt.tag.upper()})
         key = (scoped.path, scoped.tag)
         if key in self._collisions:
@@ -153,14 +164,17 @@ class ProviderWorkspaceObservationService:
         return scoped
 
     def _resolve(self, path: str, tag: str) -> _ProviderObservation:
-        key = (path, tag.upper())
+        normalized = _normalize_path(path)
+        key = (normalized, tag.upper())
         if key in self._collisions:
-            raise WorkspaceObservationCollisionError(f'Workspace observation tag is ambiguous: {path}#{tag.upper()}')
+            raise WorkspaceObservationCollisionError(
+                f'Workspace observation tag is ambiguous: {normalized}#{tag.upper()}'
+            )
         try:
             return self._entries[key]
         except KeyError as error:
             raise WorkspaceObservationNotFoundError(
-                f'Workspace observation was not retained: {path}#{tag.upper()}'
+                f'Workspace observation was not retained: {normalized}#{tag.upper()}'
             ) from error
 
     @staticmethod
@@ -171,6 +185,24 @@ class ProviderWorkspaceObservationService:
         if receipt is None:
             raise WorkspaceObservationNotFoundError(f'Custom files provider returned no observation: {path}')
         return receipt
+
+
+def _normalize_path(path: str) -> str:
+    separators = path.replace('\\', '/')
+    windows_prefix = len(separators) >= 2 and separators[0].isalpha() and separators[1] == ':'
+    if not separators or '\0' in separators or separators.startswith('/') or windows_prefix:
+        raise WorkspacePathError(f'Workspace path must remain relative: {path}')
+
+    parts = []
+    for part in separators.split('/'):
+        if part in ('', '.'):
+            continue
+        if part == '..':
+            raise WorkspacePathError(f'Workspace path must remain relative: {path}')
+        parts.append(part)
+    if not parts:
+        raise WorkspacePathError(f'Workspace paths must identify a file: {path}')
+    return '/'.join(parts)
 
 
 def _digest(text: str) -> str:

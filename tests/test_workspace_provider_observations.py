@@ -9,6 +9,7 @@ from ovid_native.workspace.errors import (
     WorkspaceObservationCollisionError,
     WorkspaceObservationNotFoundError,
     WorkspaceObservedLineChangedError,
+    WorkspacePathError,
     WorkspaceStaleError,
     WorkspaceUnseenLineError,
 )
@@ -36,7 +37,7 @@ def test_provider_observations_retain_full_line_digests(mocker: MockerFixture) -
         service = ProviderWorkspaceObservationService(files, session_id=WorkspaceSessionId('outer'))
         assert service.session_id == WorkspaceSessionId('outer')
         observed = await service.observe_claims(
-            path='source.py',
+            path='./source.py',
             claims=((1, 'alpha'),),
             spans=((1, 0, 1, 5),),
             complete_presentation=False,
@@ -44,13 +45,15 @@ def test_provider_observations_retain_full_line_digests(mocker: MockerFixture) -
 
         assert observed.observation is not None
         assert observed.observation.session_id == WorkspaceSessionId('outer')
-        assert (await service.resolve_observation('source.py', 'abcd')) == observed.observation
+        assert (await service.resolve_observation(r'.\source.py', 'abcd')) == observed.observation
 
         files.read_file.return_value = _read_result(receipt=_receipt(digest='b' * 64))
         validated = await service.validate_observed_lines(
-            WorkspaceLineValidationRequest(path='source.py', tag='abcd', line_numbers=(1,))
+            WorkspaceLineValidationRequest(path='./source.py', tag='abcd', line_numbers=(1,))
         )
         assert validated.observation == observed.observation
+        assert files.read_file.await_args_list[0].args[0].path == 'source.py'
+        assert files.read_file.await_args_list[1].args[0].path == 'source.py'
 
         files.read_file.return_value = _read_result(
             receipt=_receipt(digest='c' * 64),
@@ -80,6 +83,34 @@ def test_provider_observations_reject_invalid_or_stale_evidence(mocker: MockerFi
             await service.observe_file(
                 WorkspaceObservationRequest(path='source.py', expected_revision='old', visible_ranges=())
             )
+        for path in ('/source.py', '../source.py', '.'):
+            with pytest.raises(WorkspacePathError, match='remain relative|identify a file'):
+                await service.observe_claims(
+                    path=path,
+                    claims=((1, 'alpha'),),
+                    spans=(),
+                    complete_presentation=False,
+                )
+
+        files.read_file.return_value = _read_result(path='other.py')
+        with pytest.raises(WorkspaceStaleError, match='mismatched canonical path'):
+            await service.observe_claims(
+                path='source.py',
+                claims=((1, 'alpha'),),
+                spans=(),
+                complete_presentation=False,
+            )
+
+        files.read_file.return_value = _read_result(receipt=_receipt(path='./source.py'))
+        with pytest.raises(WorkspaceStaleError, match='non-canonical observation path'):
+            await service.observe_claims(
+                path='source.py',
+                claims=((1, 'alpha'),),
+                spans=(),
+                complete_presentation=False,
+            )
+
+        files.read_file.return_value = _read_result()
         with pytest.raises(WorkspaceObservationNotFoundError, match='duplicate lines'):
             await service.observe_claims(
                 path='source.py',

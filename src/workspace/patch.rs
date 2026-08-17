@@ -3,7 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::workspace::content::NormalizedText;
-use crate::workspace::path::{resolve_new_file, validate_relative};
+use crate::workspace::path::{normalize_relative, resolve_new_file};
 use crate::workspace::workflows::{MutationContext, edit_result, load_current};
 use crate::workspace::{
     EditResult, FileChange, LineRange, PostEditSource, Workspace, WorkspaceError,
@@ -26,6 +26,20 @@ pub(crate) enum PatchOperationKind {
     Create,
     Update,
     Delete,
+}
+impl PatchOperation {
+    fn normalized(&self) -> Result<Self, WorkspaceError> {
+        Ok(Self {
+            kind: self.kind,
+            path: normalize_relative(&self.path)?,
+            destination: self
+                .destination
+                .as_deref()
+                .map(normalize_relative)
+                .transpose()?,
+            body: self.body.clone(),
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -90,9 +104,13 @@ impl Workspace {
                 "workspace patch exceeds byte limit: {MAX_PATCH_BYTES}"
             )));
         }
+        let operations = operations
+            .iter()
+            .map(PatchOperation::normalized)
+            .collect::<Result<Vec<_>, _>>()?;
         let _coordinator = self.write_guard()?;
         self.validate_mutation(context, expected_mode)?;
-        let prepared = self.preflight_patch(operations, context)?;
+        let prepared = self.preflight_patch(&operations, context)?;
         self.commit_patch(prepared, context)
     }
 
@@ -104,7 +122,6 @@ impl Workspace {
         let mut prepared = Vec::with_capacity(operations.len());
         let mut paths = HashSet::new();
         for operation in operations {
-            validate_relative(&operation.path)?;
             if !paths.insert(operation.path.clone()) {
                 return Err(WorkspaceError::Patch(format!(
                     "workspace patch contains duplicate source path: {}",
@@ -159,7 +176,6 @@ impl Workspace {
                         .destination
                         .as_deref()
                         .map(|path| {
-                            validate_relative(path)?;
                             if !paths.insert(path.to_owned()) {
                                 return Err(WorkspaceError::Patch(format!(
                                     "workspace patch contains a duplicate path: {path}"

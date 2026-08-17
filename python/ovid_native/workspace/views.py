@@ -2,7 +2,7 @@ import asyncio
 import difflib
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from time import monotonic
 
 from ovid_native.ast.engine import AstEngine
 from ovid_native.ast.errors import (
@@ -12,6 +12,7 @@ from ovid_native.ast.errors import (
     AstWriteError,
 )
 from ovid_native.ast.models import (
+    AstLimits,
     AstRewriteApplyRequest,
     AstRewriteApplyResult,
     AstRewritePreview,
@@ -62,12 +63,20 @@ class _ViewAstProposal:
     preview: AstRewritePreview
     files: tuple[tuple[str, str, str, int], ...]
     revision: str
+    expires_monotonic: float
 
 
 class NativeViewAstProvider:
-    def __init__(self, provider: WorkspaceViewProvider, files: WorkspaceFilesProvider) -> None:
+    def __init__(
+        self,
+        provider: WorkspaceViewProvider,
+        files: WorkspaceFilesProvider,
+        *,
+        limits: AstLimits | None = None,
+    ) -> None:
         self._provider = provider
         self._files = files
+        self._limits = limits if limits is not None else AstLimits()
         self._proposals: dict[str, _ViewAstProposal] = {}
         self._proposal_lock = asyncio.Lock()
         self._edit_mode: EditModeState | None = None
@@ -78,12 +87,12 @@ class NativeViewAstProvider:
     async def search(self, request: AstSearchRequest) -> AstSearchResult:
         async with self._provider.acquire_view(WorkspaceViewPurpose.AST) as view:
             _require_read_only(view)
-            return await AstEngine(root=view.root).search(request)
+            return await AstEngine(root=view.root, limits=self._limits).search(request)
 
     async def preview_rewrite(self, request: AstRewritePreviewRequest) -> AstRewritePreview:
         async with self._provider.acquire_view(WorkspaceViewPurpose.AST) as view:
             _require_read_only(view)
-            engine = AstEngine(root=view.root)
+            engine = AstEngine(root=view.root, limits=self._limits)
             preview = await engine.preview_rewrite(request)
             if not preview.proposal_id:
                 return preview
@@ -94,6 +103,7 @@ class NativeViewAstProvider:
                 preview=preview,
                 files=files,
                 revision=view.revision,
+                expires_monotonic=monotonic() + self._limits.proposal_ttl_seconds,
             )
         )
         return preview
@@ -138,7 +148,7 @@ class NativeViewAstProvider:
     async def _store(self, proposal: _ViewAstProposal) -> None:
         async with self._proposal_lock:
             self._purge_expired()
-            while len(self._proposals) >= 32:
+            while len(self._proposals) >= self._limits.max_pending_proposals:
                 del self._proposals[next(iter(self._proposals))]
             self._proposals[proposal.preview.proposal_id] = proposal
 
@@ -148,7 +158,7 @@ class NativeViewAstProvider:
             self._purge_expired()
         if proposal is None:
             raise AstProposalNotFoundError(f'AST rewrite proposal not found: {proposal_id}')
-        if proposal.preview.expires_at <= datetime.now(UTC):
+        if proposal.expires_monotonic <= monotonic():
             raise AstProposalExpiredError(f'AST rewrite proposal expired: {proposal_id}')
         return proposal
 
@@ -161,9 +171,9 @@ class NativeViewAstProvider:
         return mutation
 
     def _purge_expired(self) -> None:
-        now = datetime.now(UTC)
+        now = monotonic()
         expired = [
-            proposal_id for proposal_id, proposal in self._proposals.items() if proposal.preview.expires_at <= now
+            proposal_id for proposal_id, proposal in self._proposals.items() if proposal.expires_monotonic <= now
         ]
         for proposal_id in expired:
             del self._proposals[proposal_id]

@@ -7,6 +7,7 @@ from ovid_core.services import AgentServiceBinding
 
 from ovid_native import _native
 from ovid_native.ast.engine import AstEngine
+from ovid_native.ast.models import AstLimits
 from ovid_native.fff.engine import FffEngine
 from ovid_native.files.edit_modes import EditMode, EditModeId, EditModeProvider, EditModeState
 from ovid_native.files.engine import WorkspaceFilesEngine
@@ -61,6 +62,7 @@ class NativeWorkspaceSession:
         files_provider: WorkspaceFilesProvider | None = None,
         search_provider: WorkspaceSearchProvider | None = None,
         ast_provider: WorkspaceAstProvider | None = None,
+        ast_limits: AstLimits | None = None,
         fff_provider: WorkspaceFffProvider | None = None,
         view_provider: WorkspaceViewProvider | None = None,
         observation_store: WorkspaceObservationStore | None = None,
@@ -114,7 +116,7 @@ class NativeWorkspaceSession:
             self._search = SearchEngine._from_workspace(native)
         self._ast = ast_provider
         if self._ast is None and WorkspaceOperation.AST in operations:
-            self._ast = AstEngine._from_workspace(native, session_id=session_id.root)
+            self._ast = AstEngine._from_workspace(native, session_id=session_id.root, limits=ast_limits)
         if isinstance(self._ast, NativeViewAstProvider):
             self._ast.bind_edit_mode(self._edit_mode)
         self._fff = fff_provider

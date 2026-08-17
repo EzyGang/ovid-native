@@ -94,13 +94,19 @@ def test_edit_mode_toolset_executes_patch_and_recaptures_each_step(tmp_path: Pat
 
 def test_direct_delete_and_move_use_shared_file_engine(tmp_path: Path) -> None:
     workspace = NativeWorkspaceSession(root=tmp_path)
-    asyncio.run(workspace.files.create_file(WorkspaceCreateRequest(path='source.txt', content='one\n')))
-    asyncio.run(workspace.files.move_file(WorkspaceMoveRequest(path='source.txt', destination='moved.txt')))
+    created = asyncio.run(workspace.files.create_file(WorkspaceCreateRequest(path='./source.txt', content='one\n')))
+    moved = asyncio.run(
+        workspace.files.move_file(WorkspaceMoveRequest(path=r'.\source.txt', destination='./moved.txt'))
+    )
+    assert created.changes[0].path == 'source.txt'
+    assert moved.changes[0].path == 'source.txt'
+    assert moved.changes[0].destination == 'moved.txt'
     assert not (tmp_path / 'source.txt').exists()
     assert (tmp_path / 'moved.txt').read_text() == 'one\n'
 
-    asyncio.run(workspace.files.read_file(WorkspaceFileReadRequest(path='moved.txt')))
-    deleted = asyncio.run(workspace.files.delete_file(WorkspaceDeleteRequest(path='moved.txt')))
+    asyncio.run(workspace.files.read_file(WorkspaceFileReadRequest(path=r'.\moved.txt')))
+    deleted = asyncio.run(workspace.files.delete_file(WorkspaceDeleteRequest(path='./moved.txt')))
+    assert deleted.changes[0].path == 'moved.txt'
     assert deleted.post_edit_sources == ()
     assert not (tmp_path / 'moved.txt').exists()
     asyncio.run(workspace.close())

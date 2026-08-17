@@ -52,8 +52,9 @@ pub(crate) use types::{
 };
 pub(crate) use workflows::MutationContext;
 pub(crate) use write::{
-    EditResult, FileChange, PostEditSource, atomic_replace_path, create_file, ensure_current_path,
-    move_file_noclobber, preflight_write, replace_file, sha256,
+    EditResult, FileChange, FileIdentity, PostEditSource, atomic_replace_path, create_file,
+    ensure_current_file, ensure_current_path, file_identity, move_file_noclobber, preflight_write,
+    replace_file, sha256,
 };
 
 #[derive(Debug)]
@@ -449,13 +450,14 @@ impl Workspace {
         path: &str,
         depth: usize,
     ) -> Result<WorkspaceDirectoryRead, WorkspaceError> {
+        let path = path::normalize_relative_directory(path)?;
         self.ensure_open()?;
         if !(1..=2).contains(&depth) {
             return Err(WorkspaceError::Limit(
                 "workspace directory depth must be between one and two".to_owned(),
             ));
         }
-        let target = path::resolve_contained_directory(self.root(), path)?;
+        let target = path::resolve_contained_directory(self.root(), &path)?;
         let mut entries = Vec::new();
         let mut truncated = false;
         collect_directory_entries(
@@ -469,7 +471,7 @@ impl Workspace {
         entries.sort_by(|left, right| left.path.cmp(&right.path));
 
         Ok(WorkspaceDirectoryRead {
-            path: path.to_owned(),
+            path,
             entries,
             truncated,
         })

@@ -1076,6 +1076,7 @@ dependencies = [
  "ignore",
  "pyo3",
  "regex",
+ "same-file",
  "sha2",
  "tempfile",
 ]

@@ -1,7 +1,7 @@
 use std::fs;
 
 use crate::workspace::content::NormalizedText;
-use crate::workspace::path::resolve_contained_file;
+use crate::workspace::path::{normalize_relative, resolve_contained_file};
 use crate::workspace::{
     EditResult, FileChange, LineRange, ObservationReceipt, PolicyGeneration, PostEditSource,
     Workspace, WorkspaceError, WorkspacePolicy, sha256,
@@ -45,10 +45,11 @@ impl Workspace {
         path: &str,
         tag: &str,
     ) -> Result<ObservationReceipt, WorkspaceError> {
+        let path = normalize_relative(path)?;
         let policy = self.policy()?;
-        let (_, text) = load_current(self, path, &policy.policy)?;
+        let (_, text) = load_current(self, &path, &policy.policy)?;
         let digest = sha256(text.source.as_bytes());
-        Ok(self.observations()?.resolve(path, tag, &digest)?.receipt)
+        Ok(self.observations()?.resolve(&path, tag, &digest)?.receipt)
     }
 
     pub(crate) fn validate_observed_lines(
@@ -57,11 +58,12 @@ impl Workspace {
         tag: &str,
         lines: &[usize],
     ) -> Result<ObservationReceipt, WorkspaceError> {
+        let path = normalize_relative(path)?;
         let policy = self.policy()?;
-        let (_, text) = load_current(self, path, &policy.policy)?;
+        let (_, text) = load_current(self, &path, &policy.policy)?;
         let digest = sha256(text.source.as_bytes());
-        let authorization = self.observations()?.resolve(path, tag, &digest)?;
-        authorization.require_lines(path, &text, &lines.iter().copied().collect())?;
+        let authorization = self.observations()?.resolve(&path, tag, &digest)?;
+        authorization.require_lines(&path, &text, &lines.iter().copied().collect())?;
         Ok(authorization.receipt)
     }
 

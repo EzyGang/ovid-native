@@ -123,7 +123,6 @@ impl ObservationLedger {
 
         self.authorization(path, current_digest)
     }
-
     pub(crate) fn resolve_tag(
         &mut self,
         path: &str,

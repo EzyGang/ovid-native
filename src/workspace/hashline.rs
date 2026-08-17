@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::{Path, PathBuf};
 
 use crate::workspace::content::NormalizedText;
 use crate::workspace::hashline_plan::build_plan;
@@ -7,7 +8,7 @@ use crate::workspace::path::resolve_new_file;
 use crate::workspace::workflows::edit_result;
 use crate::workspace::{
     EditResult, FileChange, MutationContext, Workspace, WorkspaceError, atomic_replace_path,
-    ensure_current_path, move_file_noclobber, sha256,
+    ensure_current_file, ensure_current_path, sha256,
 };
 
 impl Workspace {
@@ -19,7 +20,7 @@ impl Workspace {
         self.validate_mutation(context, "hashline")?;
         let _coordinator = self.write_guard()?;
         context.ensure_active()?;
-        let plan = build_plan(self, sections, context)?;
+        let mut plan = build_plan(self, sections, context)?;
         let pending = plan
             .files
             .iter()
@@ -28,7 +29,7 @@ impl Workspace {
         let mut changes = Vec::new();
         let mut posts = Vec::new();
 
-        for (index, file) in plan.files.iter().enumerate() {
+        for (index, file) in plan.files.iter_mut().enumerate() {
             context.ensure_active()?;
             let result = self.commit_hashline_file(file, context);
             match result {
@@ -53,15 +54,13 @@ impl Workspace {
 
     fn commit_hashline_file(
         &self,
-        file: &HashlineFilePlan,
+        file: &mut HashlineFilePlan,
         context: &MutationContext,
     ) -> Result<(FileChange, Option<crate::workspace::PostEditSource>), WorkspaceError> {
         let before = sha256(file.current.source.as_bytes());
+        ensure_current_file(&file.target, &file.path, &before, &mut file.identity)?;
         if file.remove {
-            ensure_current_path(&file.target, &file.path, &before)?;
-            fs::remove_file(&file.target).map_err(|error| {
-                WorkspaceError::Write(format!("cannot delete {}: {error}", file.path))
-            })?;
+            stage_hashline_file(file, &before)?.remove()?;
             let (generation, revision) = self.mark_file_changed(&file.path)?;
             return Ok((
                 file_change(file, "delete", None, &before, None, generation, revision),
@@ -70,19 +69,24 @@ impl Workspace {
         }
 
         let changed = file.final_source != file.current.source;
-        if changed {
-            let bytes = file.current.serialize_with_current(&file.final_source);
-            atomic_replace_path(&file.target, &file.path, &before, &bytes)?;
-        }
         let final_path = match file.destination.as_deref() {
             Some(destination) => {
-                let expected = sha256(file.final_source.as_bytes());
-                ensure_current_path(&file.target, &file.path, &expected)?;
                 let destination_path = resolve_new_file(self.root(), destination, false)?;
-                move_file_noclobber(&file.target, &destination_path, &file.path, destination)?;
+                let staged = stage_hashline_file(file, &before)?;
+                staged.move_to(
+                    &destination_path,
+                    destination,
+                    changed.then(|| file.current.serialize_with_current(&file.final_source)),
+                )?;
                 destination
             }
-            None => &file.path,
+            None => {
+                if changed {
+                    let bytes = file.current.serialize_with_current(&file.final_source);
+                    atomic_replace_path(&file.target, &file.path, &before, &bytes)?;
+                }
+                &file.path
+            }
         };
         let (generation, revision) = self.mark_file_changed(final_path)?;
         let final_text =
@@ -112,6 +116,147 @@ impl Workspace {
         );
         Ok((change, post))
     }
+}
+
+struct StagedHashlineFile {
+    directory: tempfile::TempDir,
+    source: PathBuf,
+    original: PathBuf,
+    relative: String,
+}
+
+impl StagedHashlineFile {
+    fn remove(self) -> Result<(), WorkspaceError> {
+        match fs::remove_file(&self.source) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                let message =
+                    WorkspaceError::Write(format!("cannot delete {}: {error}", self.relative));
+                Err(self.restore_or(message))
+            }
+        }
+    }
+
+    fn move_to(
+        self,
+        destination: &Path,
+        destination_relative: &str,
+        replacement: Option<Vec<u8>>,
+    ) -> Result<(), WorkspaceError> {
+        let final_source = match replacement {
+            Some(bytes) => {
+                let final_source = self.directory.path().join("final");
+                if let Err(error) = fs::copy(&self.source, &final_source) {
+                    return Err(self.restore_or(WorkspaceError::Write(format!(
+                        "cannot prepare move to {destination_relative}: {error}"
+                    ))));
+                }
+                let before = fs::read(&final_source)
+                    .map(|source| {
+                        NormalizedText::decode(source).map(|text| sha256(text.source.as_bytes()))
+                    })
+                    .map_err(|error| {
+                        WorkspaceError::Write(format!(
+                            "cannot inspect move source for {destination_relative}: {error}"
+                        ))
+                    })
+                    .and_then(|result| result);
+                let before = match before {
+                    Ok(before) => before,
+                    Err(error) => return Err(self.restore_or(error)),
+                };
+                if let Err(error) =
+                    atomic_replace_path(&final_source, destination_relative, &before, &bytes)
+                {
+                    return Err(self.restore_or(error));
+                }
+                final_source
+            }
+            None => self.source.clone(),
+        };
+        if let Err(error) = fs::hard_link(&final_source, destination) {
+            let message = WorkspaceError::Write(format!(
+                "cannot move {} to {destination_relative}: {error}",
+                self.relative
+            ));
+            return Err(self.restore_or(message));
+        }
+        if let Err(error) = fs::remove_file(&self.source) {
+            let rollback = fs::remove_file(destination);
+            if rollback.is_ok() {
+                let message = WorkspaceError::Write(format!(
+                    "cannot remove move source {}: {error}",
+                    self.relative
+                ));
+                return Err(self.restore_or(message));
+            }
+            let pending = self.relative.clone();
+            let _ = self.directory.keep();
+            return Err(WorkspaceError::PartialCommit {
+                landed: vec![destination_relative.to_owned()],
+                pending: vec![pending],
+                changes: Vec::new(),
+            });
+        }
+        if final_source != self.source && fs::remove_file(&final_source).is_err() {
+            let _ = self.directory.keep();
+            return Err(WorkspaceError::PartialCommit {
+                landed: vec![destination_relative.to_owned()],
+                pending: Vec::new(),
+                changes: Vec::new(),
+            });
+        }
+        Ok(())
+    }
+
+    fn restore_or(self, error: WorkspaceError) -> WorkspaceError {
+        if fs::rename(&self.source, &self.original).is_ok() {
+            return error;
+        }
+        let pending = self.relative.clone();
+        let _ = self.directory.keep();
+        WorkspaceError::PartialCommit {
+            landed: Vec::new(),
+            pending: vec![pending],
+            changes: Vec::new(),
+        }
+    }
+}
+
+fn stage_hashline_file(
+    file: &HashlineFilePlan,
+    expected_sha256: &str,
+) -> Result<StagedHashlineFile, WorkspaceError> {
+    let parent = file
+        .target
+        .parent()
+        .ok_or_else(|| WorkspaceError::Write(format!("path has no parent: {}", file.path)))?;
+    let directory = tempfile::Builder::new()
+        .prefix(".ovid-hashline-")
+        .tempdir_in(parent)
+        .map_err(|error| {
+            WorkspaceError::Write(format!(
+                "cannot stage Hashline source {}: {error}",
+                file.path
+            ))
+        })?;
+    let source = directory.path().join("source");
+    fs::rename(&file.target, &source).map_err(|error| {
+        WorkspaceError::Write(format!(
+            "cannot stage Hashline source {}: {error}",
+            file.path
+        ))
+    })?;
+    let staged = StagedHashlineFile {
+        directory,
+        source,
+        original: file.target.clone(),
+        relative: file.path.clone(),
+    };
+    if let Err(error) = ensure_current_path(&staged.source, &file.path, expected_sha256) {
+        return Err(staged.restore_or(error));
+    }
+    Ok(staged)
 }
 
 fn file_change(

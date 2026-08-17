@@ -5,9 +5,9 @@ use crate::workspace::hashline_locator::resolve_operations;
 use crate::workspace::hashline_types::{
     HashlineFilePlan, HashlinePlan, HashlineSection, PreparedHashlineSection,
 };
-use crate::workspace::path::normalize_relative;
+use crate::workspace::path::{normalize_relative, resolve_new_file};
 use crate::workspace::workflows::load_current;
-use crate::workspace::{MutationContext, Workspace, WorkspaceError};
+use crate::workspace::{MutationContext, Workspace, WorkspaceError, file_identity, sha256};
 
 pub(crate) fn build_plan(
     workspace: &Workspace,
@@ -38,6 +38,17 @@ pub(crate) fn build_plan(
         }
         prepared.push(prepare_section(workspace, section, &path, context)?);
     }
+    for section in &prepared {
+        let Some(destination) = section.file.destination.as_deref() else {
+            continue;
+        };
+        if !seen_paths.insert(destination.to_owned()) {
+            return Err(WorkspaceError::Patch(format!(
+                "Hashline patch contains a conflicting path: {destination}"
+            )));
+        }
+        resolve_new_file(workspace.root(), destination, false)?;
+    }
 
     let mut named = workspace.named_registers()?;
     let mut anonymous = None;
@@ -64,7 +75,6 @@ fn prepare_section(
             )),
             other => other,
         })?;
-    let authorization = workspace.observations()?.resolve_tag(path, &section.tag)?;
     let directives = section
         .operations
         .iter()
@@ -75,6 +85,14 @@ fn prepare_section(
             "Hashline section has incompatible file directives: {path}"
         )));
     }
+    if directives
+        .first()
+        .is_some_and(|operation| operation.kind == "move" && operation.destination.is_none())
+    {
+        return Err(WorkspaceError::Patch(format!(
+            "Hashline move is missing its destination: {path}"
+        )));
+    }
     let destination = directives
         .first()
         .and_then(|operation| operation.destination.as_deref())
@@ -83,10 +101,16 @@ fn prepare_section(
     let remove = directives
         .first()
         .is_some_and(|operation| operation.kind == "remove");
+    let authorization = if remove || destination.is_some() {
+        let digest = sha256(current.source.as_bytes());
+        workspace
+            .observations()?
+            .resolve(path, &section.tag, &digest)?
+    } else {
+        workspace.observations()?.resolve_tag(path, &section.tag)?
+    };
     if remove || destination.is_some() {
-        return Err(WorkspaceError::Patch(format!(
-            "Hashline REM and MV are unavailable without atomic file identity binding: {path}"
-        )));
+        authorization.require_complete(path)?;
     }
 
     let editable = section
@@ -102,6 +126,7 @@ fn prepare_section(
             path: path.to_owned(),
             destination,
             remove,
+            identity: file_identity(&target, path)?,
             target,
             final_source: current.source.clone(),
             changed_range: None,

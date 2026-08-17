@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::workspace::line_hash::short_line_hash;
+use crate::workspace::path::normalize_relative;
 use crate::workspace::workflows::load_current;
 use crate::workspace::{ObservationReceipt, RenderedLine, Workspace, WorkspaceError};
 
@@ -12,8 +13,9 @@ impl Workspace {
         spans: &[(usize, usize, usize, usize)],
         complete_presentation: bool,
     ) -> Result<(ObservationReceipt, Vec<RenderedLine>), WorkspaceError> {
+        let path = normalize_relative(path)?;
         let policy = self.policy()?;
-        let (_, text) = load_current(self, path, &policy.policy)?;
+        let (_, text) = load_current(self, &path, &policy.policy)?;
         let mut claimed = HashMap::new();
         for (line, value) in claims {
             if *line == 0 {
@@ -30,7 +32,7 @@ impl Workspace {
                 _ => (),
             }
         }
-        validate_spans(path, &text, &claimed, spans)?;
+        validate_spans(&path, &text, &claimed, spans)?;
         if complete_presentation
             && (claimed.len() != text.total_lines()
                 || (1..=text.total_lines()).any(|line| !claimed.contains_key(&line)))
@@ -61,9 +63,9 @@ impl Workspace {
             })
             .collect::<Result<Vec<_>, WorkspaceError>>()?;
         lines.sort_unstable_by_key(|line| line.number);
-        let generation = self.file_generation(path)?;
+        let generation = self.file_generation(&path)?;
         let receipt = self.observations()?.record(
-            path,
+            &path,
             &text,
             generation,
             &lines,

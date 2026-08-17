@@ -227,6 +227,18 @@ async def _observe_fff_path(
             visible_ranges=ranges,
             uneditable_reason='FFF match is approximate; rerun an exact source-producing tool',
         )
+    if any(not match.match_ranges for match in matches):
+        return EditableSourceGroup(
+            path=path,
+            observation=None,
+            editable=False,
+            lines=tuple(
+                WorkspaceRenderedLine(line_number=line, short_hash='--', text=text)
+                for line, text in sorted(claimed.items())
+            ),
+            visible_ranges=ranges,
+            uneditable_reason='FFF match has no exact source span; rerun an exact source-producing tool',
+        )
     evidence = WorkspaceEvidence(
         path=path,
         revision=revision,
@@ -254,8 +266,6 @@ def _fff_lines(match: FffGrepMatch) -> tuple[tuple[int, str], ...]:
 def _fff_spans(matches: list[FffGrepMatch]) -> tuple[WorkspaceSourceSpanClaim, ...]:
     spans: list[WorkspaceSourceSpanClaim] = []
     for match in matches:
-        if not match.match_ranges:
-            continue
         line_start = match.byte_offset - match.match_ranges[0].start
         spans.extend(
             WorkspaceSourceSpanClaim(

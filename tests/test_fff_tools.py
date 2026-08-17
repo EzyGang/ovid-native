@@ -9,6 +9,7 @@ from ovid_core.tools.base import ToolExecutionContext
 from pytest_mock import MockerFixture
 
 from ovid_native.fff import (
+    FffByteRange,
     FffCapability,
     FffConfig,
     FffConfigurationError,
@@ -101,36 +102,24 @@ def test_source_toolset_captures_plain_context_and_rejects_approximate_hashline(
     asyncio.run(run())
 
 
-def test_exact_provider_match_without_ranges_remains_editable(
+def test_exact_provider_match_requires_a_current_absolute_source_span(
     tmp_path: Path,
     mocker: MockerFixture,
 ) -> None:
     async def run() -> None:
-        (tmp_path / 'source.txt').write_bytes(b'alpha\n')
-        provider = mocker.Mock()
-        provider.grep = mocker.AsyncMock(
-            return_value=FffGrepResult(
-                matches=(
-                    FffGrepMatch(
-                        path='source.txt',
-                        line_number=1,
-                        column=1,
-                        byte_offset=0,
-                        line='alpha',
-                        match_ranges=(),
-                    ),
-                ),
-                actual_mode='plain',
-                approximate=False,
-                completion='complete',
-                indexed_files=1,
-                searchable_files=1,
-                files_searched=1,
-                files_with_matches=1,
-                next_file_offset=None,
-                index_complete=True,
-            )
+        (tmp_path / 'source.txt').write_bytes(b'\xef\xbb\xbfalpha\r\nbeta\r\n')
+        correct = FffGrepMatch(
+            path='source.txt',
+            line_number=2,
+            column=2,
+            byte_offset=11,
+            line='beta',
+            match_ranges=(FffByteRange(start=1, end=3),),
         )
+        stale = correct.model_copy(update={'byte_offset': 1})
+        missing = correct.model_copy(update={'match_ranges': ()})
+        provider = mocker.Mock()
+        provider.grep = mocker.AsyncMock(side_effect=(_fff_result(correct), _fff_result(stale), _fff_result(missing)))
         provider.close = mocker.AsyncMock()
         workspace = NativeWorkspaceSession(root=tmp_path, fff_provider=provider, edit_mode=EditMode.HASHLINE)
         toolset = FffSourceToolset[None](
@@ -141,12 +130,32 @@ def test_exact_provider_match_without_ranges_remains_editable(
             include_multi_grep=False,
         )
         grep = (await toolset.get_tools(cast('RunContext[None]', None)))[0]
-        result = await grep.execute(context(), FffGrepRequest(query='alpha'))
 
-        assert cast(str, result.content).splitlines()[1].endswith('|alpha')
+        current = await grep.execute(context(), FffGrepRequest(query='et'))
+        wrong_offset = await grep.execute(context(), FffGrepRequest(query='et'))
+        no_span = await grep.execute(context(), FffGrepRequest(query='et'))
+
+        assert cast(str, current.content).splitlines()[1].endswith('|beta')
+        assert '[uneditable: source evidence has an invalid UTF-8 span' in cast(str, wrong_offset.content)
+        assert '[uneditable: FFF match has no exact source span' in cast(str, no_span.content)
         await workspace.close()
 
     asyncio.run(run())
+
+
+def _fff_result(match: FffGrepMatch) -> FffGrepResult:
+    return FffGrepResult(
+        matches=(match,),
+        actual_mode='plain',
+        approximate=False,
+        completion='complete',
+        indexed_files=1,
+        searchable_files=1,
+        files_searched=1,
+        files_with_matches=1,
+        next_file_offset=None,
+        index_complete=True,
+    )
 
 
 def test_capability_contributes_selected_tools(tmp_path: Path) -> None:

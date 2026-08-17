@@ -3,6 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Self
 
+from ovid_native.ast.models import AstLimits
 from ovid_native.files.edit_modes import EditMode, EditModeId, EditModeProvider
 from ovid_native.workspace.errors import WorkspaceConfigurationError
 from ovid_native.workspace.models import (
@@ -30,6 +31,7 @@ class WorkspaceSessionBuilder:
         self._root = root
         self._edit_mode = edit_mode
         self._policy = policy
+        self._ast_limits = AstLimits()
         self._files_provider: WorkspaceFilesProvider | None = None
         self._search_provider: WorkspaceSearchProvider | None = None
         self._ast_provider: WorkspaceAstProvider | None = None
@@ -48,8 +50,11 @@ class WorkspaceSessionBuilder:
         root: Path,
         edit_mode: EditMode | EditModeId | str = EditMode.APPLY_PATCH,
         policy: WorkspacePolicy | None = None,
+        ast_limits: AstLimits | None = None,
     ) -> Self:
-        return cls(root=root, edit_mode=edit_mode, policy=policy)
+        builder = cls(root=root, edit_mode=edit_mode, policy=policy)
+        builder._ast_limits = ast_limits if ast_limits is not None else AstLimits()
+        return builder
 
     def with_files_provider(self, provider: WorkspaceFilesProvider) -> Self:
         self._select('files')
@@ -112,9 +117,10 @@ class WorkspaceSessionBuilder:
         self._native_selected.add('search')
         return self
 
-    def with_native_ast(self) -> Self:
+    def with_native_ast(self, *, limits: AstLimits | None = None) -> Self:
         self._select('ast')
         self._native_selected.add('ast')
+        self._ast_limits = limits if limits is not None else AstLimits()
         return self
 
     def with_native_fff(self) -> Self:
@@ -149,6 +155,7 @@ class WorkspaceSessionBuilder:
             search_provider=search,
             ast_provider=ast,
             fff_provider=fff,
+            ast_limits=self._ast_limits,
             view_provider=self._view_provider,
             observation_store=self._observation_store,
             edit_mode=self._edit_mode,
@@ -186,7 +193,7 @@ class WorkspaceSessionBuilder:
             if 'ast' in self._native_selected:
                 if self._files_provider is None:
                     raise WorkspaceConfigurationError('View-backed native AST requires an explicit files provider')
-                ast = NativeViewAstProvider(self._view_provider, self._files_provider)
+                ast = NativeViewAstProvider(self._view_provider, self._files_provider, limits=self._ast_limits)
             if 'fff' in self._native_selected:
                 fff = NativeViewFffProvider(self._view_provider)
         return search, ast, fff

@@ -277,7 +277,7 @@ fn build_selection(root: &Path, value: &str) -> Result<Selection, WorkspaceError
         });
     }
 
-    let selected_path = root.join(value);
+    let selected_path = root.join(&normalized);
     let metadata = fs::symlink_metadata(&selected_path).map_err(|error| {
         WorkspaceError::Path(format!("cannot access workspace path {value}: {error}"))
     })?;
@@ -296,17 +296,22 @@ fn build_selection(root: &Path, value: &str) -> Result<Selection, WorkspaceError
 }
 
 pub(crate) fn validate_relative(value: &str) -> Result<(), WorkspaceError> {
-    if value.is_empty() || value.contains('\0') {
+    let separators = value.replace('\\', "/");
+    if separators.is_empty() || separators.contains('\0') {
         return Err(WorkspaceError::Path(
             "workspace paths must be non-empty and contain no NUL bytes".to_owned(),
         ));
     }
 
-    let path = Path::new(value);
+    let path = Path::new(&separators);
+    let bytes = separators.as_bytes();
+    let windows_prefix = bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':';
     if path.is_absolute()
+        || windows_prefix
+        || separators.starts_with("//")
         || path
             .components()
-            .any(|component| component == Component::ParentDir)
+            .any(|component| matches!(component, Component::Prefix(_) | Component::ParentDir))
     {
         return Err(WorkspaceError::Path(format!(
             "workspace path must remain relative: {value}"
@@ -317,12 +322,40 @@ pub(crate) fn validate_relative(value: &str) -> Result<(), WorkspaceError> {
 }
 
 pub(crate) fn normalize_relative(value: &str) -> Result<String, WorkspaceError> {
-    validate_relative(value)?;
-    let mut normalized = PathBuf::new();
-    for component in Path::new(value).components() {
+    let normalized = normalized_components(value)?;
+    if normalized.is_empty() {
+        return Err(WorkspaceError::Path(format!(
+            "workspace paths must identify a file: {value}"
+        )));
+    }
+
+    Ok(normalized.join("/"))
+}
+
+pub(crate) fn normalize_relative_directory(value: &str) -> Result<String, WorkspaceError> {
+    let normalized = normalized_components(value)?;
+    Ok(if normalized.is_empty() {
+        ".".to_owned()
+    } else {
+        normalized.join("/")
+    })
+}
+
+fn normalized_components(value: &str) -> Result<Vec<String>, WorkspaceError> {
+    let separators = value.replace('\\', "/");
+    validate_relative(&separators)?;
+    let mut normalized = Vec::new();
+    for component in Path::new(&separators).components() {
         match component {
             Component::CurDir => (),
-            Component::Normal(component) => normalized.push(component),
+            Component::Normal(component) => normalized.push(
+                component
+                    .to_str()
+                    .ok_or_else(|| {
+                        WorkspaceError::Path(format!("workspace path is not valid UTF-8: {value}"))
+                    })?
+                    .to_owned(),
+            ),
             Component::Prefix(_) | Component::RootDir | Component::ParentDir => {
                 return Err(WorkspaceError::Path(format!(
                     "workspace path must remain relative: {value}"
@@ -330,16 +363,7 @@ pub(crate) fn normalize_relative(value: &str) -> Result<String, WorkspaceError> 
             }
         }
     }
-    if normalized.as_os_str().is_empty() {
-        return Err(WorkspaceError::Path(format!(
-            "workspace paths must identify a file: {value}"
-        )));
-    }
-
-    normalized
-        .to_str()
-        .map(str::to_owned)
-        .ok_or_else(|| WorkspaceError::Path(format!("workspace path is not valid UTF-8: {value}")))
+    Ok(normalized)
 }
 
 fn normalize(path: &str) -> String {
