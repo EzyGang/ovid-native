@@ -1,3 +1,4 @@
+from collections.abc import Collection
 from typing import Literal, Self
 
 from ovid_core.models import BaseModel
@@ -159,6 +160,19 @@ def capture_source_presentation(mode: str, generation: int) -> WorkspaceSourcePr
         mode_generation=generation,
         format='hashline' if mode == 'hashline' else 'plain',
     )
+
+
+def normalize_terminal_span_end(
+    *,
+    end_line: int,
+    end_column: int,
+    end_byte: int,
+    claimed_lines: Collection[int],
+) -> tuple[int, int]:
+    if end_column != 1 or end_line in claimed_lines or end_line - 1 not in claimed_lines:
+        return end_line, end_byte
+
+    return end_line - 1, end_byte - 1
 
 
 def _uneditable(evidence: WorkspaceEvidence, reason: str) -> EditableSourceGroup:

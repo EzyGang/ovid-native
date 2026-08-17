@@ -10,8 +10,9 @@ pub(crate) fn apply_operations(
     named: &mut HashMap<String, HashlineRegister>,
     anonymous: &mut Option<HashlineRegister>,
 ) -> Result<(), WorkspaceError> {
+    let trailing_newline = section.file.current.source.ends_with('\n');
     let original = source_lines(&section.file.current);
-    let mut edits = Vec::new();
+    let mut edits: Vec<PendingEdit> = Vec::new();
     for operation in &section.operations {
         match operation {
             ResolvedHashlineOperation::Put {
@@ -19,12 +20,10 @@ pub(crate) fn apply_operations(
                 remove,
                 content,
                 order,
-            } => edits.push((
-                *gap,
-                *remove,
-                resolve_content(content, named, anonymous)?,
-                *order,
-            )),
+            } => {
+                let (body, register_trailing_newline) = resolve_content(content, named, anonymous)?;
+                edits.push((*gap, *remove, body, register_trailing_newline, *order));
+            }
             ResolvedHashlineOperation::Cut {
                 start,
                 end,
@@ -33,7 +32,7 @@ pub(crate) fn apply_operations(
             } => {
                 let value = HashlineRegister {
                     lines: original[*start - 1..*end].to_vec(),
-                    ended_at_file_end: *end == original.len(),
+                    trailing_newline: *end < original.len() || trailing_newline,
                 };
                 match register {
                     Some(name) => {
@@ -41,42 +40,59 @@ pub(crate) fn apply_operations(
                     }
                     None => *anonymous = Some(value),
                 }
-                edits.push((*start - 1, Some((*start, *end)), Vec::new(), *order));
+                edits.push((*start - 1, Some((*start, *end)), Vec::new(), None, *order));
             }
         }
     }
-    edits.sort_unstable_by_key(|(gap, _, _, order)| {
-        (std::cmp::Reverse(*gap), std::cmp::Reverse(*order))
-    });
-
-    let mut final_lines = original;
-    for (gap, remove, body, _) in edits {
-        let range = remove.map_or(gap..gap, |(start, end)| start - 1..end);
-        final_lines.splice(range, body);
-    }
-    section.file.final_source =
-        join_lines(&final_lines, section.file.current.source.ends_with('\n'));
+    section.file.final_source = apply_edits(original, edits, trailing_newline);
     section.file.changed_range =
         changed_range(&section.file.current.source, &section.file.final_source);
     Ok(())
+}
+
+type PendingEdit = (
+    usize,
+    Option<(usize, usize)>,
+    Vec<String>,
+    Option<bool>,
+    usize,
+);
+
+fn apply_edits(
+    mut lines: Vec<String>,
+    mut edits: Vec<PendingEdit>,
+    mut trailing_newline: bool,
+) -> String {
+    edits.sort_unstable_by_key(|(gap, _, _, _, order)| {
+        (std::cmp::Reverse(*gap), std::cmp::Reverse(*order))
+    });
+    for (gap, remove, body, register_trailing_newline, _) in edits {
+        let range = remove.map_or(gap..gap, |(start, end)| start - 1..end);
+        let replaces_tail = range.end == lines.len();
+        lines.splice(range, body);
+        if replaces_tail && let Some(value) = register_trailing_newline {
+            trailing_newline = value;
+        }
+    }
+    join_lines(&lines, trailing_newline)
 }
 
 fn resolve_content(
     content: &HashlineContent,
     named: &HashMap<String, HashlineRegister>,
     anonymous: &Option<HashlineRegister>,
-) -> Result<Vec<String>, WorkspaceError> {
+) -> Result<(Vec<String>, Option<bool>), WorkspaceError> {
     match content {
-        HashlineContent::Body(lines) => Ok(lines.clone()),
+        HashlineContent::Body(lines) => Ok((lines.clone(), None)),
         HashlineContent::Register(Some(name)) => named
             .get(name)
-            .map(|value| value.lines.clone())
+            .map(|value| (value.lines.clone(), Some(value.trailing_newline)))
             .ok_or_else(|| {
                 WorkspaceError::Patch(format!("Hashline register is unavailable: @{name}"))
             }),
         HashlineContent::Register(None) => anonymous
             .as_ref()
-            .map(|value| value.lines.clone())
+            .map(|value| (value.lines.clone(), Some(value.trailing_newline)))
             .ok_or_else(|| {
                 WorkspaceError::Patch("anonymous Hashline register is unavailable".to_owned())
             }),

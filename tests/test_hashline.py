@@ -89,6 +89,27 @@ def test_grep_lines_authorize_hashline_without_reread(tmp_path: Path) -> None:
     asyncio.run(run())
 
 
+def test_newline_terminated_grep_match_supplies_hashline_evidence(tmp_path: Path) -> None:
+    async def run() -> None:
+        source = tmp_path / 'source.txt'
+        source.write_text('alpha\nbeta\n')
+        workspace = NativeWorkspaceSession(root=tmp_path, edit_mode='hashline')
+        selection = workspace.edit_mode.current
+        presenter = WorkspaceSourcePresenter(
+            observations=workspace.observations,
+            presentation=capture_source_presentation(selection.mode, selection.generation),
+        )
+        result = await GrepTool[None](provider=workspace.search, presenter=presenter).execute(
+            context(),
+            GrepToolRequest(pattern='beta\\n', mode='regex', multiline=True),
+        )
+
+        assert cast(str, result.content).splitlines()[0].startswith('[source.txt#')
+        await workspace.close()
+
+    asyncio.run(run())
+
+
 def test_ast_lines_authorize_hashline_without_reread(tmp_path: Path) -> None:
     async def run() -> None:
         source = tmp_path / 'source.py'

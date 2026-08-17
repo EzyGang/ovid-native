@@ -230,6 +230,22 @@ def test_capability_rejects_workspace_without_required_operation(mocker: MockerF
         FffCapability[None]().bind(services)
 
 
+def test_glob_only_fff_capability_requires_search_only(mocker: MockerFixture) -> None:
+    session = mocker.Mock()
+    session.id = WorkspaceSessionId('opaque-session-id-123456789')
+    session.operations = frozenset((WorkspaceOperation.SEARCH,))
+    services = AgentServices((workspace_binding(session),))
+
+    capability = FffCapability[None](
+        include_glob=True,
+        include_find_files=False,
+        include_grep=False,
+        include_multi_grep=False,
+    ).bind(services)
+
+    assert [tool.id for tool in capability.contributions.tools] == ['glob']
+
+
 def test_ast_proposals_are_scoped_to_one_session(tmp_path: Path) -> None:
     async def run() -> None:
         source = tmp_path / 'sample.py'

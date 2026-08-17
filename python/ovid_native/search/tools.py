@@ -24,6 +24,7 @@ from ovid_native.workspace.evidence import (
     WorkspaceSourcePresenter,
     WorkspaceSourceSpanClaim,
     capture_source_presentation,
+    normalize_terminal_span_end,
 )
 from ovid_native.workspace.models import WorkspaceSearchProvider
 from ovid_native.workspace.observations import WorkspaceLineRange, WorkspaceObservationService
@@ -181,28 +182,37 @@ async def _grep_source_group(
     presenter: WorkspaceSourcePresenter,
 ) -> EditableSourceGroup:
     claimed: dict[int, str] = {}
-    spans: list[WorkspaceSourceSpanClaim] = []
     for match in file.matches:
         for line in match.matched_lines:
             claimed[line.line_number] = line.text
         for line in (*match.context_before, *match.context_after):
             if not line.truncated:
                 claimed[line.line_number] = line.text
-        spans.append(
-            WorkspaceSourceSpanClaim(
-                start_line=match.range.start.line,
-                start_byte=match.range.start.byte_offset,
-                end_line=match.range.end.line,
-                end_byte=match.range.end.byte_offset,
-            )
-        )
+
     lines = tuple(WorkspaceSourceLineClaim(line_number=line, text=text) for line, text in sorted(claimed.items()))
+    spans = tuple(
+        WorkspaceSourceSpanClaim(
+            start_line=match.range.start.line,
+            start_byte=match.range.start.byte_offset,
+            end_line=end_line,
+            end_byte=end_byte,
+        )
+        for match in file.matches
+        for end_line, end_byte in (
+            normalize_terminal_span_end(
+                end_line=match.range.end.line,
+                end_column=match.range.end.column,
+                end_byte=match.range.end.byte_offset,
+                claimed_lines=claimed,
+            ),
+        )
+    )
     evidence = WorkspaceEvidence(
         path=file.path,
         revision=None,
         lines=lines,
         visible_ranges=_line_ranges(tuple(claimed)),
-        spans=tuple(spans),
+        spans=spans,
     )
     return await presenter.observe(
         WorkspaceObservationRequest(

@@ -24,7 +24,7 @@ pub(crate) struct HashlineSection {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct HashlineRegister {
     pub lines: Vec<String>,
-    pub ended_at_file_end: bool,
+    pub trailing_newline: bool,
 }
 
 #[derive(Clone, Debug)]

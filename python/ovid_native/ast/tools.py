@@ -28,6 +28,7 @@ from ovid_native.workspace.evidence import (
     WorkspaceSourcePresenter,
     WorkspaceSourceSpanClaim,
     capture_source_presentation,
+    normalize_terminal_span_end,
 )
 from ovid_native.workspace.models import WorkspaceAstProvider
 from ovid_native.workspace.observations import WorkspaceLineRange, WorkspaceObservationService
@@ -202,10 +203,18 @@ async def _observe_ast_path(
         WorkspaceSourceSpanClaim(
             start_line=match.range.start.line,
             start_byte=match.range.start.byte_offset,
-            end_line=match.range.end.line,
-            end_byte=match.range.end.byte_offset,
+            end_line=end_line,
+            end_byte=end_byte,
         )
         for match in matches
+        for end_line, end_byte in (
+            normalize_terminal_span_end(
+                end_line=match.range.end.line,
+                end_column=match.range.end.column,
+                end_byte=match.range.end.byte_offset,
+                claimed_lines=claimed,
+            ),
+        )
     )
     evidence = WorkspaceEvidence(
         path=path,
