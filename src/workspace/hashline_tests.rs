@@ -154,7 +154,7 @@ fn hashline_rejects_unseen_and_changed_anchors_without_writing() {
 #[test]
 fn hashline_resolves_cross_file_registers_in_authored_order() {
     let root = tempfile::tempdir().expect("workspace");
-    fs::write(root.path().join("source.txt"), "move me").expect("source");
+    fs::write(root.path().join("source.txt"), "a\nmove me").expect("source");
     fs::write(root.path().join("target.txt"), "target\n").expect("target");
     let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
     let source = workspace
@@ -171,10 +171,10 @@ fn hashline_resolves_cross_file_registers_in_authored_order() {
                     path: "source.txt".to_owned(),
                     tag: source.observation.expect("source receipt").tag,
                     operations: vec![cut_range(
-                        1,
-                        &source.lines[0].short_hash,
-                        1,
-                        &source.lines[0].short_hash,
+                        2,
+                        &source.lines[1].short_hash,
+                        2,
+                        &source.lines[1].short_hash,
                         "moved",
                     )],
                 },
@@ -190,7 +190,7 @@ fn hashline_resolves_cross_file_registers_in_authored_order() {
 
     assert_eq!(
         fs::read_to_string(root.path().join("source.txt")).expect("source"),
-        ""
+        "a\n"
     );
     assert_eq!(
         fs::read_to_string(root.path().join("target.txt")).expect("target"),

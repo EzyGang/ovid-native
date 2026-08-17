@@ -172,7 +172,7 @@ def normalize_terminal_span_end(
     if end_column != 1 or end_line in claimed_lines or end_line - 1 not in claimed_lines:
         return end_line, end_byte
 
-    return end_line - 1, end_byte - 1
+    return end_line - 1, end_byte
 
 
 def _uneditable(evidence: WorkspaceEvidence, reason: str) -> EditableSourceGroup:

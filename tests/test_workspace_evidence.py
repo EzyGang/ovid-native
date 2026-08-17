@@ -5,7 +5,7 @@ import pytest
 from pydantic import ValidationError
 from pytest_mock import MockerFixture
 
-from ovid_native.files.models import WorkspaceFileReadRequest
+from ovid_native.files.models import WorkspaceFileReadRequest, WorkspaceTextSerialization
 from ovid_native.workspace.evidence import (
     WorkspaceEvidence,
     WorkspaceObservationRequest,
@@ -17,8 +17,9 @@ from ovid_native.workspace.evidence import (
     normalize_terminal_span_end,
 )
 from ovid_native.workspace.models import WorkspaceSessionId
-from ovid_native.workspace.observations import ObservedWorkspaceFile, WorkspaceLineRange
+from ovid_native.workspace.observations import ObservedWorkspaceFile, WorkspaceLineRange, WorkspaceRenderedLine
 from ovid_native.workspace.service import NativeWorkspaceSession
+from ovid_native.workspace.source_validation import validate_serialized_spans
 
 
 def test_terminal_span_end_normalizes_an_unclaimed_synthetic_line() -> None:
@@ -27,13 +28,25 @@ def test_terminal_span_end_normalizes_an_unclaimed_synthetic_line() -> None:
         end_column=1,
         end_byte=11,
         claimed_lines={2},
-    ) == (2, 10)
+    ) == (2, 11)
     assert normalize_terminal_span_end(
         end_line=2,
         end_column=1,
         end_byte=10,
         claimed_lines={2},
     ) == (2, 10)
+
+
+def test_crlf_terminal_span_uses_the_preceding_serialized_line_end() -> None:
+    validate_serialized_spans(
+        'source.txt',
+        ((2, 7, 2, 13),),
+        {
+            1: WorkspaceRenderedLine(line_number=1, short_hash='--', text='alpha'),
+            2: WorkspaceRenderedLine(line_number=2, short_hash='--', text='beta'),
+        },
+        WorkspaceTextSerialization(bom=False, line_ending='crlf', terminal_newline=True),
+    )
 
 
 def test_evidence_ranges_and_stale_revisions_render_uneditable_source(tmp_path: Path) -> None:

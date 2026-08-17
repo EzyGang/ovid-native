@@ -49,6 +49,7 @@ def validate_serialized_spans(
     for start_line, start_byte, end_line, end_byte in spans:
         start = bounds[start_line]
         end = bounds[end_line]
+        end_byte = _terminal_span_end(end_byte, end, serialization)
         valid_boundaries = (
             start[0] <= start_byte <= start[1]
             and end[0] <= end_byte <= end[1]
@@ -59,6 +60,17 @@ def validate_serialized_spans(
             raise WorkspaceObservationNotFoundError(
                 f'Source evidence contains an invalid UTF-8 span: {path}:{start_line}-{end_line}'
             )
+
+
+def _terminal_span_end(
+    end_byte: int,
+    bounds: tuple[int, int],
+    serialization: WorkspaceTextSerialization,
+) -> int:
+    ending_bytes = len({'lf': b'\n', 'crlf': b'\r\n', 'cr': b'\r'}[serialization.line_ending])
+    if bounds[1] < end_byte <= bounds[1] + ending_bytes:
+        return bounds[1]
+    return end_byte
 
 
 def _digest(text: str) -> str:

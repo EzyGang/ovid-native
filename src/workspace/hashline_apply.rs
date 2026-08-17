@@ -34,13 +34,21 @@ pub(crate) fn apply_operations(
                     lines: original[*start - 1..*end].to_vec(),
                     trailing_newline: *end < original.len() || trailing_newline,
                 };
+                let cut_trailing_newline =
+                    (*end == original.len() && !trailing_newline && *start > 1).then_some(true);
                 match register {
                     Some(name) => {
                         named.insert(name.clone(), value);
                     }
                     None => *anonymous = Some(value),
                 }
-                edits.push((*start - 1, Some((*start, *end)), Vec::new(), None, *order));
+                edits.push((
+                    *start - 1,
+                    Some((*start, *end)),
+                    Vec::new(),
+                    cut_trailing_newline,
+                    *order,
+                ));
             }
         }
     }
