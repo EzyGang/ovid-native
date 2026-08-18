@@ -73,9 +73,8 @@ Use uv, maturin, and Cargo from the repository root:
 ```bash
 uv sync
 uv run maturin develop
-uv run task format
-uv run task python-lint
-uv run task type-lint
+uv run task ruff
+uv run task ty-lint
 uv run task rust-lint
 uv run task rust-tests
 uv run task tests
@@ -271,8 +270,9 @@ For each native operation:
 Before reporting work complete, run:
 
 ```bash
-uv run task type-lint
-uv run task python-lint
+uv run task ty-lint
+uv run ruff format --check ./python/ovid_native ./tests ./benchmarks
+uv run ruff check ./python/ovid_native ./tests ./benchmarks
 uv run task rust-lint
 uv run task rust-tests
 uv run maturin develop

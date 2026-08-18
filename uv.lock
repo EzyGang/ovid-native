@@ -824,7 +824,7 @@ provides-extras = ["server", "server-ag-ui"]
 [package.metadata.requires-dev]
 dev = [
     { name = "coverage", extras = ["toml"], specifier = ">=7.15.2" },
-    { name = "pydantic-ai-slim", extras = ["anthropic"], specifier = ">=2.22.0,<2.23.0" },
+    { name = "pydantic-ai-slim", extras = ["ag-ui", "anthropic"], specifier = ">=2.22.0,<2.23.0" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "pytest-cov", specifier = ">=7.1.0" },

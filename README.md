@@ -8,6 +8,7 @@
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/Python-3.14%2B-blue" alt="Python 3.14 or newer"></a>
   <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-stable-orange" alt="Stable Rust"></a>
   <a href="pyproject.toml"><img src="https://img.shields.io/badge/version-0.1.0-indigo" alt="Version 0.1.0"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license"></a>
   <a href="https://github.com/EzyGang/ovid-native/actions/workflows/ci.yml"><img src="https://github.com/EzyGang/ovid-native/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
 </p>
 
@@ -36,6 +37,7 @@ Every wheel contains the complete native surface. One package works for direct A
 - [Platforms](#platforms)
 - [Development](#development)
 - [Contributing](#contributing)
+- [License](#license)
 
 ---
 
@@ -258,3 +260,9 @@ Public benchmarks are in [`benchmarks/`](benchmarks/README.md).
 5. Open a pull request with a clear reason for the change.
 
 Keep the Python and Cargo versions equal. Do not edit generated extensions, build output, or `Cargo.lock` by hand. See [AGENTS.md](AGENTS.md) for the full repository rules.
+
+---
+
+## License
+
+Ovid Native is licensed under the [MIT License](LICENSE).

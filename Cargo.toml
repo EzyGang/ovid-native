@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.97"
 description = "Complete native Rust operations for Ovid applications"
+license = "MIT"
+repository = "https://github.com/EzyGang/ovid-native"
+homepage = "https://github.com/EzyGang/ovid-native"
+readme = "README.md"
 publish = false
 
 [lib]
