@@ -41,7 +41,7 @@ jobs:
             ovid-native/uv.lock
             ovid-core/uv.lock
       - name: Install dependencies
-        run: uv sync --locked
+        run: uv sync --locked --no-install-project
         working-directory: ovid-native
       - name: Check Python formatting and lint
         run: |
@@ -88,7 +88,7 @@ jobs:
             ovid-native/uv.lock
             ovid-core/uv.lock
       - name: Install dependencies
-        run: uv sync --locked
+        run: uv sync --locked --no-install-project
         working-directory: ovid-native
       - name: Run Rust tests
         run: uv run task rust-tests
