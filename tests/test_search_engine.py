@@ -67,9 +67,9 @@ def test_glob_directories_end_with_slash_and_path_errors_are_narrow(tmp_path: Pa
 
 
 def test_grep_reports_pagination_context_utf8_and_partial_coverage(tmp_path: Path) -> None:
-    (tmp_path / 'a.txt').write_text('before\nnéedle one\nafter\nneedle two\n')
-    (tmp_path / 'b.txt').write_text('needle three\n')
-    (tmp_path / 'large.txt').write_text('needle trailing data')
+    (tmp_path / 'a.txt').write_text('before\nnéedle one\nafter\nneedle two\n', encoding='utf-8')
+    (tmp_path / 'b.txt').write_text('needle three\n', encoding='utf-8')
+    (tmp_path / 'large.txt').write_text('needle trailing data', encoding='utf-8')
     engine = SearchEngine(root=tmp_path)
     first = GrepRequest(
         pattern='n.edle',
