@@ -24,7 +24,10 @@ CI smoke check:
 uv run --group benchmark task benchmark-check
 ```
 
-`.github/workflows/benchmarks.yml` runs this smoke set for benchmark and native search, AST, and FFF changes, and supports manual dispatch. It verifies execution only; shared-runner timings are not retained or compared.
+`.github/workflows/benchmarks.yml` runs the smoke set after relevant benchmark or native changes.
+The workflow also supports manual dispatch.
+It verifies execution only.
+It does not retain or compare shared-runner timings.
 
 Record a release result:
 
@@ -43,11 +46,28 @@ uv run task benchmark-compare -- \
   benchmarks/data/v1/0.2.0/<machine>.json
 ```
 
-Comparison requires the same suite version, fixture version and digest, machine key, and build profile. A result is a regression only when pyperf's significance test reports a difference, the current median is at least 10% slower, and the absolute slowdown is at least 2 ms. The command exits nonzero on regression. `unstable` means the samples do not establish a significant change.
+Comparison requires matching suite, fixture, machine, and build-profile metadata.
+A result is a regression only when all conditions apply:
+
+- pyperf reports a significant difference
+- the current median is at least 10 percent slower
+- the absolute slowdown is at least 2 milliseconds
+
+The command exits with a nonzero status after a regression.
+`unstable` means that the samples do not establish a significant change.
 
 ## Scenarios
 
-Search fixtures contain 10,000 source files across 100 directories, deterministic modification times, sparse and dense tokens, Unicode text, one hot file, one oversized file, ignored and hidden files, a dependency subtree, and a binary file.
+Search fixtures contain:
+
+- 10,000 source files in 100 directories
+- deterministic modification times
+- sparse and dense tokens
+- Unicode text
+- one frequent file and one oversized file
+- ignored and hidden files
+- a dependency subtree
+- a binary file
 
 | ID | Measures |
 | --- | --- |
@@ -62,7 +82,9 @@ Search fixtures contain 10,000 source files across 100 directories, deterministi
 | `grep.hot_file.1mib` | Match collection and line indexing in one hot file |
 | `grep.prefix_large_file` | Bounded prefix search of an oversized file |
 
-Scaled search fixtures cover 100, 1,000, and 10,000 indexed files. Each FFF engine is long-lived and fully indexed before timing; pyperf repeats the same requests against that warm picker.
+Scaled search fixtures cover 100, 1,000, and 10,000 indexed files.
+Each FFF engine remains active and completes indexing before timing.
+pyperf repeats the same requests against that warm picker.
 
 | ID | Measures |
 | --- | --- |
@@ -92,7 +114,12 @@ AST fixtures contain 2,000 fixed Python files. Ten percent match the search and 
 
 ## Reading Results
 
-Use median wall time per public call for release comparisons. History tables also derive files per second from each scenario's fixed work-item count. Keep pyperf's individual values and warmups in the JSON record; they expose variance that a summary hides. Compare only fixed machine pools under similar thermal and power conditions. Cross-machine numbers are informational.
+Use median wall time per public call for release comparisons.
+History tables derive files per second from each fixed work-item count.
+Keep pyperf values and warmups in the JSON record.
+They show variance that a summary hides.
+Compare only fixed machine pools under similar thermal and power conditions.
+Treat cross-machine numbers as informational.
 
 These are warm-filesystem, steady-state operation timings. Process startup, extension import, fixture construction, FFF initial indexing, and deliberate cold-cache manipulation are outside the contract. Add a separately named cold-start scenario only when application startup becomes a measured product requirement.
 
@@ -103,10 +130,14 @@ Shared CI runners are suitable for smoke execution, not release gates. A fixed s
 A benchmark change is a contract change:
 
 1. Add or modify the deterministic fixture in `benchmarks/fixtures.py`.
-2. Add one scenario in `benchmarks/scenarios.py` with a stable ID, operation, and measured boundary.
-3. Increment `FIXTURE_VERSION` when inputs change. Increment `SUITE_VERSION` when scenarios, limits, or timing boundaries change.
-4. Update this scenario table and the benchmark guidance in `AGENTS.md`.
-5. Run the focused scenario with `--fast`, then one rigorous release run on a fixed machine.
-6. Do not compare records across suite or fixture versions.
+2. Add one scenario in `benchmarks/scenarios.py`.
+3. Give the scenario a stable ID, operation, and measured boundary.
+4. Increment `FIXTURE_VERSION` when inputs change.
+5. Increment `SUITE_VERSION` when scenarios, limits, or timing boundaries change.
+6. Update this scenario table.
+7. Update the benchmark guidance in `AGENTS.md`.
+8. Run the focused scenario with `--fast`.
+9. Run one rigorous release measurement on a fixed machine.
+10. Do not compare records across suite or fixture versions.
 
 Keep operations bounded and deterministic. Put setup and cleanup outside the returned timing. Do not add provider, agent-runtime, capability-discovery, cancellation, error-path, or metadata-enumeration timings to this suite. Add a Rust microbenchmark only after profiling identifies a specific native kernel that public API timing cannot isolate.

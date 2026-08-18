@@ -14,6 +14,7 @@ Use this dependency direction:
 
 ```text
 Ovid application
+
       |
       v
 ovid_native Python API ------> ovid_core public contracts
@@ -80,7 +81,7 @@ Generated extensions, Python caches, `target/`, `dist/`, coverage output, and do
 - The import package is `ovid_native`.
 - The private extension is `ovid_native._native`.
 - Keep the versions in `pyproject.toml` and `Cargo.toml` equal.
-- `Cargo.lock` is generated and committed. Update it with Cargo; never edit it by hand.
+- Cargo generates and commits `Cargo.lock`. Update it with Cargo. Never edit it by hand.
 - Follow semantic versioning independently from `ovid-core`.
 - Declare the supported `ovid-core` range in `pyproject.toml`.
 - Increment the native API version from `_native.runtime_info()` when Python and Rust become incompatible.
@@ -93,6 +94,7 @@ Run commands from the repository root:
 uv sync
 uv run maturin develop
 uv run task ruff
+uv run task ruff-lint
 uv run task ty-lint
 uv run task rust-lint
 uv run task rust-tests
@@ -102,7 +104,8 @@ uv run task build
 
 Run `uv run maturin develop` after changing Rust exports and before Python tests that import `_native`.
 
-The source distribution is supported. It must include all Rust source and workspace dependencies needed to build outside the repository checkout.
+The release process supports source distributions.
+Each source distribution must contain all Rust source and workspace dependencies required for its build.
 
 ## Python rules
 
@@ -110,7 +113,7 @@ The source distribution is supported. It must include all Rust source and worksp
 
 - Target Python 3.14. Use current generic syntax instead of `TypeVar` or `ParamSpec` declarations.
 - Annotate every parameter and return value. Parameterize every collection.
-- Use a precise type when possible. Use `Any` when the value is truly dynamic; do not use `object` as a substitute.
+- Use a precise type when possible. Use `Any` when the value is truly dynamic. Do not use `object` as a substitute.
 - Do not silence ty. Fix the type model or report the blocker.
 - Public structured DTOs inherit `ovid_core.models.BaseModel`. UUID-like root values inherit `BaseRootModel`.
 - Use Pydantic models for validated data. Use plain classes for engines, native handles, factories, routers, and stores.
@@ -173,6 +176,19 @@ Order file contents for a first-time reader:
 
 Documentation comments state API guarantees. Do not explain private code that is already clear from its name and type.
 
+## Documentation rules
+
+- Use ASD-STE100 Issue 9 as the writing guide.
+- Use one term for one meaning. Keep API names and necessary technical nouns exact.
+- Use active voice unless the actor is unknown.
+- Limit descriptive sentences to 25 words.
+- Limit procedural sentences to 20 words and one instruction.
+- Use no more than six sentences in one paragraph.
+- Do not use contractions or semicolons.
+- Use a vertical list when a sentence contains several items or actions.
+- Give information in a general-to-specific order.
+- Keep examples small and make each prerequisite explicit.
+
 ## PyO3 boundary rules
 
 - Use maturin as the only Python build backend.
@@ -198,6 +214,9 @@ Free-threaded CPython support is explicit. Do not mark the module GIL-independen
 - Treat duplicate IDs and implicit overrides as errors.
 - Keep Rust operations domain-neutral. Agent roles, prompts, repository policy, reviews, and UI belong to the application.
 - Report unsupported platforms with typed errors. Never use a no-op or unrelated Python fallback.
+- `AgentDefinition.tool_approval` can override every Ovid tool approval value for one agent.
+- A `None` override keeps each tool default. A supplied `ToolApproval` replaces every Ovid tool default.
+- The override does not change tools from a Pydantic AI capability passthrough.
 
 Publish standard wheels and one source distribution. Do not add an import-time downloader or custom binary cache.
 
@@ -219,7 +238,11 @@ Public benchmarks live in `benchmarks/`. Measure through `SearchEngine`, `AstEng
 - Keep fixture setup, rewrite preparation, restoration, and cleanup outside timed sections.
 - Never overwrite a raw result.
 - Compare only records with the same suite, fixture, machine, Python, and build profile.
-- Treat a result as a regression only when it is statistically significant, at least 10% slower, and at least 2 ms slower.
+Treat a result as a regression only when all conditions apply:
+
+- statistical significance
+- at least 10 percent slower
+- at least 2 milliseconds slower
 
 Use these commands:
 
@@ -241,12 +264,13 @@ For each native operation, test:
 
 Use `mocker: MockerFixture` for every Python double, patch, spy, or environment change. Do not use `unittest.mock`, `monkeypatch`, or another mocking helper.
 
-Before reporting work complete, run:
+
+Before completion, run:
 
 ```bash
+uv run task ruff
 uv run task ty-lint
-uv run ruff format --check ./python/ovid_native ./tests ./benchmarks
-uv run ruff check ./python/ovid_native ./tests ./benchmarks
+uv run task ruff-lint
 uv run task rust-lint
 uv run task rust-tests
 uv run maturin develop
