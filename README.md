@@ -14,24 +14,24 @@
 
 ---
 
-**Ovid Native** gives Ovid applications fast workspace operations written in Rust. It includes safe file access, path and text search, warm indexed search, and AST search and rewrites.
+Ovid Native gives Ovid applications fast workspace operations written in Rust. It supports guarded file access, path and text search, warm indexed search, and AST search and rewrites.
 
-The package also includes typed tools and capabilities for [Ovid Core](https://github.com/EzyGang/ovid-core). Installing it does not add tools to an agent. Your application selects each capability.
+The package also provides typed tools and capabilities for [Ovid Core](https://github.com/EzyGang/ovid-core). Installing it does not add tools to an agent. Your application enables each capability.
 
-Every wheel contains the complete native surface. One package works for direct API calls and agent tools.
+Every wheel contains the full native API. The same package supports direct Python calls and agent tools.
 
 **Documentation:** [Ovid Native guide](https://github.com/EzyGang/ovid-core/tree/main/docs/content/native)  
-**Source code:** https://github.com/EzyGang/ovid-native  
+**Source:** https://github.com/EzyGang/ovid-native  
 **Ovid Core:** https://github.com/EzyGang/ovid-core
 
 ---
 
-## Table of contents
+## Contents
 
-- [Why Ovid Native?](#why-ovid-native)
+- [What Ovid Native provides](#what-ovid-native-provides)
 - [Installation](#installation)
 - [Quick start](#quick-start)
-- [Core features](#core-features)
+- [Features](#features)
 - [Add tools to an agent](#add-tools-to-an-agent)
 - [Safety and ownership](#safety-and-ownership)
 - [Platforms](#platforms)
@@ -39,41 +39,37 @@ Every wheel contains the complete native surface. One package works for direct A
 - [Contributing](#contributing)
 - [License](#license)
 
----
+## What Ovid Native provides
 
-## Why Ovid Native?
-
-| Need | What Ovid Native provides |
+| Need | Implementation |
 | --- | --- |
 | Fast search | Rust path scanning, ripgrep search, and PCRE2 fallback |
-| Warm repeated search | Long-lived FFF indexes for file and content lookup |
+| Repeated search | Long-lived FFF indexes for path and content lookup |
 | Structural code work | ast-grep search and staged rewrites |
 | Guarded file changes | Bounded reads, observations, writes, and patches |
 | Typed Python API | Pydantic request and result models |
 | Agent tools | Explicit Ovid capabilities with approval metadata |
-| Replaceable providers | Ovid-owned protocols for files, search, AST, and views |
+| Custom storage | Ovid-owned protocols for files, search, AST, and views |
 
-Rust owns native work, resources, cancellation, and platform behavior. Python owns validation, tool contracts, timeouts, approvals, and error conversion.
-
----
+Rust owns native algorithms, resources, cancellation, and platform behavior. Python owns validation, tool contracts, approvals, timeouts, and error translation.
 
 ## Installation
 
 Ovid Native requires Python 3.14 or newer.
 
-### uv
+With uv:
 
 ```bash
 uv add ovid-native
 ```
 
-### pip
+With pip:
 
 ```bash
 pip install ovid-native
 ```
 
-You can record the parts used by your application:
+You can record the native areas used by your application:
 
 ```bash
 uv add 'ovid-native[files,search,fff,ast]'
@@ -85,9 +81,7 @@ Use the full profile when the application needs every native integration:
 uv add 'ovid-native[all]'
 ```
 
-The profiles currently install the same wheel. They record the application contract and can add Python-only dependencies later.
-
----
+These profiles currently install the same wheel. They record the application contract and may add Python-only dependencies later.
 
 ## Quick start
 
@@ -117,47 +111,43 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Search results are bounded and typed. Paths are relative to the workspace root.
+Results are bounded and typed. Paths are relative to the workspace root.
 
-Read the [workspace search guide](https://github.com/EzyGang/ovid-core/blob/main/docs/content/native/search.md) for text search, modes, limits, and pagination.
+Read the [workspace search guide](https://github.com/EzyGang/ovid-core/blob/main/docs/content/native/search.md) for search modes, limits, and pagination.
 
----
+## Features
 
-## Core features
+### Guarded workspace files
 
-### Safe workspace files
+Read text with stable line observations. Create, replace, delete, move, and patch files under explicit policy. A change fails when its observation is stale or its path is unsafe.
 
-Read text with stable line observations. Create, replace, delete, move, and patch files through explicit policies. Changes reject stale observations and unsafe paths.
-
-The file layer supports plain lines, hashline edits, and exact patches. It keeps byte order marks, line endings, and final newlines when required.
+The file layer supports plain lines, hashline edits, and exact patches. It preserves byte order marks, line endings, and final newlines when needed.
 
 [Read the file guide](https://github.com/EzyGang/ovid-core/blob/main/docs/content/native/files.md)
 
 ### Workspace search
 
-Find files with exact paths, directories, or glob patterns. Search UTF-8 content with literal, Rust regex, or PCRE2 patterns. Limits bound files, matches, bytes, context, and run time.
+Find files by exact path, directory, or glob. Search UTF-8 text with literal strings, Rust regex, or PCRE2. Limits bound files, matches, bytes, context, and run time.
 
 Ovid Native embeds the search libraries. It does not start an `rg` process.
 
 [Read the search guide](https://github.com/EzyGang/ovid-core/blob/main/docs/content/native/search.md)
 
-### Warm indexed FFF search
+### Warm FFF search
 
-Keep one workspace index for repeated path and content searches. FFF supports fuzzy file lookup, indexed grep, and multi-pattern grep. Results state whether the index and result page are complete.
+Keep one workspace index for repeated path and content searches. FFF supports fuzzy path lookup, indexed grep, and multi-pattern grep. Each result reports whether the index and result page are complete.
 
 [Read the FFF guide](https://github.com/EzyGang/ovid-core/blob/main/docs/content/native/fff.md)
 
 ### AST search and rewrites
 
-Use ast-grep patterns to find code by structure. Preview a rewrite before applying it. Apply checks the proposal, workspace revision, and source files again before it writes.
+Use ast-grep patterns to find code by structure. Preview each rewrite before applying it. Apply checks the proposal, workspace revision, and source files again before writing.
 
 [Read the AST guide](https://github.com/EzyGang/ovid-core/blob/main/docs/content/native/ast.md)
 
----
-
 ## Add tools to an agent
 
-Create one workspace service and add only the capabilities the agent needs:
+Create one workspace session and add only the capabilities the agent needs:
 
 ```python
 from pathlib import Path
@@ -186,8 +176,6 @@ definition = AgentDefinition[None, str](
 
 Pass the definition to an Ovid Core `AgentFactory`. Call `await workspace.close()` when the agent lifetime ends.
 
-Available capabilities include:
-
 | Capability | Agent tools |
 | --- | --- |
 | `WorkspaceFilesCapability` | Bounded read, guarded write, and one selected edit mode |
@@ -195,38 +183,32 @@ Available capabilities include:
 | `FffCapability` | `find_files`, indexed `grep`, `multi_grep`, and optional `glob` |
 | `AstCapability` | AST search, rewrite preview, and rewrite apply |
 
-Capabilities use the same workspace root, native handle, observations, and lifecycle. Missing services fail during agent construction.
-
----
+Capabilities share the workspace root, native handle, observations, and lifecycle. Agent construction fails when a required service is missing.
 
 ## Safety and ownership
 
-Ovid Native is trusted code inside the application process. It is not a sandbox.
+Ovid Native runs as trusted code inside the application process. It is not a sandbox.
 
 The application owns:
 
-- The workspace root.
-- The enabled capabilities.
-- File approval policy.
-- Limits and timeouts.
-- Workspace and index lifetime.
-- User-facing errors and fallbacks.
+- the workspace root
+- enabled capabilities
+- file approval policy
+- limits and timeouts
+- workspace and index lifetime
+- user-facing errors and fallbacks
 
-Native operations reject paths outside the workspace. Long operations use cooperative cancellation. File changes use policy checks and current observations.
-
----
+Native operations reject paths outside the workspace. Long operations support cooperative cancellation. File changes check policy and current observations.
 
 ## Platforms
 
 Published wheels target:
 
-- Windows x86-64.
-- Linux manylinux x86-64 and ARM64.
-- macOS x86-64 and ARM64.
+- Windows x86-64
+- Linux manylinux x86-64 and ARM64
+- macOS x86-64 and ARM64
 
-A source distribution is also supported. It includes the Rust source needed to build the extension.
-
----
+The source distribution includes the Rust source needed to build the extension.
 
 ## Development
 
@@ -249,19 +231,15 @@ uv run task build
 
 Public benchmarks are in [`benchmarks/`](benchmarks/README.md).
 
----
-
 ## Contributing
 
 1. Open an issue for a new native operation or public contract.
 2. Create a branch from `main`.
 3. Update Rust, Python wrappers, type stubs, and tests together.
 4. Run the Python and Rust checks.
-5. Open a pull request with a clear reason for the change.
+5. Open a pull request that explains the reason for the change.
 
-Keep the Python and Cargo versions equal. Do not edit generated extensions, build output, or `Cargo.lock` by hand. See [AGENTS.md](AGENTS.md) for the full repository rules.
-
----
+Keep the Python and Cargo versions equal. Do not edit generated extensions, build output, or `Cargo.lock` by hand. See [AGENTS.md](AGENTS.md) for all repository rules.
 
 ## License
 
