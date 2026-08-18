@@ -92,7 +92,7 @@ def test_grep_lines_authorize_hashline_without_reread(tmp_path: Path) -> None:
 def test_newline_terminated_grep_match_supplies_hashline_evidence(tmp_path: Path) -> None:
     async def run() -> None:
         source = tmp_path / 'source.txt'
-        source.write_text('alpha\nbeta\n')
+        source.write_bytes(b'alpha\nbeta\n')
         workspace = NativeWorkspaceSession(root=tmp_path, edit_mode='hashline')
         selection = workspace.edit_mode.current
         presenter = WorkspaceSourcePresenter(

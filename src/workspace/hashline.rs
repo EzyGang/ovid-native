@@ -7,8 +7,8 @@ use crate::workspace::hashline_types::{HashlineFilePlan, HashlineSection};
 use crate::workspace::path::resolve_new_file;
 use crate::workspace::workflows::edit_result;
 use crate::workspace::{
-    EditResult, FileChange, MutationContext, Workspace, WorkspaceError, atomic_replace_path,
-    ensure_current_file, sha256,
+    EditResult, FileChange, FileIdentity, MutationContext, Workspace, WorkspaceError,
+    atomic_replace_path, ensure_current_file, sha256,
 };
 
 impl Workspace {
@@ -58,9 +58,17 @@ impl Workspace {
         context: &MutationContext,
     ) -> Result<(FileChange, Option<crate::workspace::PostEditSource>), WorkspaceError> {
         let before = sha256(file.current.source.as_bytes());
-        ensure_current_file(&file.target, &file.path, &before, &file.identity)?;
+        let identity = file.identity.take().ok_or_else(|| {
+            WorkspaceError::Stale(format!(
+                "Hashline source identity is unavailable: {}",
+                file.path
+            ))
+        })?;
+        ensure_current_file(&file.target, &file.path, &before, &identity)?;
         if file.remove {
-            stage_hashline_file(file, &before)?.remove()?;
+            let staged = stage_hashline_file(file, &before, &identity)?;
+            drop(identity);
+            staged.remove()?;
             let (generation, revision) = self.mark_file_changed(&file.path)?;
             return Ok((
                 file_change(file, "delete", None, &before, None, generation, revision),
@@ -72,7 +80,8 @@ impl Workspace {
         let final_path = match file.destination.as_deref() {
             Some(destination) => {
                 let destination_path = resolve_new_file(self.root(), destination, false)?;
-                let staged = stage_hashline_file(file, &before)?;
+                let staged = stage_hashline_file(file, &before, &identity)?;
+                drop(identity);
                 staged.move_to(
                     &destination_path,
                     destination,
@@ -81,6 +90,7 @@ impl Workspace {
                 destination
             }
             None => {
+                drop(identity);
                 if changed {
                     let bytes = file.current.serialize_with_current(&file.final_source);
                     atomic_replace_path(&file.target, &file.path, &before, &bytes)?;
@@ -226,6 +236,7 @@ impl StagedHashlineFile {
 fn stage_hashline_file(
     file: &HashlineFilePlan,
     expected_sha256: &str,
+    expected_identity: &FileIdentity,
 ) -> Result<StagedHashlineFile, WorkspaceError> {
     let parent = file
         .target
@@ -253,9 +264,12 @@ fn stage_hashline_file(
         original: file.target.clone(),
         relative: file.path.clone(),
     };
-    if let Err(error) =
-        ensure_current_file(&staged.source, &file.path, expected_sha256, &file.identity)
-    {
+    if let Err(error) = ensure_current_file(
+        &staged.source,
+        &file.path,
+        expected_sha256,
+        expected_identity,
+    ) {
         return Err(staged.restore_or(error));
     }
     Ok(staged)

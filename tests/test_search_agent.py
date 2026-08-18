@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 from typing import cast
 
+from ovid_core.adapters.pydantic_ai import pydantic_ai_capability
 from ovid_core.agents import AgentDefinition, AgentFactory
 from ovid_core.config.models import ModelConfig, OvidConfig
 from ovid_core.routing.factory import ModelFactory
@@ -9,6 +10,7 @@ from ovid_core.routing.models import ModelCapabilities, ModelHandle, ModelRef
 from ovid_core.services import AgentServices
 from pydantic_ai import ModelMessage, ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_ai_harness.planning import Planning
 from pytest_mock import MockerFixture
 
 from ovid_native.ast import AstCapability
@@ -141,6 +143,43 @@ def test_search_capability_runs_through_real_agent_factory(tmp_path: Path, mocke
         return result.output
 
     assert asyncio.run(run()) == 'searched'
+
+
+def test_search_capability_composes_with_pydantic_ai_harness(tmp_path: Path, mocker: MockerFixture) -> None:
+    workspace = NativeWorkspaceSession(root=tmp_path)
+
+    def model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        del messages
+        tool_names = {tool.name for tool in info.function_tools}
+        assert {'glob', 'grep', 'read_plan', 'write_plan'} <= tool_names
+
+        return ModelResponse(parts=[TextPart('combined')])
+
+    model_factory = mocker.Mock()
+    model_factory.build = mocker.AsyncMock(return_value=handle(FunctionModel(model)))
+    factory = AgentFactory(
+        config=OvidConfig(models={'test': ModelConfig(provider='test', model='function')}),
+        model_factory=cast('ModelFactory', model_factory),
+    )
+    definition = AgentDefinition[None, str](
+        model=ModelRef(name='test'),
+        deps_type=type(None),
+        output_type=str,
+        capabilities=(
+            SearchCapability[None](),
+            pydantic_ai_capability(Planning()),
+        ),
+        services=AgentServices((workspace_binding(workspace),)),
+    )
+
+    async def run() -> str:
+        agent = await factory.build(definition)
+        result = await agent.run('Use native search and planning.', deps=None)
+        await workspace.close()
+
+        return result.output
+
+    assert asyncio.run(run()) == 'combined'
 
 
 def test_omitting_search_capability_contributes_no_search_tools(tmp_path: Path, mocker: MockerFixture) -> None:

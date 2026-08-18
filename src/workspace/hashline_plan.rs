@@ -126,7 +126,7 @@ fn prepare_section(
             path: path.to_owned(),
             destination,
             remove,
-            identity: file_identity(&target, path)?,
+            identity: Some(file_identity(&target, path)?),
             target,
             final_source: current.source.clone(),
             changed_range: None,

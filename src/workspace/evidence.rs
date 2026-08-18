@@ -89,6 +89,7 @@ fn validate_spans(
     let source = std::str::from_utf8(&serialized)
         .map_err(|_| WorkspaceError::Encoding("workspace file is not valid UTF-8".to_owned()))?;
     for &(start_line, start_byte, end_line, end_byte) in spans {
+        let end_byte = normalize_terminal_span_end(text, end_line, end_byte);
         let valid_order = start_line > 0
             && end_line >= start_line
             && end_byte >= start_byte
@@ -108,4 +109,24 @@ fn validate_spans(
         }
     }
     Ok(())
+}
+
+fn normalize_terminal_span_end(
+    text: &crate::workspace::content::NormalizedText,
+    end_line: usize,
+    end_byte: usize,
+) -> usize {
+    let Some(bounds) = text.serialized_line_bounds(end_line) else {
+        return end_byte;
+    };
+    let ending_bytes = match text.serialization.line_ending {
+        crate::workspace::content::LineEnding::CrLf => 2,
+        crate::workspace::content::LineEnding::Lf | crate::workspace::content::LineEnding::Cr => 1,
+    };
+
+    if bounds.end < end_byte && end_byte <= bounds.end.saturating_add(ending_bytes) {
+        return bounds.end;
+    }
+
+    end_byte
 }

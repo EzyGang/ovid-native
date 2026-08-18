@@ -19,6 +19,18 @@ fn source_evidence_validates_utf8_spans_and_complete_line_claims() {
     workspace
         .observe_source_lines("source.txt", &claims, &[(1, 0, 2, 9)], true)
         .expect("valid source span");
+    workspace
+        .observe_source_lines("source.txt", &claims[1..], &[(2, 4, 2, 10)], false)
+        .expect("terminal newline span");
+    fs::write(root.path().join("crlf.txt"), b"one\r\nbeta\r\n").expect("CRLF source");
+    workspace
+        .observe_source_lines(
+            "crlf.txt",
+            &[(2, "beta".to_owned())],
+            &[(2, 5, 2, 11)],
+            false,
+        )
+        .expect("terminal CRLF span");
     let invalid_utf8 = workspace.observe_source_lines("source.txt", &claims, &[(2, 4, 2, 5)], true);
     assert!(matches!(
         invalid_utf8,

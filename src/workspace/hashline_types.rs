@@ -60,7 +60,7 @@ pub(crate) struct HashlineFilePlan {
     pub path: String,
     pub destination: Option<String>,
     pub remove: bool,
-    pub identity: crate::workspace::FileIdentity,
+    pub identity: Option<crate::workspace::FileIdentity>,
     pub target: std::path::PathBuf,
     pub current: NormalizedText,
     pub final_source: String,
