@@ -107,6 +107,14 @@ Run `uv run maturin develop` after changing Rust exports and before Python tests
 The release process supports source distributions.
 Each source distribution must contain all Rust source and workspace dependencies required for its build.
 
+### Output guidance
+
+Write for an audience that has no knowledge of this conversation, meaning:
+
+- No leaking of intermediate steps.
+- No breadcrumbs.
+- Final code, comments, and output should present final data and content with no indication of intermediate steps.
+
 ## Python rules
 
 ### Types and models
@@ -238,7 +246,7 @@ Public benchmarks live in `benchmarks/`. Measure through `SearchEngine`, `AstEng
 - Keep fixture setup, rewrite preparation, restoration, and cleanup outside timed sections.
 - Never overwrite a raw result.
 - Compare only records with the same suite, fixture, machine, Python, and build profile.
-Treat a result as a regression only when all conditions apply:
+  Treat a result as a regression only when all conditions apply:
 
 - statistical significance
 - at least 10 percent slower
@@ -263,7 +271,6 @@ For each native operation, test:
 - one smoke path through the public Python API
 
 Use `mocker: MockerFixture` for every Python double, patch, spy, or environment change. Do not use `unittest.mock`, `monkeypatch`, or another mocking helper.
-
 
 Before completion, run:
 
