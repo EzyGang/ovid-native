@@ -3,9 +3,10 @@ from __future__ import annotations
 from contextlib import AbstractAsyncContextManager
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from ovid_core.models import BaseModel, BaseRootModel
+from pydantic import Field
 
 
 if TYPE_CHECKING:
@@ -52,6 +53,25 @@ from ovid_native.workspace.operations import WorkspaceOperation
 
 class WorkspaceSessionId(BaseRootModel[str]):
     pass
+
+
+type WorkspaceDiscoveryCompletion = Literal['complete', 'file_limit_reached', 'deadline_reached']
+
+
+class WorkspaceDiscoveryRequest(BaseModel):
+    filename: str = Field(min_length=1)
+    max_depth: int = Field(default=4, ge=1, le=64)
+    limit: int = Field(default=200, ge=1, le=10_000)
+    timeout_seconds: float = Field(default=5.0, gt=0, le=30.0)
+
+
+class WorkspaceDiscoveryResult(BaseModel):
+    paths: tuple[str, ...]
+    completion: WorkspaceDiscoveryCompletion
+
+
+class WorkspaceDiscoveryProvider(Protocol):
+    async def discover(self, request: WorkspaceDiscoveryRequest) -> WorkspaceDiscoveryResult: ...
 
 
 class WorkspaceMutation(Protocol):
@@ -165,6 +185,9 @@ class WorkspaceSession(Protocol):
 
     @property
     def operations(self) -> frozenset[WorkspaceOperation]: ...
+
+    @property
+    def discovery(self) -> WorkspaceDiscoveryProvider: ...
 
     @property
     def edit_mode(self) -> EditModeState: ...

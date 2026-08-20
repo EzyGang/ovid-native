@@ -125,6 +125,13 @@ The file layer supports plain lines, hashline edits, and exact patches. It prese
 
 [Read the file guide](https://github.com/EzyGang/ovid-core/blob/main/docs/content/native/files.md)
 
+### Bounded workspace discovery
+
+Applications can discover one named file with `workspace.discovery.discover(WorkspaceDiscoveryRequest(filename='AGENTS.md'))`.
+The scanner respects repository ignore rules, excludes hidden and generated directories, limits depth and results, and does not follow directory symlinks.
+It checks the named file directly in each traversed directory, so a file-level ignore rule cannot hide it.
+Ignored directories remain excluded.
+
 ### Workspace search
 
 Find files by exact path, directory, or glob. Search UTF-8 text with literal strings, Rust regex, or PCRE2. Limits bound files, matches, bytes, context, and run time.

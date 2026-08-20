@@ -1,12 +1,15 @@
+use std::time::Duration;
+
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyValueError};
 use pyo3::prelude::*;
 
 use crate::workspace::{
-    Cancellation, EditResult, FileChange, HashlineOperation, HashlineSection, LineEnding,
-    LineRange, MutationContext, ObservationReceipt, PolicyGeneration, PostEditSource, RenderedLine,
-    Workspace, WorkspaceDirectoryRead, WorkspaceError, WorkspaceFileRead, WorkspacePolicy,
-    WorkspaceTextSerialization, parse_apply_patch, parse_structured_patch,
+    Cancellation, DiscoveryRequest, DiscoveryResult, EditResult, FileChange, HashlineOperation,
+    HashlineSection, LineEnding, LineRange, MutationContext, ObservationReceipt, PolicyGeneration,
+    PostEditSource, RenderedLine, WorkCompletion, WorkControl, Workspace, WorkspaceDirectoryRead,
+    WorkspaceError, WorkspaceFileRead, WorkspacePolicy, WorkspaceTextSerialization,
+    parse_apply_patch, parse_structured_patch,
 };
 
 create_exception!(_native, NativeWorkspaceReadError, PyException);
@@ -130,6 +133,7 @@ type NativeFileRead = (
     Option<NativeTextSerialization>,
 );
 type NativeDirectoryRead = (String, Vec<(String, String, Option<u64>)>, bool);
+type NativeDiscoveryResult = (Vec<String>, String);
 type NativeFileChange = (
     String,
     String,
@@ -291,6 +295,41 @@ fn workspace_register_edit_mode(
         .inner
         .register_edit_mode(&mode)
         .map_err(to_python_error)
+}
+
+#[pyfunction]
+fn workspace_discover_files(
+    py: Python<'_>,
+    workspace: PyRef<'_, NativeWorkspace>,
+    filename: String,
+    max_depth: usize,
+    limit: usize,
+    timeout_seconds: f64,
+    cancellation: PyRef<'_, NativeWorkspaceCancellation>,
+) -> PyResult<NativeDiscoveryResult> {
+    if !timeout_seconds.is_finite() || timeout_seconds <= 0.0 || timeout_seconds > 30.0 {
+        return Err(PyValueError::new_err(
+            "workspace discovery timeout must be greater than zero and at most 30 seconds",
+        ));
+    }
+    let workspace = workspace.inner.clone();
+    let control = WorkControl::new(
+        cancellation.token(),
+        Some(Duration::from_secs_f64(timeout_seconds)),
+    );
+    py.detach(move || {
+        workspace
+            .discover_files(
+                &DiscoveryRequest {
+                    filename,
+                    max_depth,
+                    limit,
+                },
+                &control,
+            )
+            .map(discovery_to_native)
+            .map_err(discovery_to_python_error)
+    })
 }
 
 #[pyfunction]
@@ -668,6 +707,7 @@ pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(workspace_set_edit_mode, module)?)?;
     module.add_function(wrap_pyfunction!(workspace_capture_mutation, module)?)?;
     module.add_function(wrap_pyfunction!(workspace_register_edit_mode, module)?)?;
+    module.add_function(wrap_pyfunction!(workspace_discover_files, module)?)?;
     module.add_function(wrap_pyfunction!(workspace_read_file, module)?)?;
     module.add_function(wrap_pyfunction!(workspace_list_directory, module)?)?;
     module.add_function(wrap_pyfunction!(workspace_resolve_observation, module)?)?;
@@ -682,6 +722,24 @@ pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(workspace_delete_file, module)?)?;
     module.add_function(wrap_pyfunction!(workspace_move_file, module)?)?;
     Ok(())
+}
+
+fn discovery_to_native(result: DiscoveryResult) -> NativeDiscoveryResult {
+    let completion = match result.completion {
+        WorkCompletion::Complete => "complete",
+        WorkCompletion::FileLimitReached => "file_limit_reached",
+        WorkCompletion::DeadlineReached => "deadline_reached",
+    };
+    (result.paths, completion.to_owned())
+}
+
+fn discovery_to_python_error(error: WorkspaceError) -> PyErr {
+    match error {
+        WorkspaceError::Cancelled => {
+            NativeWorkspaceReadError::new_err("workspace discovery was cancelled")
+        }
+        other => to_python_error(other),
+    }
 }
 
 fn policy_to_native(generation: PolicyGeneration) -> NativePolicy {

@@ -13,6 +13,7 @@ from ovid_native.files.edit_modes import EditMode, EditModeId, EditModeProvider,
 from ovid_native.files.engine import WorkspaceFilesEngine
 from ovid_native.runtime import ensure_native_compatibility
 from ovid_native.search.engine import SearchEngine
+from ovid_native.workspace.discovery import NativeWorkspaceDiscovery
 from ovid_native.workspace.errors import (
     WorkspaceClosedError,
     WorkspaceConfigurationError,
@@ -20,6 +21,7 @@ from ovid_native.workspace.errors import (
 )
 from ovid_native.workspace.models import (
     WorkspaceAstProvider,
+    WorkspaceDiscoveryProvider,
     WorkspaceFffProvider,
     WorkspaceFilesProvider,
     WorkspaceSearchProvider,
@@ -87,6 +89,7 @@ class NativeWorkspaceSession:
         session_id = WorkspaceSessionId(secrets.token_urlsafe(24))
         self._native = native
         self._id = session_id
+        self._discovery = NativeWorkspaceDiscovery(native)
         self._policy = WorkspacePolicyState(native)
         if policy is not None:
             self._policy.set(policy)
@@ -131,6 +134,11 @@ class NativeWorkspaceSession:
     @property
     def id(self) -> WorkspaceSessionId:
         return self._id
+
+    @property
+    def discovery(self) -> WorkspaceDiscoveryProvider:
+        self._require(WorkspaceOperation.DISCOVERY)
+        return self._discovery
 
     @property
     def operations(self) -> frozenset[WorkspaceOperation]:
@@ -219,6 +227,7 @@ class NativeWorkspaceSession:
 
 def _workspace_operations(*, has_view: bool) -> frozenset[WorkspaceOperation]:
     operations = {
+        WorkspaceOperation.DISCOVERY,
         WorkspaceOperation.FILES,
         WorkspaceOperation.OBSERVATIONS,
         WorkspaceOperation.CHANGE_EVENTS,

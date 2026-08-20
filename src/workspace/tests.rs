@@ -2,8 +2,9 @@ use std::fs;
 use std::time::Duration;
 
 use crate::workspace::{
-    Cancellation, MetadataLevel, ReadExtent, ScanFileKind, ScanOrder, ScanRequest, WorkCompletion,
-    WorkControl, Workspace, WorkspaceError, preflight_write, read_content, replace_file, sha256,
+    Cancellation, DiscoveryRequest, MetadataLevel, ReadExtent, ScanFileKind, ScanOrder,
+    ScanRequest, WorkCompletion, WorkControl, Workspace, WorkspaceError, preflight_write,
+    read_content, replace_file, sha256,
 };
 
 fn scan_request(selections: &[&str]) -> ScanRequest {
@@ -17,6 +18,87 @@ fn scan_request(selections: &[&str]) -> ScanRequest {
         order: ScanOrder::Path,
         max_files: 100,
     }
+}
+
+fn discovery_request(limit: usize) -> DiscoveryRequest {
+    DiscoveryRequest {
+        filename: "AGENTS.md".to_owned(),
+        max_depth: 4,
+        limit,
+    }
+}
+
+#[test]
+fn workspace_discovers_named_files_with_startup_ignore_policy() {
+    let root = tempfile::tempdir().expect("workspace");
+    fs::create_dir_all(root.path().join(".git")).expect("repository marker");
+    fs::write(root.path().join(".gitignore"), "AGENTS.md\nvendor/\n").expect("ignore rules");
+    for directory in [
+        "src",
+        "src/nested",
+        "vendor",
+        "coverage",
+        ".hidden",
+        "one/two/three/four/five",
+        "node_modules/package",
+    ] {
+        fs::create_dir_all(root.path().join(directory)).expect("context directory");
+        fs::write(root.path().join(directory).join("AGENTS.md"), directory).expect("context file");
+    }
+    fs::write(root.path().join("AGENTS.md"), "root").expect("root context");
+    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+
+    let result = workspace
+        .discover_files(
+            &discovery_request(200),
+            &WorkControl::new(Cancellation::new(), None),
+        )
+        .expect("discovery");
+
+    assert_eq!(result.paths, ["src/AGENTS.md", "src/nested/AGENTS.md"]);
+    assert_eq!(result.completion, WorkCompletion::Complete);
+}
+
+#[test]
+fn workspace_discovery_reports_limits_deadlines_and_cancellation() {
+    let root = tempfile::tempdir().expect("workspace");
+    for directory in ["first", "second"] {
+        fs::create_dir(root.path().join(directory)).expect("context directory");
+        fs::write(root.path().join(directory).join("AGENTS.md"), directory).expect("context file");
+    }
+    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let limited = workspace
+        .discover_files(
+            &discovery_request(1),
+            &WorkControl::new(Cancellation::new(), None),
+        )
+        .expect("limited discovery");
+    assert_eq!(limited.paths, ["first/AGENTS.md"]);
+    assert_eq!(limited.completion, WorkCompletion::FileLimitReached);
+
+    let deadline = workspace
+        .discover_files(
+            &discovery_request(200),
+            &WorkControl::new(Cancellation::new(), Some(Duration::ZERO)),
+        )
+        .expect("deadline");
+    assert!(deadline.paths.is_empty());
+    assert_eq!(deadline.completion, WorkCompletion::DeadlineReached);
+
+    let cancellation = Cancellation::new();
+    cancellation.cancel();
+    let cancelled = workspace.discover_files(
+        &discovery_request(200),
+        &WorkControl::new(cancellation, None),
+    );
+    assert!(matches!(cancelled, Err(WorkspaceError::Cancelled)));
+
+    let mut invalid = discovery_request(200);
+    invalid.filename = "../AGENTS.md".to_owned();
+    assert!(matches!(
+        workspace.discover_files(&invalid, &WorkControl::new(Cancellation::new(), None)),
+        Err(WorkspaceError::Configuration(_))
+    ));
 }
 
 #[test]

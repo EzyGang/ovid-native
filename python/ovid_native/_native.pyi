@@ -16,6 +16,7 @@ type NativeWorkspaceFileRead = tuple[
     NativeWorkspaceTextSerialization | None,
 ]
 type NativeWorkspaceDirectoryRead = tuple[str, list[tuple[str, str, int | None]], bool]
+type NativeWorkspaceDiscoveryResult = tuple[list[str], Literal['complete', 'file_limit_reached', 'deadline_reached']]
 type NativeWorkspaceFileChange = tuple[
     str,
     str,
@@ -354,6 +355,14 @@ def workspace_edit_mode(workspace: NativeWorkspace) -> tuple[str, int]: ...
 def workspace_set_edit_mode(workspace: NativeWorkspace, mode: str) -> tuple[str, int]: ...
 def workspace_capture_mutation(workspace: NativeWorkspace, mode: str | None = None) -> NativeWorkspaceMutation: ...
 def workspace_register_edit_mode(workspace: NativeWorkspace, mode: str) -> None: ...
+def workspace_discover_files(
+    workspace: NativeWorkspace,
+    filename: str,
+    max_depth: int,
+    limit: int,
+    timeout_seconds: float,
+    cancellation: NativeWorkspaceCancellation,
+) -> NativeWorkspaceDiscoveryResult: ...
 def workspace_read_file(
     workspace: NativeWorkspace,
     path: str,
