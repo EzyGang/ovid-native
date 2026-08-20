@@ -20,7 +20,6 @@ def workspace_ref(name: str = 'default') -> AgentServiceRef[WorkspaceSession]:
 
 
 class WorkspaceOperation(StrEnum):
-    DISCOVERY = 'discovery'
     FILES = 'files'
     SEARCH = 'search'
     AST = 'ast'

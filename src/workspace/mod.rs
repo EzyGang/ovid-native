@@ -1,6 +1,5 @@
 mod content;
 mod control;
-mod discovery;
 mod evidence;
 mod file_mutations;
 mod hashline;
@@ -42,7 +41,6 @@ pub(crate) use content::{
     WorkspaceFileRead, WorkspaceTextSerialization, inspect_text, read_content,
 };
 pub(crate) use control::{Cancellation, WorkControl, WorkStopped};
-pub(crate) use discovery::{DiscoveryRequest, DiscoveryResult};
 pub(crate) use hashline_types::{HashlineOperation, HashlineRegister, HashlineSection};
 pub(crate) use observation_types::{LineRange, ObservationReceipt, RenderedLine};
 pub(crate) use observations::ObservationLedger;
@@ -476,15 +474,6 @@ impl Workspace {
             entries,
             truncated,
         })
-    }
-
-    pub(crate) fn discover_files(
-        &self,
-        request: &DiscoveryRequest,
-        control: &WorkControl,
-    ) -> Result<DiscoveryResult, WorkspaceError> {
-        self.ensure_open()?;
-        discovery::discover_files(&self.state.canonical_root, request, control)
     }
 
     pub(crate) fn scan(

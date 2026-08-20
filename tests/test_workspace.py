@@ -5,7 +5,6 @@ import pytest
 from ovid_core.services import AgentServiceCompatibilityError, AgentServices
 from pytest_mock import MockerFixture
 
-from ovid_native import _native
 from ovid_native.ast import (
     AstProposalNotFoundError,
     AstProposalStaleError,
@@ -22,45 +21,11 @@ from ovid_native.workspace.errors import (
     WorkspaceClosedError,
     WorkspaceConfigurationError,
     WorkspaceOperationUnavailableError,
-    WorkspaceReadError,
 )
-from ovid_native.workspace.models import WorkspaceDiscoveryRequest, WorkspaceSessionId
+from ovid_native.workspace.models import WorkspaceSessionId
 from ovid_native.workspace.operations import WorkspaceOperation, workspace_ref
 from ovid_native.workspace.service import NativeWorkspaceSession, workspace_binding
 from ovid_native.workspace.stores import NativeObservationStore
-
-
-def test_native_workspace_discovery_bypasses_file_ignores_and_translates_errors(
-    tmp_path: Path,
-    mocker: MockerFixture,
-) -> None:
-    (tmp_path / '.git').mkdir()
-    (tmp_path / '.gitignore').write_text('AGENTS.md\nvendor/\n', encoding='utf-8')
-    for directory in ('src', 'vendor', 'coverage'):
-        path = tmp_path / directory
-        path.mkdir()
-        (path / 'AGENTS.md').write_text(directory, encoding='utf-8')
-    session = NativeWorkspaceSession(root=tmp_path)
-    request = WorkspaceDiscoveryRequest(filename='AGENTS.md')
-    discovery = session.discovery
-
-    result = asyncio.run(discovery.discover(request))
-
-    assert result.paths == ('src/AGENTS.md',)
-    assert result.completion == 'complete'
-    with pytest.raises(WorkspaceConfigurationError, match='must be one file name'):
-        asyncio.run(discovery.discover(WorkspaceDiscoveryRequest(filename='../AGENTS.md')))
-
-    mocker.patch(
-        'ovid_native.workspace.discovery._native.workspace_discover_files',
-        side_effect=_native.NativeWorkspaceReadError('discovery failed'),
-    )
-    with pytest.raises(WorkspaceReadError, match='discovery failed'):
-        asyncio.run(discovery.discover(request))
-
-    asyncio.run(session.close())
-    with pytest.raises(WorkspaceClosedError):
-        asyncio.run(discovery.discover(request))
 
 
 def test_session_identity_binding_and_shared_native_handle(tmp_path: Path) -> None:
@@ -73,12 +38,9 @@ def test_session_identity_binding_and_shared_native_handle(tmp_path: Path) -> No
     assert str(tmp_path) not in first.id.root
     assert binding.ref == workspace_ref('project')
     assert binding.identity == first.id.root
-    assert binding.features == frozenset(
-        ('discovery', 'files', 'observations', 'change_events', 'search', 'ast', 'fff')
-    )
+    assert binding.features == frozenset(('files', 'observations', 'change_events', 'search', 'ast', 'fff'))
     assert first.operations == frozenset(
         (
-            WorkspaceOperation.DISCOVERY,
             WorkspaceOperation.FILES,
             WorkspaceOperation.OBSERVATIONS,
             WorkspaceOperation.CHANGE_EVENTS,

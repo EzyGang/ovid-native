@@ -125,11 +125,13 @@ The file layer supports plain lines, hashline edits, and exact patches. It prese
 
 [Read the file guide](https://github.com/EzyGang/ovid-core/blob/main/docs/content/native/files.md)
 
-### Bounded workspace discovery
+### Standalone file discovery
 
-Applications can discover one named file with `workspace.discovery.discover(WorkspaceDiscoveryRequest(filename='AGENTS.md'))`.
-The scanner respects repository ignore rules, excludes hidden and generated directories, limits depth and results, and does not follow directory symlinks.
-It checks the named file directly in each traversed directory, so a file-level ignore rule cannot hide it.
+Import `find_ancestor_entry()`, `read_text_files()`, and `discover_named_files()` from `ovid_native.discovery.operations`.
+These functions do not require a workspace session or agent service binding.
+Named discovery respects repository ignore rules, excludes hidden and generated directories, and does not follow directory symlinks.
+It bounds depth, results, and run time.
+It checks the name directly in each traversed directory, so a file-level ignore rule cannot hide it.
 Ignored directories remain excluded.
 
 ### Workspace search
