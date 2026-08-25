@@ -403,9 +403,9 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
 name = "fff-grep"
-version = "0.10.3"
+version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ed85f2c69394b60f2c46f0a292d1f07ca338d962e0ba7f00237be321de3593a"
+checksum = "f34b626f83ff7cc49600499e9b6f53c2fd3d4d2f14d11fef1412879d6a951e1d"
 dependencies = [
  "bstr",
  "memchr",
@@ -427,15 +427,15 @@ dependencies = [
 
 [[package]]
 name = "fff-query-parser"
-version = "0.10.3"
+version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4845927ba8f3f2e2f4d9ea63084ed7aae000fbdae43b5b377e810d88cc7b014c"
+checksum = "f15c4d83d6847deb633f159c0c0f680b88ee61250df6b9eb147b66290cc3c37f"
 
 [[package]]
 name = "fff-search"
-version = "0.10.3"
+version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cdd36cdc5ffea9e87fb8879d064cbaa529c65421d1de7866d40c7f5ef2597b23"
+checksum = "02c506af04e620697c3722916d5c85b50315f83a94b8bdf2925090963d476854"
 dependencies = [
  "ahash",
  "aho-corasick",
@@ -557,9 +557,9 @@ checksum = "f2e102e6eb644d3e0b186fc161e4460417880a0a0b87d235f2e5b8fb30f2e9e0"
 
 [[package]]
 name = "globset"
-version = "0.4.18"
+version = "0.4.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52dfc19153a48bde0cbd630453615c8151bce3a5adfac7a0aebfbf0a1e1f57e3"
+checksum = "07c34a9410465b45bd9787443bc7370f37735bad04b0f0cd57ff1a3186c98988"
 dependencies = [
  "aho-corasick",
  "bstr",
@@ -1597,12 +1597,12 @@ checksum = "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
 
 [[package]]
 name = "tempfile"
-version = "3.23.0"
+version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d31c77bdf42a745371d260a26ca7163f1e0924b64afa0b688e61b5a9fa02f16"
+checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
