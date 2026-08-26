@@ -107,14 +107,6 @@ Run `uv run maturin develop` after changing Rust exports and before Python tests
 The release process supports source distributions.
 Each source distribution must contain all Rust source and workspace dependencies required for its build.
 
-### Output guidance
-
-Write for an audience that has no knowledge of this conversation, meaning:
-
-- No leaking of intermediate steps.
-- No breadcrumbs.
-- Final code, comments, and output should present final data and content with no indication of intermediate steps.
-
 ## Python rules
 
 ### Types and models
@@ -288,3 +280,12 @@ uv run task build
 The Python integration layer requires 100% branch coverage. Install the built wheel in a clean environment and exercise a changed operation. For release changes, also build and install the source distribution in isolation.
 
 Do not weaken checks or thresholds. If a repository problem blocks a check, report the exact blocker.
+
+
+# Output guidance
+
+Write for an audience that has no knowledge of this conversation, meaning:
+
+- No leaking of intermediate steps.
+- No breadcrumbs.
+- Final code, comments, and output should present final data and content with no indication of intermediate steps.
