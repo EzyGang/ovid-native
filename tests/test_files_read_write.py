@@ -10,6 +10,7 @@ from ovid_native.files import (
     WorkspaceBinaryFileError,
     WorkspaceCreateRequest,
     WorkspaceDirectoryReadRequest,
+    WorkspaceDirectoryTreeReadRequest,
     WorkspaceEncodingError,
     WorkspaceFileReadRequest,
     WorkspaceObservationCollisionError,
@@ -101,6 +102,27 @@ def test_read_limits_ranges_and_large_file_identity(tmp_path: Path) -> None:
     asyncio.run(workspace.close())
 
 
+def test_large_file_ranges_stream_beyond_the_observation_prefix(tmp_path: Path) -> None:
+    source = tmp_path / 'large.txt'
+    source.write_bytes(b'\xef\xbb\xbfone\r\ntwo\r\nthree\r\n')
+    workspace = NativeWorkspaceSession(
+        root=tmp_path,
+        policy=WorkspacePolicy(max_read_bytes=5, max_observation_file_bytes=4),
+    )
+
+    result = asyncio.run(
+        workspace.files.read_file(WorkspaceFileReadRequest(path='large.txt', ranges=(ReadLineRange(start=3, end=3),)))
+    )
+
+    assert [line.text for line in result.lines] == ['three']
+    assert result.total_lines == 3
+    assert result.total_bytes == source.stat().st_size
+    assert result.observation is None
+    assert result.editable is False
+    assert result.serialization is None
+    asyncio.run(workspace.close())
+
+
 def test_directory_listing_is_deterministic_bounded_and_not_source(tmp_path: Path) -> None:
     (tmp_path / 'z.txt').write_text('z')
     (tmp_path / 'a').mkdir()
@@ -113,6 +135,31 @@ def test_directory_listing_is_deterministic_bounded_and_not_source(tmp_path: Pat
     assert [entry.path for entry in shallow.entries] == ['a', 'z.txt']
     assert [entry.path for entry in deep.entries] == ['a', 'a/nested.txt', 'z.txt']
     assert deep.render() == '[.]\na/\na/nested.txt\nz.txt'
+    asyncio.run(workspace.close())
+
+
+def test_native_directory_tree_is_hierarchical_and_bounded(tmp_path: Path) -> None:
+    package = tmp_path / 'src' / 'pkg'
+    package.mkdir(parents=True)
+    for index in range(4):
+        (package / f'child-{index}.py').write_text('value = 1\n')
+    workspace = NativeWorkspaceSession(root=tmp_path)
+
+    result = asyncio.run(
+        workspace.files.read_directory_tree(WorkspaceDirectoryTreeReadRequest(path='src', depth=2, child_limit=2))
+    )
+
+    assert [(line.depth, line.name, line.kind, line.omitted_entries) for line in result.lines] == [
+        (0, 'pkg', 'directory', None),
+        (1, 'child-0.py', 'file', None),
+        (1, '', 'omitted', 2),
+        (1, 'child-3.py', 'file', None),
+    ]
+    assert result.child_limit == 2
+    assert result.scanned_entries == 5
+    assert result.limited_directories == 1
+    assert result.omitted_entries == 2
+    assert result.scan_truncated is False
     asyncio.run(workspace.close())
 
 

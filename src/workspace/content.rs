@@ -79,24 +79,6 @@ impl NormalizedText {
         }
     }
 
-    pub(crate) fn decode_prefix(mut bytes: Vec<u8>) -> Result<Self, WorkspaceError> {
-        if bytes.contains(&0) {
-            return Err(WorkspaceError::Binary(
-                "workspace file contains binary content".to_owned(),
-            ));
-        }
-        if let Err(error) = std::str::from_utf8(&bytes) {
-            if error.error_len().is_some() {
-                return Err(WorkspaceError::Encoding(
-                    "workspace file is not valid UTF-8".to_owned(),
-                ));
-            }
-            bytes.truncate(error.valid_up_to());
-        }
-
-        Self::decode(bytes)
-    }
-
     pub(crate) fn total_lines(&self) -> usize {
         self.line_bounds.len()
     }
@@ -199,74 +181,6 @@ pub(crate) fn read_content(
         bytes,
         total_bytes,
         complete,
-    })
-}
-pub(crate) fn inspect_text(path: &Path) -> Result<usize, WorkspaceError> {
-    let mut file = File::open(path)
-        .map_err(|error| WorkspaceError::Read(format!("cannot open file: {error}")))?;
-    let mut buffer = [0_u8; 64 * 1024];
-    let mut carry = Vec::with_capacity(4);
-    let mut line_breaks = 0_usize;
-    let mut any = false;
-    let mut previous_cr = false;
-    let mut ends_with_break = false;
-
-    loop {
-        let count = file
-            .read(&mut buffer)
-            .map_err(|error| WorkspaceError::Read(format!("cannot read file: {error}")))?;
-        if count == 0 {
-            break;
-        }
-        any = true;
-        if buffer[..count].contains(&0) {
-            return Err(WorkspaceError::Binary(
-                "workspace file contains binary content".to_owned(),
-            ));
-        }
-        carry.extend_from_slice(&buffer[..count]);
-        let valid_length = match std::str::from_utf8(&carry) {
-            Ok(_) => carry.len(),
-            Err(error) if error.error_len().is_none() => error.valid_up_to(),
-            Err(_) => {
-                return Err(WorkspaceError::Encoding(
-                    "workspace file is not valid UTF-8".to_owned(),
-                ));
-            }
-        };
-        let valid = &carry[..valid_length];
-        for byte in valid {
-            match *byte {
-                b'\n' => {
-                    if !previous_cr {
-                        line_breaks = line_breaks.saturating_add(1);
-                    }
-                    previous_cr = false;
-                    ends_with_break = true;
-                }
-                b'\r' => {
-                    line_breaks = line_breaks.saturating_add(1);
-                    previous_cr = true;
-                    ends_with_break = true;
-                }
-                _ => {
-                    previous_cr = false;
-                    ends_with_break = false;
-                }
-            }
-        }
-        carry.drain(..valid_length);
-    }
-    if !carry.is_empty() {
-        return Err(WorkspaceError::Encoding(
-            "workspace file is not valid UTF-8".to_owned(),
-        ));
-    }
-
-    Ok(if any && !ends_with_break {
-        line_breaks.saturating_add(1)
-    } else {
-        line_breaks
     })
 }
 

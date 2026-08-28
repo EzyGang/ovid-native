@@ -105,9 +105,9 @@ def test_bound_edit_call_keeps_captured_mode_and_policy_generation(tmp_path: Pat
         )
     )
     assert source.read_text() == 'two\n'
-    assert first_result['metadata']['mode'] == 'apply_patch'
-    assert first_result['metadata']['mode_generation'] == 1
-    assert first_result['metadata']['policy_generation'] == 1
+    assert first_result.metadata['mode'] == 'apply_patch'
+    assert first_result.metadata['mode_generation'] == 1
+    assert first_result.metadata['policy_generation'] == 1
 
     second_step = asyncio.run(adapter.for_run_step(context))
     second_definitions = asyncio.run(second_step.get_tools(context))
@@ -121,9 +121,9 @@ def test_bound_edit_call_keeps_captured_mode_and_policy_generation(tmp_path: Pat
         )
     )
     assert source.read_text() == 'three\n'
-    assert second_result['metadata']['mode'] == 'replace'
-    assert second_result['metadata']['mode_generation'] == 2
-    assert second_result['metadata']['policy_generation'] == 2
+    assert second_result.metadata['mode'] == 'replace'
+    assert second_result.metadata['mode_generation'] == 2
+    assert second_result.metadata['policy_generation'] == 2
     asyncio.run(workspace.close())
 
 

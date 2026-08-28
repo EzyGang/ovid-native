@@ -16,6 +16,21 @@ type NativeWorkspaceFileRead = tuple[
     NativeWorkspaceTextSerialization | None,
 ]
 type NativeWorkspaceDirectoryRead = tuple[str, list[tuple[str, str, int | None]], bool]
+type NativeWorkspaceDirectoryTreeLine = tuple[
+    int,
+    str,
+    Literal['file', 'directory', 'symlink', 'omitted'],
+    int | None,
+]
+type NativeWorkspaceDirectoryTreeRead = tuple[
+    str,
+    list[NativeWorkspaceDirectoryTreeLine],
+    int,
+    int,
+    int,
+    int,
+    bool,
+]
 type NativeNamedFileDiscoveryResult = tuple[list[str], Literal['complete', 'file_limit_reached', 'deadline_reached']]
 type NativeWorkspaceFileChange = tuple[
     str,
@@ -389,6 +404,12 @@ def workspace_list_directory(
     path: str,
     depth: int,
 ) -> NativeWorkspaceDirectoryRead: ...
+def workspace_read_directory_tree(
+    workspace: NativeWorkspace,
+    path: str,
+    depth: int,
+    child_limit: int,
+) -> NativeWorkspaceDirectoryTreeRead: ...
 def workspace_resolve_observation(
     workspace: NativeWorkspace,
     path: str,

@@ -5,8 +5,9 @@ use pyo3::prelude::*;
 use crate::workspace::{
     Cancellation, EditResult, FileChange, HashlineOperation, HashlineSection, LineEnding,
     LineRange, MutationContext, ObservationReceipt, PolicyGeneration, PostEditSource, RenderedLine,
-    Workspace, WorkspaceDirectoryRead, WorkspaceError, WorkspaceFileRead, WorkspacePolicy,
-    WorkspaceTextSerialization, parse_apply_patch, parse_structured_patch,
+    Workspace, WorkspaceDirectoryRead, WorkspaceDirectoryTreeLine, WorkspaceDirectoryTreeRead,
+    WorkspaceError, WorkspaceFileRead, WorkspacePolicy, WorkspaceTextSerialization,
+    parse_apply_patch, parse_structured_patch,
 };
 
 create_exception!(_native, NativeWorkspaceReadError, PyException);
@@ -130,6 +131,16 @@ type NativeFileRead = (
     Option<NativeTextSerialization>,
 );
 type NativeDirectoryRead = (String, Vec<(String, String, Option<u64>)>, bool);
+type NativeDirectoryTreeLine = (usize, String, String, Option<usize>);
+type NativeDirectoryTreeRead = (
+    String,
+    Vec<NativeDirectoryTreeLine>,
+    usize,
+    usize,
+    usize,
+    usize,
+    bool,
+);
 type NativeFileChange = (
     String,
     String,
@@ -328,6 +339,23 @@ fn workspace_list_directory(
         workspace
             .list_directory(&path, depth)
             .map(directory_read_to_native)
+            .map_err(to_python_error)
+    })
+}
+
+#[pyfunction]
+fn workspace_read_directory_tree(
+    py: Python<'_>,
+    workspace: PyRef<'_, NativeWorkspace>,
+    path: String,
+    depth: usize,
+    child_limit: usize,
+) -> PyResult<NativeDirectoryTreeRead> {
+    let workspace = workspace.inner.clone();
+    py.detach(move || {
+        workspace
+            .read_directory_tree(&path, depth, child_limit)
+            .map(directory_tree_read_to_native)
             .map_err(to_python_error)
     })
 }
@@ -670,6 +698,7 @@ pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(workspace_register_edit_mode, module)?)?;
     module.add_function(wrap_pyfunction!(workspace_read_file, module)?)?;
     module.add_function(wrap_pyfunction!(workspace_list_directory, module)?)?;
+    module.add_function(wrap_pyfunction!(workspace_read_directory_tree, module)?)?;
     module.add_function(wrap_pyfunction!(workspace_resolve_observation, module)?)?;
     module.add_function(wrap_pyfunction!(workspace_validate_observed_lines, module)?)?;
     module.add_function(wrap_pyfunction!(workspace_observe_source_lines, module)?)?;
@@ -748,6 +777,26 @@ fn directory_read_to_native(result: WorkspaceDirectoryRead) -> NativeDirectoryRe
             .map(|entry| (entry.path, entry.kind, entry.size))
             .collect(),
         result.truncated,
+    )
+}
+
+fn directory_tree_line_to_native(line: WorkspaceDirectoryTreeLine) -> NativeDirectoryTreeLine {
+    (line.depth, line.name, line.kind, line.omitted_entries)
+}
+
+fn directory_tree_read_to_native(result: WorkspaceDirectoryTreeRead) -> NativeDirectoryTreeRead {
+    (
+        result.path,
+        result
+            .lines
+            .into_iter()
+            .map(directory_tree_line_to_native)
+            .collect(),
+        result.child_limit,
+        result.scanned_entries,
+        result.limited_directories,
+        result.omitted_entries,
+        result.scan_truncated,
     )
 }
 

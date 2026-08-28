@@ -5,12 +5,28 @@ from ovid_native.files.edit_modes import EditModeState
 from ovid_native.files.edit_tools import tool_edit_result
 from ovid_native.files.models import (
     WorkspaceCreateRequest,
+    WorkspaceDirectoryTreeReadRequest,
+    WorkspaceFileReadRequest,
     WorkspaceFilesToolResult,
-    WorkspaceReadFileResult,
     WorkspaceReadRequest,
     WorkspaceReplaceRequest,
     WorkspaceWriteRequest,
 )
+from ovid_native.files.read_results import (
+    RenderedReadTarget,
+    render_directory_read,
+    render_file_read,
+    render_read_error,
+)
+from ovid_native.files.read_targets import (
+    MAX_READ_LINES,
+    PlannedReadTarget,
+    parse_read_target,
+    plan_read_target,
+    split_read_targets,
+)
+from ovid_native.files.tool_metadata import WorkspaceFilesToolMetadata
+from ovid_native.workspace.errors import WorkspaceError, WorkspacePathError
 from ovid_native.workspace.evidence import WorkspaceSourcePresentation, capture_source_presentation
 from ovid_native.workspace.models import WorkspaceFilesProvider
 
@@ -24,8 +40,10 @@ FILES_TOOL_INSTRUCTIONS = (
     'edits.'
 )
 _READ_DESCRIPTION = (
-    'Read bounded UTF-8 workspace text with authorizing line evidence, or list one workspace directory. URLs, '
-    'archives, documents, images, databases, SSH paths, and resource schemes are unsupported.'
+    'Read bounded UTF-8 workspace files or hierarchical directory trees. Append :N, :N-M, :N+K, :N-, or '
+    'comma-separated ranges. Separate multiple targets with semicolons. Reads return at most 300 lines per open range '
+    'and 3000 lines per call, with exact continuation selectors. Nested directories show at most 12 children. Read a '
+    'subdirectory path to expand an abbreviated node.'
 )
 _WRITE_DESCRIPTION = (
     'Create a workspace text file, or replace a complete existing file guarded by the four-hex observation from read.'
@@ -56,16 +74,51 @@ class ReadTool[Deps](BaseTool[Deps, WorkspaceReadRequest, WorkspaceFilesToolResu
         arguments: WorkspaceReadRequest,
     ) -> WorkspaceFilesToolResult:
         del context
-        result = await self._provider.read(arguments)
-        metadata = {'kind': result.kind, 'path': result.path}
-        if result.kind == 'file':
-            metadata['editable'] = result.editable
-            metadata['complete_presentation'] = result.complete_presentation
-            metadata['observation'] = None if result.observation is None else result.observation.tag
-        else:
-            metadata['truncated'] = result.truncated
-        content = _render_read(result, self._current_presentation()) if result.kind == 'file' else result.render()
-        return WorkspaceFilesToolResult(content=content, metadata=metadata)
+        presentation = self._current_presentation()
+        raw_targets = (arguments.path,)
+        if ';' in arguments.path:
+            try:
+                literal = plan_read_target(parse_read_target(arguments.path, arguments.ranges), MAX_READ_LINES)
+                rendered = await self._read_target(literal, arguments.directory_depth, presentation)
+            except WorkspacePathError:
+                raw_targets = split_read_targets(arguments.path)
+            else:
+                return _read_tool_result((rendered,))
+
+        line_budget = max(1, MAX_READ_LINES // len(raw_targets))
+        targets = tuple(
+            plan_read_target(parse_read_target(target, arguments.ranges), line_budget) for target in raw_targets
+        )
+        rendered_targets: list[RenderedReadTarget] = []
+        for target in targets:
+            try:
+                rendered_targets.append(await self._read_target(target, arguments.directory_depth, presentation))
+            except WorkspaceError as error:
+                if len(targets) == 1:
+                    raise
+                rendered_targets.append(render_read_error(target.argument, error))
+
+        return _read_tool_result(tuple(rendered_targets))
+
+    async def _read_target(
+        self,
+        target: PlannedReadTarget,
+        directory_depth: int,
+        presentation: WorkspaceSourcePresentation,
+    ) -> RenderedReadTarget:
+        try:
+            result = await self._provider.read_file(WorkspaceFileReadRequest(path=target.path, ranges=target.ranges))
+        except WorkspacePathError as file_error:
+            try:
+                directory = await self._provider.read_directory_tree(
+                    WorkspaceDirectoryTreeReadRequest(path=target.path, depth=directory_depth)
+                )
+            except WorkspacePathError:
+                raise file_error from None
+
+            return render_directory_read(directory, target)
+
+        return render_file_read(result, presentation, target)
 
     def _current_presentation(self) -> WorkspaceSourcePresentation:
         return _current_presentation(self._presentation, self._state)
@@ -130,11 +183,21 @@ def _replace_request(arguments: WorkspaceWriteRequest) -> WorkspaceReplaceReques
     )
 
 
-def _render_read(result: WorkspaceReadFileResult, presentation: WorkspaceSourcePresentation) -> str:
-    if presentation.format == 'hashline' and result.observation is not None and result.editable:
-        return result.render()
-    rows = [f'[{result.path}]']
-    rows.extend(f'{line.line_number}:{line.text}' for line in result.lines)
-    if not result.complete_presentation:
-        rows.append(f'[truncated: {len(result.lines)} of {result.total_lines} lines]')
-    return '\n'.join(rows)
+def _read_tool_result(targets: tuple[RenderedReadTarget, ...]) -> WorkspaceFilesToolResult:
+    if len(targets) == 1:
+        target = targets[0]
+        return WorkspaceFilesToolResult(content=target.content, metadata=target.metadata)
+
+    successful = sum(target.metadata['status'] == 'ok' for target in targets)
+    metadata: WorkspaceFilesToolMetadata = {
+        'kind': 'multi',
+        'target_count': len(targets),
+        'successful_targets': successful,
+        'failed_targets': len(targets) - successful,
+        'truncated': any(target.metadata.get('truncated') is True for target in targets),
+        'targets': [target.metadata for target in targets],
+    }
+    return WorkspaceFilesToolResult(
+        content='\n\n'.join(target.content for target in targets),
+        metadata=metadata,
+    )

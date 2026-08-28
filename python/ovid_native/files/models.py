@@ -4,6 +4,7 @@ from ovid_core.models import BaseModel
 from ovid_core.tools.models import ToolResult
 from pydantic import AfterValidator, Field, model_validator
 
+from ovid_native.files.tool_metadata import WorkspaceFilesToolMetadata
 from ovid_native.workspace.observations import WorkspaceObservationReceipt, WorkspaceRenderedLine
 
 
@@ -39,8 +40,17 @@ class WorkspaceDirectoryReadRequest(BaseModel):
     depth: int = Field(default=1, ge=1, le=2)
 
 
-class WorkspaceReadRequest(BaseModel):
+class WorkspaceDirectoryTreeReadRequest(BaseModel):
     path: str = Field(min_length=1)
+    depth: int = Field(default=1, ge=1, le=2)
+    child_limit: int = Field(default=12, ge=1, le=4096)
+
+
+class WorkspaceReadRequest(BaseModel):
+    path: str = Field(
+        min_length=1,
+        description='Workspace path with optional :N, :N-M, :N+K, :N-, or multi-range selector; use ; between targets',
+    )
     ranges: ReadLineRanges = ()
     directory_depth: int = Field(default=1, ge=1, le=2)
 
@@ -93,6 +103,34 @@ class WorkspaceReadDirectoryResult(BaseModel):
         if self.truncated:
             rows.append('[directory listing truncated]')
         return '\n'.join(rows)
+
+
+class WorkspaceDirectoryTreeLine(BaseModel):
+    depth: int = Field(ge=0)
+    name: str
+    kind: Literal['file', 'directory', 'symlink', 'omitted']
+    omitted_entries: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode='after')
+    def validate_kind(self) -> Self:
+        if self.kind == 'omitted':
+            if self.name or self.omitted_entries is None:
+                raise ValueError('omitted directory tree lines require an empty name and omitted entry count')
+        elif not self.name or self.omitted_entries is not None:
+            raise ValueError('directory tree entry lines require a name and no omitted entry count')
+
+        return self
+
+
+class WorkspaceReadDirectoryTreeResult(BaseModel):
+    kind: Literal['directory_tree'] = 'directory_tree'
+    path: str
+    lines: tuple[WorkspaceDirectoryTreeLine, ...]
+    child_limit: int = Field(ge=1)
+    scanned_entries: int = Field(ge=0)
+    limited_directories: int = Field(ge=0)
+    omitted_entries: int = Field(ge=0)
+    scan_truncated: bool
 
 
 type WorkspaceReadResult = WorkspaceReadFileResult | WorkspaceReadDirectoryResult
@@ -213,4 +251,4 @@ class HashlineEditRequest(BaseModel):
 
 
 class WorkspaceFilesToolResult(ToolResult):
-    pass
+    metadata: WorkspaceFilesToolMetadata

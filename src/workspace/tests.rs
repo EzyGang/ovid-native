@@ -2,8 +2,9 @@ use std::fs;
 use std::time::Duration;
 
 use crate::workspace::{
-    Cancellation, MetadataLevel, ReadExtent, ScanFileKind, ScanOrder, ScanRequest, WorkCompletion,
-    WorkControl, Workspace, WorkspaceError, preflight_write, read_content, replace_file, sha256,
+    Cancellation, LineRange, MetadataLevel, ReadExtent, ScanFileKind, ScanOrder, ScanRequest,
+    WorkCompletion, WorkControl, Workspace, WorkspaceError, WorkspacePolicy, preflight_write,
+    read_content, replace_file, sha256,
 };
 
 fn scan_request(selections: &[&str]) -> ScanRequest {
@@ -131,6 +132,32 @@ fn workspace_classifies_bounded_content() {
     let complete =
         read_content(&path, ReadExtent::Complete { max_bytes: 10 }, &control).expect("complete");
     assert!(complete.complete);
+}
+
+#[test]
+fn workspace_streams_selected_lines_from_unobserved_files() {
+    let root = tempfile::tempdir().expect("workspace");
+    let path = root.path().join("large.txt");
+    fs::write(&path, b"\xef\xbb\xbfone\r\ntwo\r\nthree\r\n").expect("source");
+    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    workspace
+        .set_policy(WorkspacePolicy {
+            max_read_bytes: 5,
+            max_observation_file_bytes: 4,
+            ..WorkspacePolicy::default()
+        })
+        .expect("read policy");
+
+    let result = workspace
+        .read_file("large.txt", &[LineRange { start: 3, end: 3 }])
+        .expect("range read");
+
+    assert_eq!(result.total_lines, 3);
+    assert_eq!(result.lines.len(), 1);
+    assert_eq!(result.lines[0].number, 3);
+    assert_eq!(result.lines[0].text, "three");
+    assert!(result.observation.is_none());
+    assert!(!result.editable);
 }
 
 #[test]

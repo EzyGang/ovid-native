@@ -40,7 +40,20 @@ def test_read_and_write_tools_execute_both_dispatch_branches(tmp_path: Path) -> 
     write_tool = WriteTool[None](provider=workspace.files)
 
     directory = asyncio.run(read_tool.execute(tool_context(), WorkspaceReadRequest(path='.')))
-    assert directory.metadata == {'kind': 'directory', 'path': '.', 'truncated': False}
+    assert directory.metadata == {
+        'status': 'ok',
+        'kind': 'directory',
+        'requested': '.',
+        'path': '.',
+        'scanned_entries': 0,
+        'tree_lines': 0,
+        'returned_lines': 0,
+        'per_directory_child_limit': 12,
+        'limited_directories': 0,
+        'omitted_entries': 0,
+        'scan_truncated': False,
+        'truncated': False,
+    }
 
     created = asyncio.run(
         write_tool.execute(
@@ -48,9 +61,10 @@ def test_read_and_write_tools_execute_both_dispatch_branches(tmp_path: Path) -> 
             WorkspaceWriteRequest(path='source.txt', content='one\n'),
         )
     )
-    assert created.content.startswith('[source.txt]')
+    assert cast(str, created.content).startswith('[source.txt]')
     observed = asyncio.run(workspace.files.read_file(WorkspaceFileReadRequest(path='source.txt')))
     assert observed.observation is not None
+    assert observed.render().startswith('[source.txt#')
     replaced = asyncio.run(
         write_tool.execute(
             tool_context(),
@@ -153,7 +167,7 @@ def test_read_and_hashline_tools_render_captured_source_modes(tmp_path: Path) ->
             tool_context(),
             WorkspaceReadRequest(path='source.txt', ranges=(ReadLineRange(start=1, end=1),)),
         )
-        assert cast(str, partial.content).splitlines() == ['[source.txt]', '1:changed', '[truncated: 1 of 2 lines]']
+        assert cast(str, partial.content).splitlines() == ['[source.txt]', '1:changed']
         await workspace.close()
 
     asyncio.run(run())

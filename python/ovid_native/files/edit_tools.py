@@ -1,5 +1,6 @@
 from ovid_core.tools.base import BaseTool, ToolExecutionContext, ToolGrammar, ToolPresentation
 from ovid_core.tools.models import ToolApproval
+from pydantic import TypeAdapter
 
 from ovid_native import _native
 from ovid_native.files.hashline import HASHLINE_GRAMMAR
@@ -12,6 +13,7 @@ from ovid_native.files.models import (
     WorkspaceFilesToolResult,
     WorkspacePostEditSource,
 )
+from ovid_native.files.tool_metadata import WorkspaceEditToolMetadata
 from ovid_native.workspace.evidence import WorkspaceSourcePresentation
 from ovid_native.workspace.models import WorkspaceFilesProvider
 
@@ -159,6 +161,9 @@ class HashlineEditTool[Deps](BaseTool[Deps, HashlineEditRequest, WorkspaceFilesT
         return tool_edit_result(result, self._presentation)
 
 
+_EDIT_TOOL_METADATA_ADAPTER = TypeAdapter(WorkspaceEditToolMetadata)
+
+
 def tool_edit_result(
     edit: WorkspaceEditResult,
     presentation: WorkspaceSourcePresentation,
@@ -166,14 +171,20 @@ def tool_edit_result(
     content = '\n\n'.join(_render_post(source, presentation) for source in edit.post_edit_sources)
     if not content:
         content = ', '.join(f'{change.operation}: {change.path}' for change in edit.changes)
-    metadata = edit.model_dump(mode='json', exclude={'post_edit_sources'})
-    metadata['source_presentation'] = presentation.model_dump(mode='json')
+    metadata = _EDIT_TOOL_METADATA_ADAPTER.validate_python(
+        {
+            **edit.model_dump(mode='json', exclude={'post_edit_sources'}),
+            'source_presentation': presentation.model_dump(mode='json'),
+        }
+    )
     return WorkspaceFilesToolResult(content=content, metadata=metadata)
 
 
 def _render_post(source: WorkspacePostEditSource, presentation: WorkspaceSourcePresentation) -> str:
     if presentation.format == 'hashline':
         return source.render()
+
     rows = [f'[{source.path}]']
     rows.extend(f'{line.line_number}:{line.text}' for line in source.lines)
+
     return '\n'.join(rows)

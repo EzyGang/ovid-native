@@ -6,8 +6,11 @@ from ovid_native._native_execution import run_native
 from ovid_native.files.models import (
     WorkspaceDirectoryEntry,
     WorkspaceDirectoryReadRequest,
+    WorkspaceDirectoryTreeLine,
+    WorkspaceDirectoryTreeReadRequest,
     WorkspaceFileReadRequest,
     WorkspaceReadDirectoryResult,
+    WorkspaceReadDirectoryTreeResult,
     WorkspaceReadFileResult,
     WorkspaceReadRequest,
     WorkspaceReadResult,
@@ -84,6 +87,37 @@ class WorkspaceFilesEngine(WorkspaceFilesWorkflows):
                 for entry in entries
             ),
             truncated=truncated,
+        )
+
+    async def read_directory_tree(
+        self,
+        request: WorkspaceDirectoryTreeReadRequest,
+    ) -> WorkspaceReadDirectoryTreeResult:
+        native = await self._call(
+            lambda: _native.workspace_read_directory_tree(
+                self._workspace,
+                request.path,
+                request.depth,
+                request.child_limit,
+            )
+        )
+        path, lines, child_limit, scanned_entries, limited_directories, omitted_entries, scan_truncated = native
+        return WorkspaceReadDirectoryTreeResult(
+            path=path,
+            lines=tuple(
+                WorkspaceDirectoryTreeLine(
+                    depth=line[0],
+                    name=line[1],
+                    kind=line[2],
+                    omitted_entries=line[3],
+                )
+                for line in lines
+            ),
+            child_limit=child_limit,
+            scanned_entries=scanned_entries,
+            limited_directories=limited_directories,
+            omitted_entries=omitted_entries,
+            scan_truncated=scan_truncated,
         )
 
     async def _call[Result](self, operation: Callable[[], Result]) -> Result:

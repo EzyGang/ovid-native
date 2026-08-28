@@ -28,6 +28,8 @@ from ovid_native.files.models import WorkspaceCreateRequest as WorkspaceCreateRe
 from ovid_native.files.models import WorkspaceDeleteRequest as WorkspaceDeleteRequest
 from ovid_native.files.models import WorkspaceDirectoryEntry as WorkspaceDirectoryEntry
 from ovid_native.files.models import WorkspaceDirectoryReadRequest as WorkspaceDirectoryReadRequest
+from ovid_native.files.models import WorkspaceDirectoryTreeLine as WorkspaceDirectoryTreeLine
+from ovid_native.files.models import WorkspaceDirectoryTreeReadRequest as WorkspaceDirectoryTreeReadRequest
 from ovid_native.files.models import WorkspaceEditResult as WorkspaceEditResult
 from ovid_native.files.models import WorkspaceFileChange as WorkspaceFileChange
 from ovid_native.files.models import WorkspaceFileReadRequest as WorkspaceFileReadRequest
@@ -35,6 +37,7 @@ from ovid_native.files.models import WorkspaceFilesToolResult as WorkspaceFilesT
 from ovid_native.files.models import WorkspaceMoveRequest as WorkspaceMoveRequest
 from ovid_native.files.models import WorkspacePostEditSource as WorkspacePostEditSource
 from ovid_native.files.models import WorkspaceReadDirectoryResult as WorkspaceReadDirectoryResult
+from ovid_native.files.models import WorkspaceReadDirectoryTreeResult as WorkspaceReadDirectoryTreeResult
 from ovid_native.files.models import WorkspaceReadFileResult as WorkspaceReadFileResult
 from ovid_native.files.models import WorkspaceReadRequest as WorkspaceReadRequest
 from ovid_native.files.models import WorkspaceReadResult as WorkspaceReadResult

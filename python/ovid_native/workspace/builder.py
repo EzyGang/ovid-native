@@ -65,6 +65,7 @@ class WorkspaceSessionBuilder:
                 'read',
                 'read_file',
                 'list_directory',
+                'read_directory_tree',
                 'create_file',
                 'replace_file',
                 'delete_file',

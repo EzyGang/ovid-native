@@ -11,8 +11,11 @@ from ovid_native.files import (
     ApplyPatchEditRequest,
     EditMode,
     ReadLineRange,
+    WorkspaceDirectoryTreeLine,
+    WorkspaceDirectoryTreeReadRequest,
     WorkspaceEditModeError,
     WorkspaceFileReadRequest,
+    WorkspaceFilesToolResult,
     WorkspacePartialCommitError,
     WorkspaceReadError,
     WorkspaceReadRequest,
@@ -43,6 +46,14 @@ def test_request_models_reject_invalid_ranges_and_mutation_combinations() -> Non
             path='source.txt',
             ranges=(ReadLineRange(start=1, end=2), ReadLineRange(start=2, end=3)),
         )
+    with pytest.raises(ValidationError):
+        WorkspaceDirectoryTreeReadRequest(path='.', child_limit=0)
+    with pytest.raises(ValidationError, match='omitted directory tree lines'):
+        WorkspaceDirectoryTreeLine(depth=0, name='invalid', kind='omitted')
+    with pytest.raises(ValidationError, match='directory tree entry lines'):
+        WorkspaceDirectoryTreeLine(depth=0, name='', kind='file', omitted_entries=1)
+    with pytest.raises(ValidationError):
+        WorkspaceFilesToolResult(content='invalid', metadata={'kind': 'file'})
     with pytest.raises(ValidationError, match='requires expected_observation'):
         WorkspaceWriteRequest(path='source.txt', content='content', operation='replace')
     with pytest.raises(ValidationError, match='does not accept expected_observation'):

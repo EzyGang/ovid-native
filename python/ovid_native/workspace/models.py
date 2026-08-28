@@ -34,10 +34,12 @@ if TYPE_CHECKING:
         WorkspaceCreateRequest,
         WorkspaceDeleteRequest,
         WorkspaceDirectoryReadRequest,
+        WorkspaceDirectoryTreeReadRequest,
         WorkspaceEditResult,
         WorkspaceFileReadRequest,
         WorkspaceMoveRequest,
         WorkspaceReadDirectoryResult,
+        WorkspaceReadDirectoryTreeResult,
         WorkspaceReadFileResult,
         WorkspaceReadRequest,
         WorkspaceReadResult,
@@ -69,6 +71,10 @@ class WorkspaceFilesProvider(Protocol):
     async def read_file(self, request: WorkspaceFileReadRequest) -> WorkspaceReadFileResult: ...
 
     async def list_directory(self, request: WorkspaceDirectoryReadRequest) -> WorkspaceReadDirectoryResult: ...
+    async def read_directory_tree(
+        self,
+        request: WorkspaceDirectoryTreeReadRequest,
+    ) -> WorkspaceReadDirectoryTreeResult: ...
 
     async def create_file(self, request: WorkspaceCreateRequest) -> WorkspaceWriteResult: ...
 

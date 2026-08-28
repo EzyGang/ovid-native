@@ -1,5 +1,8 @@
 mod content;
 mod control;
+mod directory_tree;
+#[cfg(test)]
+mod directory_tree_tests;
 mod evidence;
 mod file_mutations;
 mod hashline;
@@ -18,6 +21,7 @@ mod observations;
 mod patch;
 mod path;
 pub(crate) mod python;
+mod read_ranges;
 mod replace;
 mod scan;
 #[cfg(test)]
@@ -38,9 +42,10 @@ use fs2::FileExt;
 
 pub(crate) use content::{
     LineEnding, NormalizedText, ReadExtent, WorkspaceDirectoryEntry, WorkspaceDirectoryRead,
-    WorkspaceFileRead, WorkspaceTextSerialization, inspect_text, read_content,
+    WorkspaceFileRead, WorkspaceTextSerialization, read_content,
 };
 pub(crate) use control::{Cancellation, WorkControl, WorkStopped};
+pub(crate) use directory_tree::{WorkspaceDirectoryTreeLine, WorkspaceDirectoryTreeRead};
 pub(crate) use hashline_types::{HashlineOperation, HashlineRegister, HashlineSection};
 pub(crate) use observation_types::{LineRange, ObservationReceipt, RenderedLine};
 pub(crate) use observations::ObservationLedger;
@@ -369,63 +374,63 @@ impl Workspace {
         let target = path::resolve_contained_file(self.root(), &path)?;
         let metadata = fs::metadata(&target)
             .map_err(|error| WorkspaceError::Read(format!("cannot inspect {path}: {error}")))?;
-        let initial_total_bytes = metadata.len();
-        let initial_complete_identity =
-            initial_total_bytes <= policy.policy.max_observation_file_bytes;
         let control = WorkControl::new(Cancellation::new(), None);
+        let observation_limit = policy.policy.max_observation_file_bytes;
+        let normalized_ranges = normalize_read_ranges(ranges, usize::MAX)?;
+        if metadata.len() > observation_limit {
+            return read_unobserved_file(
+                &path,
+                &target,
+                &normalized_ranges,
+                policy.policy.max_read_bytes,
+                observation_limit,
+                &control,
+            );
+        }
+
         let content = read_content(
             &target,
-            if initial_complete_identity {
-                ReadExtent::Complete {
-                    max_bytes: policy.policy.max_observation_file_bytes,
-                }
-            } else {
-                ReadExtent::Prefix {
-                    max_bytes: policy.policy.max_read_bytes,
-                }
+            ReadExtent::Complete {
+                max_bytes: observation_limit,
             },
             &control,
         )?;
+        if !content.complete {
+            return read_unobserved_file(
+                &path,
+                &target,
+                &normalized_ranges,
+                policy.policy.max_read_bytes,
+                observation_limit,
+                &control,
+            );
+        }
         let total_bytes = content.total_bytes;
-        let complete_identity = initial_complete_identity && content.complete;
-        let text = if complete_identity {
-            NormalizedText::decode(content.bytes)?
-        } else {
-            NormalizedText::decode_prefix(content.bytes)?
-        };
-        let total_lines = if complete_identity {
-            text.total_lines()
-        } else {
-            inspect_text(&target)?
-        };
-        let normalized_ranges = normalize_read_ranges(ranges, text.total_lines())?;
+        let text = NormalizedText::decode(content.bytes)?;
+        let total_lines = text.total_lines();
+        let normalized_ranges = normalize_read_ranges(ranges, total_lines)?;
         let lines = bounded_render(&text, &normalized_ranges, policy.policy.max_read_bytes);
         let visible_ranges = ranges_from_rendered(&lines);
-        let complete_presentation = complete_identity
-            && total_lines == lines.len()
+        let complete_presentation = total_lines == lines.len()
             && (total_lines == 0
                 || visible_ranges
                     == vec![LineRange {
                         start: 1,
                         end: total_lines,
                     }]);
-        let observation = if complete_identity {
-            let generation = self.file_generation(&path)?;
-            Some(self.observations()?.record(
-                &path,
-                &text,
-                generation,
-                &lines,
-                complete_presentation,
-                (
-                    policy.policy.max_observation_entries,
-                    policy.policy.max_observation_store_bytes,
-                ),
-            )?)
-        } else {
-            None
-        };
-        let serialization = complete_identity.then_some(WorkspaceTextSerialization {
+        let generation = self.file_generation(&path)?;
+        let observation = Some(self.observations()?.record(
+            &path,
+            &text,
+            generation,
+            &lines,
+            complete_presentation,
+            (
+                policy.policy.max_observation_entries,
+                policy.policy.max_observation_store_bytes,
+            ),
+        )?);
+        let serialization = Some(WorkspaceTextSerialization {
             bom: text.serialization.bom,
             line_ending: text.serialization.line_ending,
             terminal_newline: text.source.ends_with('\n'),
@@ -437,9 +442,9 @@ impl Workspace {
             lines,
             total_lines,
             complete_presentation,
-            editable: complete_identity,
+            editable: true,
             total_bytes,
-            observation_limit: policy.policy.max_observation_file_bytes,
+            observation_limit,
             serialization,
         })
     }
@@ -476,6 +481,21 @@ impl Workspace {
         })
     }
 
+    pub(crate) fn read_directory_tree(
+        &self,
+        path: &str,
+        depth: usize,
+        child_limit: usize,
+    ) -> Result<WorkspaceDirectoryTreeRead, WorkspaceError> {
+        if !(1..=4096).contains(&child_limit) {
+            return Err(WorkspaceError::Limit(
+                "workspace directory child limit must be between one and 4096".to_owned(),
+            ));
+        }
+        let listing = self.list_directory(path, depth)?;
+        Ok(directory_tree::build_directory_tree(listing, child_limit))
+    }
+
     pub(crate) fn scan(
         &self,
         request: &ScanRequest,
@@ -484,6 +504,38 @@ impl Workspace {
         self.ensure_open()?;
         scan::scan(&self.state.canonical_root, request, control)
     }
+}
+
+fn read_unobserved_file(
+    path: &str,
+    target: &Path,
+    ranges: &[LineRange],
+    max_read_bytes: u64,
+    observation_limit: u64,
+    control: &WorkControl,
+) -> Result<WorkspaceFileRead, WorkspaceError> {
+    let selected = read_ranges::read_selected_text(target, ranges, max_read_bytes, control)?;
+    let lines = selected
+        .lines
+        .into_iter()
+        .map(|(number, text)| RenderedLine {
+            number,
+            short_hash: format!("{:02X}", line_hash::short_line_hash(text.as_bytes())),
+            text,
+        })
+        .collect();
+
+    Ok(WorkspaceFileRead {
+        path: path.to_owned(),
+        observation: None,
+        lines,
+        total_lines: selected.total_lines,
+        complete_presentation: false,
+        editable: false,
+        total_bytes: selected.total_bytes,
+        observation_limit,
+        serialization: None,
+    })
 }
 
 fn normalize_read_ranges(

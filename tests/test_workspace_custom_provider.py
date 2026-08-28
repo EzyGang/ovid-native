@@ -28,6 +28,7 @@ def test_custom_provider_frontends_share_observations_and_hashline(
             'read',
             'read_file',
             'list_directory',
+            'read_directory_tree',
             'create_file',
             'replace_file',
             'delete_file',

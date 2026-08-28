@@ -29,7 +29,7 @@ def test_ast_capability_runs_through_real_agent_factory(tmp_path: Path, mocker: 
         if not tool_returns:
             return ModelResponse(parts=[ToolCallPart('ast_grep', {'pattern': 'print($A)', 'language': 'python'})])
         if len(tool_returns) == 1:
-            assert tool_returns[0].content['content']['result']['total_matches'] == 1
+            assert tool_returns[0].content['result']['total_matches'] == 1
             return ModelResponse(
                 parts=[
                     ToolCallPart(
@@ -42,7 +42,7 @@ def test_ast_capability_runs_through_real_agent_factory(tmp_path: Path, mocker: 
                     )
                 ]
             )
-        proposal_id = tool_returns[-1].content['content']['preview']['proposal_id']
+        proposal_id = tool_returns[-1].content['preview']['proposal_id']
         return ModelResponse(parts=[TextPart('previewed')])
 
     handle = ModelHandle(

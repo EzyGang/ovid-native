@@ -139,6 +139,7 @@ Each source distribution must contain all Rust source and workspace dependencies
 - Use guard clauses and shallow indentation.
 - Separate setup, decisions, side effects, and return values with blank lines.
 - Add an abstraction only when it removes real duplication or isolates the Python/Rust boundary.
+- Do not create a module-level constant, adapter, helper, or alias with exactly one consumer. Inline it at the use site.
 - Add comments or docstrings only when a critical rule is not clear from names and types.
 
 ## Rust rules
@@ -164,6 +165,7 @@ Target stable Rust with edition 2024. `rustfmt` and Clippy control formatting an
 - Use early returns for failure or absence.
 - Use `match` when both variants have behavior. Use `=> (),` for an intentionally empty arm.
 - Use full logging macro paths such as `tracing::debug!`.
+- Do not create a `const`, `static`, helper, type alias, or wrapper with exactly one consumer. Inline it at the use site.
 
 Order imports in separate groups: `std`, external crates, `crate`, local modules, then sparse re-exports. Use one `use` declaration per crate.
 
@@ -261,6 +263,7 @@ For each native operation, test:
 - cancellation and cleanup for long or resource-owning work
 - unsupported-platform behavior when relevant
 - one smoke path through the public Python API
+- Keep Rust test bodies out of production modules. Declare focused sibling test modules from the owning `mod.rs`.
 
 Use `mocker: MockerFixture` for every Python double, patch, spy, or environment change. Do not use `unittest.mock`, `monkeypatch`, or another mocking helper.
 
