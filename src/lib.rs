@@ -1,4 +1,5 @@
 mod ast;
+mod command;
 mod discovery;
 mod fff;
 mod search;
@@ -6,7 +7,7 @@ mod workspace;
 
 use pyo3::prelude::*;
 
-const API_VERSION: u16 = 12;
+const API_VERSION: u16 = 14;
 
 #[pyfunction]
 #[must_use]
@@ -17,6 +18,7 @@ fn runtime_info() -> (&'static str, &'static str, u16) {
 #[pymodule(gil_used = false)]
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(runtime_info, module)?)?;
+    command::register(module)?;
     discovery::register_module(module)?;
     workspace::python::register(module)?;
     ast::register_module(module)?;

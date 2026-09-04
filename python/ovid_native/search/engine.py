@@ -1,9 +1,8 @@
-from collections.abc import Callable
 from pathlib import Path
 from typing import Self
 
 from ovid_native import _native
-from ovid_native._native_execution import run_native
+from ovid_native._native_execution import NativeErrorTranslator, run_native_translated
 from ovid_native.runtime import ensure_native_compatibility
 from ovid_native.search import _mapping
 from ovid_native.search.errors import (
@@ -19,13 +18,16 @@ from ovid_native.search.models import GlobRequest, GlobResult, GrepRequest, Grep
 from ovid_native.workspace.errors import WorkspaceClosedError
 
 
-_NATIVE_ERRORS: tuple[type[Exception], ...] = (
-    _native.NativeSearchConfigurationError,
-    _native.NativeSearchPathError,
-    _native.NativeSearchPatternError,
-    _native.NativeSearchLimitError,
-    _native.NativeSearchCancelledError,
-    _native.NativeSearchReadError,
+_ERROR_TRANSLATOR = NativeErrorTranslator(
+    {
+        _native.NativeSearchConfigurationError: SearchConfigurationError,
+        _native.NativeSearchPathError: SearchPathError,
+        _native.NativeSearchPatternError: SearchPatternError,
+        _native.NativeSearchLimitError: SearchLimitError,
+        _native.NativeSearchCancelledError: SearchCancelledError,
+        _native.NativeSearchReadError: SearchReadError,
+    },
+    fallback=SearchError,
 )
 
 
@@ -78,9 +80,10 @@ class SearchEngine:
             ),
             cancellation,
         )
-        result = await _call_native(
+        result = await run_native_translated(
             lambda: _native.search_glob(self._workspace, native_request),
             cancellation=cancellation,
+            translator=_ERROR_TRANSLATOR,
         )
         return _mapping.glob_result(result)
 
@@ -113,9 +116,10 @@ class SearchEngine:
             ),
             cancellation,
         )
-        result = await _call_native(
+        result = await run_native_translated(
             lambda: _native.search_grep(self._workspace, native_request),
             cancellation=cancellation,
+            translator=_ERROR_TRANSLATOR,
         )
         return _mapping.grep_result(result)
 
@@ -143,30 +147,3 @@ def _validate_grep_limits(request: GrepRequest, limits: SearchLimits) -> None:
     for value, ceiling, name in checks:
         if value > ceiling:
             raise SearchLimitError(f'Grep {name} exceeds the engine ceiling of {ceiling}')
-
-
-async def _call_native[Result](
-    function: Callable[[], Result],
-    *,
-    cancellation: _native.NativeSearchCancellation,
-) -> Result:
-    try:
-        return await run_native(function, cancellation=cancellation)
-    except _NATIVE_ERRORS as error:
-        raise _translate_native(error) from error
-
-
-def _translate_native(error: Exception) -> SearchError:
-    mappings: tuple[tuple[type[Exception], type[SearchError]], ...] = (
-        (_native.NativeSearchConfigurationError, SearchConfigurationError),
-        (_native.NativeSearchPathError, SearchPathError),
-        (_native.NativeSearchPatternError, SearchPatternError),
-        (_native.NativeSearchLimitError, SearchLimitError),
-        (_native.NativeSearchCancelledError, SearchCancelledError),
-        (_native.NativeSearchReadError, SearchReadError),
-    )
-    for native_type, public_type in mappings:
-        if isinstance(error, native_type):
-            return public_type(str(error))
-
-    return SearchError(str(error))

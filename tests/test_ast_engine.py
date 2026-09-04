@@ -8,6 +8,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 from ovid_native import _native
+from ovid_native._native_execution import run_native_translated
 from ovid_native.ast import (
     AstConfigurationError,
     AstEngine,
@@ -26,7 +27,7 @@ from ovid_native.ast import (
     AstSearchRequest,
     AstWriteError,
 )
-from ovid_native.ast.engine import _call_native, _translate_native
+from ovid_native.ast.engine import _ERROR_TRANSLATOR
 from ovid_native.ast.errors import AstError
 
 
@@ -157,10 +158,10 @@ def test_native_error_translation_covers_every_boundary_type() -> None:
         (_native.NativeAstWriteError('x'), AstWriteError),
     )
     for native_error, public_type in mappings:
-        translated = _translate_native(native_error)
+        translated = _ERROR_TRANSLATOR(native_error)
         assert isinstance(translated, public_type)
         assert str(translated) == 'x'
-    assert type(_translate_native(Exception('x'))) is AstError
+    assert type(_ERROR_TRANSLATOR(Exception('x'))) is AstError
 
 
 def test_native_work_runs_off_the_event_loop(tmp_path: Path, mocker: MockerFixture) -> None:
@@ -187,14 +188,24 @@ def test_native_work_runs_off_the_event_loop(tmp_path: Path, mocker: MockerFixtu
     asyncio.run(scenario())
 
 
-def test_call_native_preserves_public_cause(mocker: MockerFixture) -> None:
+def test_translated_native_runner_preserves_public_cause_and_cancellation(mocker: MockerFixture) -> None:
     failure = mocker.Mock(side_effect=_native.NativeAstWriteError('write failed'))
     with pytest.raises(AstWriteError) as captured:
-        asyncio.run(_call_native(failure))
+        asyncio.run(
+            run_native_translated(
+                failure,
+                translator=_ERROR_TRANSLATOR,
+            )
+        )
     assert isinstance(captured.value.__cause__, _native.NativeAstWriteError)
 
     async def cancel_without_token() -> None:
-        task = asyncio.create_task(_call_native(lambda: time.sleep(0.05)))
+        task = asyncio.create_task(
+            run_native_translated(
+                lambda: time.sleep(0.05),
+                translator=_ERROR_TRANSLATOR,
+            )
+        )
         await asyncio.sleep(0.01)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):

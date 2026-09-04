@@ -6,7 +6,7 @@ from pydantic import Field
 
 from ovid_native import _native
 from ovid_native._native_execution import run_native
-from ovid_native.workspace.errors import _NATIVE_ERRORS, WorkspaceStaleError, translate_native_workspace_error
+from ovid_native.workspace.errors import _ERROR_TRANSLATOR, WorkspaceStaleError, translate_native_workspace_error
 from ovid_native.workspace.events import NativeWorkspaceChangeEvents as NativeWorkspaceChangeEvents
 from ovid_native.workspace.events import WorkspaceChangeEvent as WorkspaceChangeEvent
 from ovid_native.workspace.events import WorkspaceChangeEvents as WorkspaceChangeEvents
@@ -187,5 +187,5 @@ class NativeWorkspaceObservationService:
     async def _call[Result](self, operation: Callable[[], Result]) -> Result:
         try:
             return await run_native(operation)
-        except _NATIVE_ERRORS as error:
+        except _ERROR_TRANSLATOR.native_errors as error:
             raise translate_native_workspace_error(error) from error

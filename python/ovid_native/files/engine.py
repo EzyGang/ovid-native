@@ -18,7 +18,7 @@ from ovid_native.files.models import (
 from ovid_native.files.results import rendered_line
 from ovid_native.files.workflows import WorkspaceFilesWorkflows
 from ovid_native.workspace.errors import (
-    _NATIVE_ERRORS,
+    _ERROR_TRANSLATOR,
     WorkspacePathError,
     WorkspaceReadError,
     translate_native_workspace_error,
@@ -124,5 +124,5 @@ class WorkspaceFilesEngine(WorkspaceFilesWorkflows):
         self._ensure_open()
         try:
             return await run_native(operation)
-        except _NATIVE_ERRORS as error:
+        except _ERROR_TRANSLATOR.native_errors as error:
             raise translate_native_workspace_error(error) from error

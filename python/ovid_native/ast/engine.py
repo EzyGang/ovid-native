@@ -1,14 +1,13 @@
 import asyncio
 import secrets
 import time
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Self
 
 from ovid_native import _native
-from ovid_native._native_execution import run_native
+from ovid_native._native_execution import NativeErrorTranslator, run_native_translated
 from ovid_native.ast import _mapping
 from ovid_native.ast.errors import (
     AstConfigurationError,
@@ -45,14 +44,17 @@ class _Proposal:
     expires_monotonic: float
 
 
-_NATIVE_ERRORS: tuple[type[Exception], ...] = (
-    _native.NativeAstConfigurationError,
-    _native.NativeAstPathError,
-    _native.NativeAstLanguageError,
-    _native.NativeAstPatternError,
-    _native.NativeAstLimitError,
-    _native.NativeAstProposalStaleError,
-    _native.NativeAstWriteError,
+_ERROR_TRANSLATOR = NativeErrorTranslator(
+    {
+        _native.NativeAstConfigurationError: AstConfigurationError,
+        _native.NativeAstPathError: AstPathError,
+        _native.NativeAstLanguageError: AstLanguageError,
+        _native.NativeAstPatternError: AstPatternError,
+        _native.NativeAstLimitError: AstLimitError,
+        _native.NativeAstProposalStaleError: AstProposalStaleError,
+        _native.NativeAstWriteError: AstWriteError,
+    },
+    fallback=AstError,
 )
 
 
@@ -114,9 +116,10 @@ class AstEngine:
             _limits(self._limits),
             cancellation,
         )
-        result = await _call_native(
+        result = await run_native_translated(
             lambda: _native.ast_search(self._workspace, native_request),
             cancellation=cancellation,
+            translator=_ERROR_TRANSLATOR,
         )
         return _mapping.search_result(result)
 
@@ -131,9 +134,10 @@ class AstEngine:
             _limits(self._limits),
             cancellation,
         )
-        native = await _call_native(
+        native = await run_native_translated(
             lambda: _native.ast_preview_rewrite(self._workspace, native_request),
             cancellation=cancellation,
+            translator=_ERROR_TRANSLATOR,
         )
         computation, changes, files, replacements, files_searched, native_issues = native
         expires_at = datetime.now(UTC) + timedelta(seconds=self._limits.proposal_ttl_seconds)
@@ -162,9 +166,10 @@ class AstEngine:
                 self._workspace
             ):
                 raise AstProposalStaleError('AST rewrite proposal belongs to an incompatible workspace revision')
-            native_files, replacements = await _call_native(
+            native_files, replacements = await run_native_translated(
                 lambda: _native.ast_apply_rewrite(self._workspace, proposal.computation, cancellation),
                 cancellation=cancellation,
+                translator=_ERROR_TRANSLATOR,
             )
 
         return AstRewriteApplyResult(
@@ -264,31 +269,3 @@ def _scan_options(options: AstScanOptions) -> _native.NativeAstScanOptions:
         options.respect_gitignore,
         options.include_node_modules,
     )
-
-
-async def _call_native[Result](
-    function: Callable[[], Result],
-    *,
-    cancellation: _native.NativeAstCancellation | None = None,
-) -> Result:
-    try:
-        return await run_native(function, cancellation=cancellation)
-    except _NATIVE_ERRORS as error:
-        raise _translate_native(error) from error
-
-
-def _translate_native(error: Exception) -> AstError:
-    mappings: tuple[tuple[type[Exception], type[AstError]], ...] = (
-        (_native.NativeAstConfigurationError, AstConfigurationError),
-        (_native.NativeAstPathError, AstPathError),
-        (_native.NativeAstLanguageError, AstLanguageError),
-        (_native.NativeAstPatternError, AstPatternError),
-        (_native.NativeAstLimitError, AstLimitError),
-        (_native.NativeAstProposalStaleError, AstProposalStaleError),
-        (_native.NativeAstWriteError, AstWriteError),
-    )
-    for native_type, public_type in mappings:
-        if isinstance(error, native_type):
-            return public_type(str(error))
-
-    return AstError(str(error))

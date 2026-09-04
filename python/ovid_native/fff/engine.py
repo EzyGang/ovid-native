@@ -4,13 +4,12 @@ from types import TracebackType
 from typing import Self
 
 from ovid_native import _native
-from ovid_native._native_execution import run_native
+from ovid_native._native_execution import NativeErrorTranslator, run_native
 from ovid_native.fff import _mapping
 from ovid_native.fff.errors import (
     FffCancelledError,
     FffClosedError,
     FffConfigurationError,
-    FffError,
     FffIndexNotReadyError,
     FffLimitError,
     FffPathError,
@@ -34,17 +33,20 @@ from ovid_native.runtime import ensure_native_compatibility
 from ovid_native.workspace.errors import WorkspaceClosedError
 
 
-_NATIVE_ERRORS: tuple[type[Exception], ...] = (
-    _native.NativeFffConfigurationError,
-    _native.NativeFffPathError,
-    _native.NativeFffQueryError,
-    _native.NativeFffPatternError,
-    _native.NativeFffLimitError,
-    _native.NativeFffIndexNotReadyError,
-    _native.NativeFffClosedError,
-    _native.NativeFffCancelledError,
-    _native.NativeFffRuntimeError,
-    _native.NativeFffStartupError,
+_ERROR_TRANSLATOR = NativeErrorTranslator(
+    {
+        _native.NativeFffConfigurationError: FffConfigurationError,
+        _native.NativeFffPathError: FffPathError,
+        _native.NativeFffQueryError: FffQueryError,
+        _native.NativeFffPatternError: FffPatternError,
+        _native.NativeFffLimitError: FffLimitError,
+        _native.NativeFffIndexNotReadyError: FffIndexNotReadyError,
+        _native.NativeFffClosedError: FffClosedError,
+        _native.NativeFffCancelledError: FffCancelledError,
+        _native.NativeFffRuntimeError: FffRuntimeError,
+        _native.NativeFffStartupError: FffStartupError,
+    },
+    fallback=FffRuntimeError,
 )
 
 
@@ -235,23 +237,5 @@ class FffEngine:
     def _call[Result](operation: Callable[[], Result]) -> Result:
         try:
             return operation()
-        except _NATIVE_ERRORS as error:
-            raise _public_error(error) from error
-
-
-def _public_error(error: Exception) -> FffError:
-    mappings: tuple[tuple[type[Exception], type[FffError]], ...] = (
-        (_native.NativeFffConfigurationError, FffConfigurationError),
-        (_native.NativeFffPathError, FffPathError),
-        (_native.NativeFffQueryError, FffQueryError),
-        (_native.NativeFffPatternError, FffPatternError),
-        (_native.NativeFffLimitError, FffLimitError),
-        (_native.NativeFffIndexNotReadyError, FffIndexNotReadyError),
-        (_native.NativeFffClosedError, FffClosedError),
-        (_native.NativeFffCancelledError, FffCancelledError),
-        (_native.NativeFffStartupError, FffStartupError),
-    )
-    for native_type, public_type in mappings:
-        if isinstance(error, native_type):
-            return public_type(str(error))
-    return FffRuntimeError(str(error))
+        except _ERROR_TRANSLATOR.native_errors as error:
+            raise _ERROR_TRANSLATOR(error) from error

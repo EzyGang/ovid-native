@@ -7,6 +7,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 from ovid_native import _native
+from ovid_native._native_execution import run_native_translated
 from ovid_native.ast import AstEngine, AstSearchRequest
 from ovid_native.search import (
     GlobRequest,
@@ -20,7 +21,7 @@ from ovid_native.search import (
     SearchReadError,
     SearchScanOptions,
 )
-from ovid_native.search.engine import _call_native, _translate_native
+from ovid_native.search.engine import _ERROR_TRANSLATOR
 from ovid_native.search.errors import SearchCancelledError, SearchError
 
 
@@ -215,10 +216,10 @@ def test_search_configuration_pattern_and_native_errors_are_narrow(tmp_path: Pat
         (_native.NativeSearchReadError('x'), SearchReadError),
     )
     for native_error, public_type in mappings:
-        translated = _translate_native(native_error)
+        translated = _ERROR_TRANSLATOR(native_error)
         assert isinstance(translated, public_type)
         assert str(translated) == 'x'
-    assert type(_translate_native(Exception('x'))) is SearchError
+    assert type(_ERROR_TRANSLATOR(Exception('x'))) is SearchError
 
 
 def test_native_search_runs_off_event_loop_and_preserves_causes(tmp_path: Path, mocker: MockerFixture) -> None:
@@ -250,5 +251,11 @@ def test_native_search_runs_off_event_loop_and_preserves_causes(tmp_path: Path, 
     failure = mocker.Mock(side_effect=_native.NativeSearchReadError('read failed'))
     cancellation = mocker.Mock()
     with pytest.raises(SearchReadError) as captured:
-        asyncio.run(_call_native(failure, cancellation=cancellation))
+        asyncio.run(
+            run_native_translated(
+                failure,
+                cancellation=cancellation,
+                translator=_ERROR_TRANSLATOR,
+            )
+        )
     assert isinstance(captured.value.__cause__, _native.NativeSearchReadError)

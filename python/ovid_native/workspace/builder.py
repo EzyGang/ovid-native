@@ -8,6 +8,7 @@ from ovid_native.files.edit_modes import EditMode, EditModeId, EditModeProvider
 from ovid_native.workspace.errors import WorkspaceConfigurationError
 from ovid_native.workspace.models import (
     WorkspaceAstProvider,
+    WorkspaceCommandProvider,
     WorkspaceFffProvider,
     WorkspaceFilesProvider,
     WorkspaceSearchProvider,
@@ -33,6 +34,7 @@ class WorkspaceSessionBuilder:
         self._policy = policy
         self._ast_limits = AstLimits()
         self._files_provider: WorkspaceFilesProvider | None = None
+        self._command_provider: WorkspaceCommandProvider | None = None
         self._search_provider: WorkspaceSearchProvider | None = None
         self._ast_provider: WorkspaceAstProvider | None = None
         self._fff_provider: WorkspaceFffProvider | None = None
@@ -55,6 +57,12 @@ class WorkspaceSessionBuilder:
         builder = cls(root=root, edit_mode=edit_mode, policy=policy)
         builder._ast_limits = ast_limits if ast_limits is not None else AstLimits()
         return builder
+
+    def with_command_provider(self, provider: WorkspaceCommandProvider) -> Self:
+        self._select('command')
+        _require_methods(provider, operation='command', methods=('execute',))
+        self._command_provider = provider
+        return self
 
     def with_files_provider(self, provider: WorkspaceFilesProvider) -> Self:
         self._select('files')
@@ -154,6 +162,7 @@ class WorkspaceSessionBuilder:
         return NativeWorkspaceSession(
             root=root,
             files_provider=self._files_provider,
+            command_provider=self._command_provider,
             search_provider=search,
             ast_provider=ast,
             fff_provider=fff,

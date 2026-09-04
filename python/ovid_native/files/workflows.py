@@ -17,7 +17,7 @@ from ovid_native.files.models import (
     WorkspaceWriteResult,
 )
 from ovid_native.files.results import WorkspaceEditResultMapper
-from ovid_native.workspace.errors import _NATIVE_ERRORS, WorkspaceClosedError, translate_native_workspace_error
+from ovid_native.workspace.errors import _ERROR_TRANSLATOR, WorkspaceClosedError, translate_native_workspace_error
 from ovid_native.workspace.models import WorkspaceMutation, WorkspaceSessionId
 from ovid_native.workspace.observations import NativeWorkspaceChangeEvents
 
@@ -165,7 +165,7 @@ class WorkspaceFilesWorkflows(WorkspaceEditResultMapper):
             _, _, _, native_changes = error.args
             self._publish_changes(tuple(self._change(change) for change in native_changes))
             raise translate_native_workspace_error(error) from error
-        except _NATIVE_ERRORS as error:
+        except _ERROR_TRANSLATOR.native_errors as error:
             raise translate_native_workspace_error(error) from error
 
     def _ensure_open(self) -> None:

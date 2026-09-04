@@ -6,13 +6,10 @@ from pathlib import Path
 from ovid_core.services import AgentServiceBinding
 
 from ovid_native import _native
-from ovid_native.ast.engine import AstEngine
 from ovid_native.ast.models import AstLimits
-from ovid_native.fff.engine import FffEngine
 from ovid_native.files.edit_modes import EditMode, EditModeId, EditModeProvider, EditModeState
-from ovid_native.files.engine import WorkspaceFilesEngine
 from ovid_native.runtime import ensure_native_compatibility
-from ovid_native.search.engine import SearchEngine
+from ovid_native.workspace._services import NativeWorkspaceServices, WorkspaceProviderOverrides
 from ovid_native.workspace.errors import (
     WorkspaceClosedError,
     WorkspaceConfigurationError,
@@ -20,6 +17,7 @@ from ovid_native.workspace.errors import (
 )
 from ovid_native.workspace.models import (
     WorkspaceAstProvider,
+    WorkspaceCommandProvider,
     WorkspaceFffProvider,
     WorkspaceFilesProvider,
     WorkspaceSearchProvider,
@@ -29,15 +27,12 @@ from ovid_native.workspace.models import (
 )
 from ovid_native.workspace.observations import (
     NativeWorkspaceChangeEvents,
-    NativeWorkspaceObservationService,
     WorkspaceChangeEvents,
     WorkspaceObservationService,
     WorkspaceObservationStore,
 )
 from ovid_native.workspace.operations import WorkspaceOperation, workspace_ref
 from ovid_native.workspace.policy import WorkspacePolicy, WorkspacePolicyState
-from ovid_native.workspace.stores import NativeObservationStore
-from ovid_native.workspace.views import NativeViewAstProvider
 
 
 def workspace_binding(
@@ -60,6 +55,7 @@ class NativeWorkspaceSession:
         *,
         root: Path,
         files_provider: WorkspaceFilesProvider | None = None,
+        command_provider: WorkspaceCommandProvider | None = None,
         search_provider: WorkspaceSearchProvider | None = None,
         ast_provider: WorkspaceAstProvider | None = None,
         ast_limits: AstLimits | None = None,
@@ -72,59 +68,42 @@ class NativeWorkspaceSession:
         cleanup: Callable[[], None] | None = None,
         enabled_operations: frozenset[WorkspaceOperation] | None = None,
     ) -> None:
-        operations = (
+        self._operations = (
             enabled_operations
             if enabled_operations is not None
-            else _workspace_operations(has_view=view_provider is not None)
+            else WorkspaceOperation.native_defaults(has_view=view_provider is not None)
         )
-        validated_edit_mode_providers = _validate_edit_mode_providers(edit_mode_providers, operations)
+        providers = _validate_edit_mode_providers(edit_mode_providers, self._operations)
 
         ensure_native_compatibility()
         try:
-            native = _native.workspace_create(str(root))
+            self._native = _native.workspace_create(str(root))
         except ValueError as error:
             raise WorkspaceConfigurationError(str(error)) from error
-        session_id = WorkspaceSessionId(secrets.token_urlsafe(24))
-        self._native = native
-        self._id = session_id
-        self._policy = WorkspacePolicyState(native)
-        if policy is not None:
-            self._policy.set(policy)
-        self._edit_mode = EditModeState(native)
-        self._edit_mode_providers = self._register_edit_modes(validated_edit_mode_providers)
-        self._edit_mode.set(edit_mode)
-        self._change_events = NativeWorkspaceChangeEvents(session_id=session_id)
-        self._files = files_provider
-        if self._files is None and WorkspaceOperation.FILES in operations:
-            self._files = WorkspaceFilesEngine(
-                native,
-                session_id=session_id,
-                change_events=self._change_events,
-            )
-        self._observations: WorkspaceObservationService | None = None
-        if WorkspaceOperation.OBSERVATIONS in operations:
-            if observation_store is not None:
-                if self._files is None:
-                    raise WorkspaceConfigurationError('Workspace observation store requires a files provider')
-                self._observations = observation_store.bind(session_id=session_id, files=self._files)
-            elif files_provider is None:
-                self._observations = NativeWorkspaceObservationService(native, session_id=session_id)
-            else:
-                self._observations = NativeObservationStore().bind(session_id=session_id, files=files_provider)
-        self._search = search_provider
-        if self._search is None and WorkspaceOperation.SEARCH in operations:
-            self._search = SearchEngine._from_workspace(native)
-        self._ast = ast_provider
-        if self._ast is None and WorkspaceOperation.AST in operations:
-            self._ast = AstEngine._from_workspace(native, session_id=session_id.root, limits=ast_limits)
-        if isinstance(self._ast, NativeViewAstProvider):
-            self._ast.bind_edit_mode(self._edit_mode)
-        self._fff = fff_provider
-        if self._fff is None and WorkspaceOperation.FFF in operations:
-            self._fff = FffEngine._from_workspace(native)
-        self._view = view_provider
+
+        self._id = WorkspaceSessionId(secrets.token_urlsafe(24))
+        self._change_events = NativeWorkspaceChangeEvents(session_id=self._id)
+        self._initialize_state(providers=providers, edit_mode=edit_mode, policy=policy)
+        overrides = WorkspaceProviderOverrides(
+            files=files_provider,
+            command=command_provider,
+            search=search_provider,
+            ast=ast_provider,
+            fff=fff_provider,
+            view=view_provider,
+        )
+        self._services = NativeWorkspaceServices(
+            workspace=self._native,
+            session_id=self._id,
+            change_events=self._change_events,
+            operations=self._operations,
+            overrides=overrides,
+            ast_limits=ast_limits,
+            edit_mode=self._edit_mode,
+            observation_store=observation_store,
+        )
+
         self._cleanup = cleanup
-        self._operations = operations
         self._closed = False
         self._close_lock = asyncio.Lock()
 
@@ -152,16 +131,22 @@ class NativeWorkspaceSession:
         return self._policy
 
     @property
+    def command(self) -> WorkspaceCommandProvider:
+        self._require(WorkspaceOperation.COMMAND)
+        assert self._services.command is not None
+        return self._services.command
+
+    @property
     def files(self) -> WorkspaceFilesProvider:
         self._require(WorkspaceOperation.FILES)
-        assert self._files is not None
-        return self._files
+        assert self._services.files is not None
+        return self._services.files
 
     @property
     def observations(self) -> WorkspaceObservationService:
         self._require(WorkspaceOperation.OBSERVATIONS)
-        assert self._observations is not None
-        return self._observations
+        assert self._services.observations is not None
+        return self._services.observations
 
     @property
     def change_events(self) -> WorkspaceChangeEvents:
@@ -171,26 +156,26 @@ class NativeWorkspaceSession:
     @property
     def search(self) -> WorkspaceSearchProvider:
         self._require(WorkspaceOperation.SEARCH)
-        assert self._search is not None
-        return self._search
+        assert self._services.search is not None
+        return self._services.search
 
     @property
     def ast(self) -> WorkspaceAstProvider:
         self._require(WorkspaceOperation.AST)
-        assert self._ast is not None
-        return self._ast
+        assert self._services.ast is not None
+        return self._services.ast
 
     @property
     def fff(self) -> WorkspaceFffProvider:
         self._require(WorkspaceOperation.FFF)
-        assert self._fff is not None
-        return self._fff
+        assert self._services.fff is not None
+        return self._services.fff
 
     @property
     def view(self) -> WorkspaceViewProvider:
         self._require(WorkspaceOperation.VIEW)
-        assert self._view is not None
-        return self._view
+        assert self._services.view is not None
+        return self._services.view
 
     async def close(self) -> None:
         async with self._close_lock:
@@ -198,37 +183,35 @@ class NativeWorkspaceSession:
                 return
             self._closed = True
             try:
-                if self._fff is not None:
-                    await self._fff.close()
+                await self._services.close()
             finally:
                 _native.workspace_close(self._native)
                 if self._cleanup is not None:
                     self._cleanup()
 
-    def _register_edit_modes(self, providers: Sequence[EditModeProvider]) -> tuple[EditModeProvider, ...]:
+    def _initialize_state(
+        self,
+        *,
+        providers: Sequence[EditModeProvider],
+        edit_mode: EditMode | EditModeId | str,
+        policy: WorkspacePolicy | None,
+    ) -> None:
+        self._policy = WorkspacePolicyState(self._native)
+        if policy is not None:
+            self._policy.set(policy)
+
+        self._edit_mode = EditModeState(self._native)
         for provider in providers:
             self._edit_mode.register(provider.id)
-        return tuple(providers)
+
+        self._edit_mode_providers = tuple(providers)
+        self._edit_mode.set(edit_mode)
 
     def _require(self, operation: WorkspaceOperation) -> None:
         if self._closed or _native.workspace_is_closed(self._native):
             raise WorkspaceClosedError('Workspace session is closed')
         if operation not in self._operations:
             raise WorkspaceOperationUnavailableError(f'Workspace operation is unavailable: {operation.value}')
-
-
-def _workspace_operations(*, has_view: bool) -> frozenset[WorkspaceOperation]:
-    operations = {
-        WorkspaceOperation.FILES,
-        WorkspaceOperation.OBSERVATIONS,
-        WorkspaceOperation.CHANGE_EVENTS,
-        WorkspaceOperation.SEARCH,
-        WorkspaceOperation.AST,
-        WorkspaceOperation.FFF,
-    }
-    if has_view:
-        operations.add(WorkspaceOperation.VIEW)
-    return frozenset(operations)
 
 
 def _validate_edit_mode_providers(

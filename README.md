@@ -47,9 +47,10 @@ Every wheel contains the full native API. The same package supports direct Pytho
 | Repeated search | Long-lived FFF indexes for path and content lookup |
 | Structural code work | ast-grep search and staged rewrites |
 | Guarded file changes | Bounded reads, observations, writes, and patches |
+| Workspace commands | Embedded Bash-compatible execution with bounded output, cancellation, and process-tree cleanup |
 | Typed Python API | Pydantic request and result models |
 | Agent tools | Explicit Ovid capabilities with approval metadata |
-| Custom storage | Ovid-owned protocols for files, search, AST, and views |
+| Custom storage | Ovid-owned protocols for commands, files, search, AST, and views |
 
 Rust owns native algorithms, resources, cancellation, and platform behavior. Python owns validation, tool contracts, approvals, timeouts, and error translation.
 
@@ -124,6 +125,13 @@ Read text with stable line observations. Create, replace, delete, move, and patc
 The file layer supports plain lines, hashline edits, and exact patches. It preserves byte order marks, line endings, and final newlines when needed.
 
 [Read the file guide](https://github.com/EzyGang/ovid-core/blob/main/docs/content/native/files.md)
+
+### Workspace commands
+
+`NativeWorkspaceSession.command` runs foreground commands through an embedded Bash-compatible shell from the shared workspace root.
+Requests support a contained initial working directory, environment overrides, a 1–3600 second timeout, and bounded output.
+The command itself is trusted host execution and can access paths outside the workspace. It is not a sandbox.
+The embedding application owns the model-facing tool, non-interactive environment defaults, approval policy, and result presentation.
 
 ### Standalone file discovery
 
@@ -207,7 +215,7 @@ The application owns:
 - workspace and index lifetime
 - user-facing errors and fallbacks
 
-Native operations reject paths outside the workspace. Long operations support cooperative cancellation. File changes check policy and current observations.
+Workspace file, search, and AST operations reject paths outside the workspace. Long operations support cooperative cancellation. File changes check policy and current observations.
 
 ## Platforms
 

@@ -17,6 +17,7 @@ if TYPE_CHECKING:
         AstSearchRequest,
         AstSearchResult,
     )
+    from ovid_native.command.models import WorkspaceCommandRequest, WorkspaceCommandResult
     from ovid_native.fff.models import (
         FffFindRequest,
         FffFindResult,
@@ -65,6 +66,10 @@ class WorkspaceMutation(Protocol):
 
     @property
     def policy_generation(self) -> int: ...
+
+
+class WorkspaceCommandProvider(Protocol):
+    async def execute(self, request: WorkspaceCommandRequest) -> WorkspaceCommandResult: ...
 
 
 class WorkspaceFilesProvider(Protocol):
@@ -180,6 +185,9 @@ class WorkspaceSession(Protocol):
 
     @property
     def policy(self) -> WorkspacePolicyState: ...
+
+    @property
+    def command(self) -> WorkspaceCommandProvider: ...
 
     @property
     def files(self) -> WorkspaceFilesProvider: ...
