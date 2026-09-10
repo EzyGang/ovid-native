@@ -1,18 +1,19 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-
-use fff_search::{
-    Constraint, FFFQuery, FuzzyQuery, GitStatusFilter, GrepMode, GrepSearchOptions,
-    has_regex_metacharacters,
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Instant,
 };
-use std::time::{Duration, Instant};
 
-use crate::fff::FffError;
-use crate::fff::engine::FffEngineState;
-use crate::fff::find::{normalize_git_status, normalize_path};
-use crate::fff::types::{
-    FffConstraints, FffGrepRequest, FffMultiGrepRequest, NativeFffContextLine, NativeFffGrepMatch,
-    NativeFffGrepResult,
+use fff_search::{FFFQuery, GrepMode, GrepSearchOptions, has_regex_metacharacters};
+
+use crate::fff::{
+    FffError,
+    engine::FffEngineState,
+    grep_result::{map_grep_result, time_budget_reached},
+    query::{build_query, validate_request_limits},
+    types::{FffGrepRequest, FffMultiGrepRequest, NativeFffGrepResult},
 };
 
 pub(crate) fn grep(
@@ -188,88 +189,6 @@ fn execute_grep(
     )
 }
 
-fn map_grep_result(
-    picker: &fff_search::FilePicker,
-    result: fff_search::GrepResult<'_>,
-    actual_mode: &str,
-    fallback_from: Option<&str>,
-    approximate: bool,
-    index_complete: bool,
-    time_budget_reached: bool,
-) -> Result<NativeFffGrepResult, FffError> {
-    let matches = result
-        .matches
-        .iter()
-        .map(|matched| {
-            let file = result.files.get(matched.file_index).ok_or_else(|| {
-                FffError::Runtime("FFF returned an invalid file index".to_owned())
-            })?;
-            let before = context_lines(matched.line_number, &matched.context_before, true);
-            let after = context_lines(matched.line_number, &matched.context_after, false);
-            Ok((
-                normalize_path(file.relative_path(picker)),
-                matched.line_number as usize,
-                matched.col + 1,
-                matched.byte_offset,
-                matched.line_content.clone(),
-                matched
-                    .match_byte_offsets
-                    .iter()
-                    .map(|(start, end)| (*start as usize, *end as usize))
-                    .collect(),
-                before,
-                after,
-                approximate || matched.fuzzy_score.is_some(),
-                matched.is_definition,
-                normalize_git_status(fff_search::git::format_git_status(file.git_status)),
-            ) as NativeFffGrepMatch)
-        })
-        .collect::<Result<Vec<_>, FffError>>()?;
-    let completion = if !index_complete {
-        "index_incomplete"
-    } else if time_budget_reached && result.next_file_offset != 0 {
-        "time_budget_reached"
-    } else if result.next_file_offset == 0 {
-        "complete"
-    } else {
-        "page_limit_reached"
-    };
-    let next_offset = (result.next_file_offset != 0).then_some(result.next_file_offset);
-
-    Ok((
-        matches,
-        actual_mode.to_owned(),
-        fallback_from.map(str::to_owned),
-        approximate,
-        completion.to_owned(),
-        result.total_files,
-        result.filtered_file_count,
-        result.total_files_searched,
-        result.files_with_matches,
-        next_offset,
-        index_complete,
-    ))
-}
-
-fn time_budget_reached(started: Instant, timeout_seconds: f64) -> bool {
-    started.elapsed() >= Duration::from_secs_f64(timeout_seconds)
-}
-
-fn context_lines(line_number: u64, lines: &[String], before: bool) -> Vec<NativeFffContextLine> {
-    lines
-        .iter()
-        .enumerate()
-        .map(|(index, text)| {
-            let number = if before {
-                line_number.saturating_sub(lines.len() as u64 - index as u64)
-            } else {
-                line_number + index as u64 + 1
-            };
-            (number as usize, text.clone())
-        })
-        .collect()
-}
-
 #[allow(clippy::too_many_arguments)]
 fn grep_options(
     engine: &FffEngineState,
@@ -307,116 +226,19 @@ fn grep_options(
     })
 }
 
-pub(crate) fn build_query<'a>(
-    constraints: &'a FffConstraints,
-    query: &'a str,
-) -> Result<FFFQuery<'a>, FffError> {
-    let mut parsed = Vec::with_capacity(constraints.include.len() + constraints.exclude.len() + 1);
-    for value in &constraints.include {
-        parsed.push(parse_path_constraint(value)?);
-    }
-    for value in &constraints.exclude {
-        parsed.push(Constraint::Not(Box::new(parse_path_constraint(value)?)));
-    }
-    if let Some(status) = constraints.git_status.as_deref() {
-        let status = match status {
-            "clean" => GitStatusFilter::Unmodified,
-            "modified" => GitStatusFilter::Modified,
-            "staged" => GitStatusFilter::Staged,
-            "untracked" => GitStatusFilter::Untracked,
-            _ => {
-                return Err(FffError::Query(
-                    "unknown FFF Git status constraint".to_owned(),
-                ));
-            }
-        };
-        parsed.push(Constraint::GitStatus(status));
-    }
-
-    Ok(FFFQuery {
-        raw_query: query,
-        constraints: parsed,
-        fuzzy_query: if query.is_empty() {
-            FuzzyQuery::Empty
-        } else {
-            FuzzyQuery::Text(query)
-        },
-        location: None,
-    })
-}
-
-fn parse_path_constraint(value: &str) -> Result<Constraint<'_>, FffError> {
-    validate_constraint(value)?;
-    if value.ends_with('/') {
-        return Ok(Constraint::PathSegment(value.trim_end_matches('/')));
-    }
-    if fff_search::glob_detect::has_wildcards(value) {
-        globset::Glob::new(value).map_err(|error| FffError::Query(error.to_string()))?;
-        return Ok(Constraint::Glob(value));
-    }
-
-    Ok(Constraint::FilePath(value))
-}
-
-fn validate_constraint(value: &str) -> Result<(), FffError> {
-    let has_parent = value.split(['/', '\\']).any(|component| component == "..");
-    let has_drive_prefix = value.as_bytes().get(1) == Some(&b':');
-    if value.is_empty()
-        || value.starts_with(['/', '\\', '!'])
-        || has_drive_prefix
-        || has_parent
-        || value
-            .chars()
-            .any(|character| character.is_ascii_whitespace() || character == '\0')
-    {
-        return Err(FffError::Query(
-            "FFF constraints must be safe relative tokens".to_owned(),
-        ));
-    }
-
-    Ok(())
-}
-
-pub(crate) fn validate_request_limits(
-    engine: &FffEngineState,
-    query_characters: usize,
-    limit: usize,
-    matches_per_file: usize,
-    context_before: usize,
-    context_after: usize,
-    timeout_seconds: f64,
-) -> Result<(), FffError> {
-    if query_characters > engine.limits.max_query_characters
-        || limit > engine.limits.max_results
-        || matches_per_file > engine.limits.max_matches_per_file
-        || limit.saturating_add(matches_per_file).saturating_sub(1) > engine.limits.max_results
-        || context_before > engine.limits.max_context_lines
-        || context_after > engine.limits.max_context_lines
-        || (timeout_seconds > 0.0 && timeout_seconds > engine.limits.max_search_timeout_seconds)
-    {
-        return Err(FffError::Limit(
-            "FFF request exceeds configured limits".to_owned(),
-        ));
-    }
-
-    Ok(())
-}
-
 fn actual_mode(mode: &str, query: &str) -> Result<GrepMode, FffError> {
-    match mode {
-        "plain" => Ok(GrepMode::PlainText),
-        "fuzzy" => Ok(GrepMode::Fuzzy),
-        "regex" => {
-            regex::Regex::new(query).map_err(|error| FffError::Pattern(error.to_string()))?;
-            Ok(GrepMode::Regex)
-        }
-        "auto" if has_regex_metacharacters(query) => {
-            regex::Regex::new(query).map_err(|error| FffError::Pattern(error.to_string()))?;
-            Ok(GrepMode::Regex)
-        }
-        "auto" => Ok(GrepMode::PlainText),
-        _ => Err(FffError::Configuration("unknown FFF grep mode".to_owned())),
+    let mode = match mode {
+        "plain" => GrepMode::PlainText,
+        "fuzzy" => GrepMode::Fuzzy,
+        "regex" => GrepMode::Regex,
+        "auto" if has_regex_metacharacters(query) => GrepMode::Regex,
+        "auto" => GrepMode::PlainText,
+        _ => return Err(FffError::Configuration("unknown FFF grep mode".to_owned())),
+    };
+    if mode == GrepMode::Regex {
+        regex::Regex::new(query).map_err(|error| FffError::Pattern(error.to_string()))?;
     }
+    Ok(mode)
 }
 
 fn mode_name(mode: GrepMode) -> &'static str {

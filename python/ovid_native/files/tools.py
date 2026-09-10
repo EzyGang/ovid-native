@@ -1,3 +1,4 @@
+from ovid_core.models import BaseModel
 from ovid_core.tools.base import BaseTool, ToolExecutionContext
 from ovid_core.tools.models import ToolApproval
 
@@ -50,10 +51,7 @@ _WRITE_DESCRIPTION = (
 )
 
 
-class ReadTool[Deps](BaseTool[Deps, WorkspaceReadRequest, WorkspaceFilesToolResult]):
-    id = 'read'
-    description = _READ_DESCRIPTION
-    args_type = WorkspaceReadRequest
+class _FilePresentationTool[Deps, Args: BaseModel](BaseTool[Deps, Args, WorkspaceFilesToolResult]):
     result_type = WorkspaceFilesToolResult
     timeout_seconds = 30.0
 
@@ -67,6 +65,18 @@ class ReadTool[Deps](BaseTool[Deps, WorkspaceReadRequest, WorkspaceFilesToolResu
         self._provider = provider
         self._presentation = presentation
         self._state = state
+
+    def _current_presentation(self) -> WorkspaceSourcePresentation:
+        if self._state is not None:
+            selection = self._state.current
+            return capture_source_presentation(selection.mode, selection.generation)
+        return self._presentation or capture_source_presentation('apply_patch', 1)
+
+
+class ReadTool[Deps](_FilePresentationTool[Deps, WorkspaceReadRequest]):
+    id = 'read'
+    description = _READ_DESCRIPTION
+    args_type = WorkspaceReadRequest
 
     async def execute(
         self,
@@ -120,28 +130,12 @@ class ReadTool[Deps](BaseTool[Deps, WorkspaceReadRequest, WorkspaceFilesToolResu
 
         return render_file_read(result, presentation, target)
 
-    def _current_presentation(self) -> WorkspaceSourcePresentation:
-        return _current_presentation(self._presentation, self._state)
 
-
-class WriteTool[Deps](BaseTool[Deps, WorkspaceWriteRequest, WorkspaceFilesToolResult]):
+class WriteTool[Deps](_FilePresentationTool[Deps, WorkspaceWriteRequest]):
     id = 'write'
     description = _WRITE_DESCRIPTION
     args_type = WorkspaceWriteRequest
-    result_type = WorkspaceFilesToolResult
     approval = ToolApproval(required=True, reason='Create or replace a workspace file')
-    timeout_seconds = 30.0
-
-    def __init__(
-        self,
-        *,
-        provider: WorkspaceFilesProvider,
-        presentation: WorkspaceSourcePresentation | None = None,
-        state: EditModeState | None = None,
-    ) -> None:
-        self._provider = provider
-        self._presentation = presentation
-        self._state = state
 
     async def execute(
         self,
@@ -160,19 +154,6 @@ class WriteTool[Deps](BaseTool[Deps, WorkspaceWriteRequest, WorkspaceFilesToolRe
         else:
             result = await self._provider.replace_file(_replace_request(arguments))
         return tool_edit_result(result, self._current_presentation())
-
-    def _current_presentation(self) -> WorkspaceSourcePresentation:
-        return _current_presentation(self._presentation, self._state)
-
-
-def _current_presentation(
-    presentation: WorkspaceSourcePresentation | None,
-    state: EditModeState | None,
-) -> WorkspaceSourcePresentation:
-    if state is not None:
-        selection = state.current
-        return capture_source_presentation(selection.mode, selection.generation)
-    return presentation or capture_source_presentation('apply_patch', 1)
 
 
 def _replace_request(arguments: WorkspaceWriteRequest) -> WorkspaceReplaceRequest:

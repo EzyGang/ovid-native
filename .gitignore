@@ -321,3 +321,6 @@ Control.system-ca-bundle
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Aposlop analysis cache
+.aposlop_cache

@@ -1,5 +1,3 @@
-use pyo3::create_exception;
-use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 
 use crate::ast::AstError;
@@ -10,16 +8,20 @@ use crate::ast::types::{
     ApplyResult, Limits, NativeAstCancellation, NativeAstRewriteComputation, PreviewResult,
     RewriteRequest, ScanOptions, SearchRequest, SearchResult,
 };
+use crate::python_boundary::{python_errors, register_exports};
 use crate::workspace::NativeWorkspace;
 
-create_exception!(_native, NativeAstConfigurationError, PyException);
-create_exception!(_native, NativeAstPathError, PyException);
-create_exception!(_native, NativeAstLanguageError, PyException);
-create_exception!(_native, NativeAstPatternError, PyException);
-create_exception!(_native, NativeAstLimitError, PyException);
-create_exception!(_native, NativeAstProposalStaleError, PyException);
-create_exception!(_native, NativeAstWriteError, PyException);
-create_exception!(_native, NativeAstCancelledError, PyException);
+python_errors! {
+    AstError;
+    NativeAstConfigurationError: AstError::Configuration(message) => message,
+    NativeAstPathError: AstError::Path(message) => message,
+    NativeAstLanguageError: AstError::Language(message) => message,
+    NativeAstPatternError: AstError::Pattern(message) => message,
+    NativeAstLimitError: AstError::Limit(message) => message,
+    NativeAstProposalStaleError: AstError::Stale(message) => message,
+    NativeAstWriteError: AstError::Write(message) => message,
+    NativeAstCancelledError: AstError::Cancelled => "AST operation cancelled",
+}
 
 #[pyclass(frozen, skip_from_py_object)]
 #[derive(Clone)]
@@ -153,13 +155,7 @@ fn ast_search(
     workspace: PyRef<'_, NativeWorkspace>,
     request: PyRef<'_, NativeAstSearchRequest>,
 ) -> PyResult<SearchResult> {
-    let workspace = workspace.inner.clone();
-    let request = request.inner.clone();
-    py.detach(move || {
-        workspace.ensure_open().map_err(AstError::from)?;
-        search(workspace.root(), request)
-    })
-    .map_err(to_python_error)
+    read_operation(py, &workspace.inner, &request.inner, search)
 }
 
 #[pyfunction]
@@ -168,13 +164,7 @@ fn ast_preview_rewrite(
     workspace: PyRef<'_, NativeWorkspace>,
     request: PyRef<'_, NativeAstRewriteRequest>,
 ) -> PyResult<PreviewResult> {
-    let workspace = workspace.inner.clone();
-    let request = request.inner.clone();
-    py.detach(move || {
-        workspace.ensure_open().map_err(AstError::from)?;
-        preview(workspace.root(), request)
-    })
-    .map_err(to_python_error)
+    read_operation(py, &workspace.inner, &request.inner, preview)
 }
 
 #[pyfunction]
@@ -202,58 +192,31 @@ fn ast_apply_rewrite(
 }
 
 pub fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
-    module.add_class::<NativeAstCancellation>()?;
-    module.add_class::<NativeAstLimits>()?;
-    module.add_class::<NativeAstScanOptions>()?;
-    module.add_class::<NativeAstSearchRequest>()?;
-    module.add_class::<NativeAstRewriteRequest>()?;
-    module.add_class::<NativeAstRewriteComputation>()?;
-    module.add_function(wrap_pyfunction!(ast_supported_languages, module)?)?;
-    module.add_function(wrap_pyfunction!(ast_grep_version, module)?)?;
-    module.add_function(wrap_pyfunction!(ast_search, module)?)?;
-    module.add_function(wrap_pyfunction!(ast_preview_rewrite, module)?)?;
-    module.add_function(wrap_pyfunction!(ast_apply_rewrite, module)?)?;
-    add_exceptions(module)?;
-    Ok(())
+    register_exports!(module,
+        classes [NativeAstCancellation, NativeAstLimits, NativeAstScanOptions, NativeAstSearchRequest, NativeAstRewriteRequest, NativeAstRewriteComputation],
+        functions [ast_supported_languages, ast_grep_version, ast_search, ast_preview_rewrite, ast_apply_rewrite]
+    );
+    add_exceptions(module)
 }
 
-fn add_exceptions(module: &Bound<'_, PyModule>) -> PyResult<()> {
-    let py = module.py();
-    module.add(
-        "NativeAstConfigurationError",
-        py.get_type::<NativeAstConfigurationError>(),
-    )?;
-    module.add("NativeAstPathError", py.get_type::<NativeAstPathError>())?;
-    module.add(
-        "NativeAstLanguageError",
-        py.get_type::<NativeAstLanguageError>(),
-    )?;
-    module.add(
-        "NativeAstPatternError",
-        py.get_type::<NativeAstPatternError>(),
-    )?;
-    module.add("NativeAstLimitError", py.get_type::<NativeAstLimitError>())?;
-    module.add(
-        "NativeAstProposalStaleError",
-        py.get_type::<NativeAstProposalStaleError>(),
-    )?;
-    module.add("NativeAstWriteError", py.get_type::<NativeAstWriteError>())?;
-    module.add(
-        "NativeAstCancelledError",
-        py.get_type::<NativeAstCancelledError>(),
-    )?;
-    Ok(())
-}
-
-fn to_python_error(error: AstError) -> PyErr {
-    match error {
-        AstError::Configuration(message) => NativeAstConfigurationError::new_err(message),
-        AstError::Path(message) => NativeAstPathError::new_err(message),
-        AstError::Language(message) => NativeAstLanguageError::new_err(message),
-        AstError::Pattern(message) => NativeAstPatternError::new_err(message),
-        AstError::Limit(message) => NativeAstLimitError::new_err(message),
-        AstError::Stale(message) => NativeAstProposalStaleError::new_err(message),
-        AstError::Write(message) => NativeAstWriteError::new_err(message),
-        AstError::Cancelled => NativeAstCancelledError::new_err("AST operation cancelled"),
-    }
+fn read_operation<T, R>(
+    py: Python<'_>,
+    workspace: &crate::workspace::Workspace,
+    request: &T,
+    operation: fn(&std::path::Path, T) -> Result<R, AstError>,
+) -> PyResult<R>
+where
+    T: Clone + Send,
+    R: Send,
+{
+    crate::python_boundary::request_operation(
+        py,
+        workspace,
+        request,
+        move |workspace, request| {
+            workspace.ensure_open().map_err(AstError::from)?;
+            operation(workspace.root(), request)
+        },
+        to_python_error,
+    )
 }

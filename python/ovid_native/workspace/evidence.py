@@ -1,4 +1,4 @@
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from typing import Literal, Self
 
 from ovid_core.models import BaseModel
@@ -96,6 +96,26 @@ class WorkspaceSourcePresenter:
         self.presentation = presentation
         self._provider_generation = provider_generation
 
+    async def observe_lines(
+        self,
+        *,
+        path: str,
+        lines: Mapping[int, str],
+        spans: tuple[WorkspaceSourceSpanClaim, ...],
+        purpose: Literal['grep', 'fff_grep', 'ast_grep'],
+        revision: str | None = None,
+    ) -> EditableSourceGroup:
+        evidence = WorkspaceEvidence(
+            path=path,
+            revision=revision,
+            lines=tuple(WorkspaceSourceLineClaim(line_number=line, text=text) for line, text in sorted(lines.items())),
+            visible_ranges=source_line_ranges(lines),
+            spans=spans,
+        )
+        return await self.observe(
+            WorkspaceObservationRequest(evidence=evidence, purpose=purpose, presentation=self.presentation)
+        )
+
     async def observe(self, request: WorkspaceObservationRequest) -> EditableSourceGroup:
         evidence = request.evidence
         stale_reason = self._validate_request(request)
@@ -173,6 +193,16 @@ def normalize_terminal_span_end(
         return end_line, end_byte
 
     return end_line - 1, end_byte
+
+
+def source_line_ranges(lines: Collection[int]) -> tuple[WorkspaceLineRange, ...]:
+    ranges: list[WorkspaceLineRange] = []
+    for line in sorted(lines):
+        if ranges and line == ranges[-1].end + 1:
+            ranges[-1] = WorkspaceLineRange(start=ranges[-1].start, end=line)
+        else:
+            ranges.append(WorkspaceLineRange(start=line, end=line))
+    return tuple(ranges)
 
 
 def _uneditable(evidence: WorkspaceEvidence, reason: str) -> EditableSourceGroup:

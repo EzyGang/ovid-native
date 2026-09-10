@@ -1,17 +1,19 @@
 use std::time::Duration;
 
-use pyo3::create_exception;
-use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 
 use crate::command::{CommandCancellation, CommandError, CommandRequest, CommandResult, execute};
+use crate::python_boundary::{python_errors, register_exports};
 use crate::workspace::NativeWorkspace;
 
-create_exception!(_native, NativeCommandConfigurationError, PyException);
-create_exception!(_native, NativeCommandPathError, PyException);
-create_exception!(_native, NativeCommandExecutionError, PyException);
-create_exception!(_native, NativeCommandCancelledError, PyException);
-create_exception!(_native, NativeCommandClosedError, PyException);
+python_errors! {
+    CommandError;
+    NativeCommandConfigurationError: CommandError::Configuration(message) => message,
+    NativeCommandPathError: CommandError::Path(message) => message,
+    NativeCommandExecutionError: CommandError::Execution(message) | CommandError::Output(message) => message,
+    NativeCommandCancelledError: CommandError::Cancelled => "command execution cancelled",
+    NativeCommandClosedError: CommandError::Closed => "workspace session is closed",
+}
 
 #[pyclass(frozen, skip_from_py_object)]
 #[derive(Clone)]
@@ -81,9 +83,10 @@ fn command_execute(
 }
 
 pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
-    module.add_class::<NativeCommandCancellation>()?;
-    module.add_class::<NativeCommandRequest>()?;
-    module.add_function(wrap_pyfunction!(command_execute, module)?)?;
+    register_exports!(module,
+        classes [NativeCommandCancellation, NativeCommandRequest],
+        functions [command_execute]
+    );
     add_exceptions(module)
 }
 
@@ -95,43 +98,4 @@ fn result_tuple(result: CommandResult) -> (String, Option<i32>, bool, bool, u64)
         result.truncated,
         result.wall_time_ms,
     )
-}
-
-fn add_exceptions(module: &Bound<'_, PyModule>) -> PyResult<()> {
-    let py = module.py();
-    module.add(
-        "NativeCommandConfigurationError",
-        py.get_type::<NativeCommandConfigurationError>(),
-    )?;
-    module.add(
-        "NativeCommandPathError",
-        py.get_type::<NativeCommandPathError>(),
-    )?;
-    module.add(
-        "NativeCommandExecutionError",
-        py.get_type::<NativeCommandExecutionError>(),
-    )?;
-    module.add(
-        "NativeCommandCancelledError",
-        py.get_type::<NativeCommandCancelledError>(),
-    )?;
-    module.add(
-        "NativeCommandClosedError",
-        py.get_type::<NativeCommandClosedError>(),
-    )?;
-    Ok(())
-}
-
-fn to_python_error(error: CommandError) -> PyErr {
-    match error {
-        CommandError::Configuration(message) => NativeCommandConfigurationError::new_err(message),
-        CommandError::Path(message) => NativeCommandPathError::new_err(message),
-        CommandError::Execution(message) | CommandError::Output(message) => {
-            NativeCommandExecutionError::new_err(message)
-        }
-        CommandError::Cancelled => {
-            NativeCommandCancelledError::new_err("command execution cancelled")
-        }
-        CommandError::Closed => NativeCommandClosedError::new_err("workspace session is closed"),
-    }
 }

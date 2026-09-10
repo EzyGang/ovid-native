@@ -1,6 +1,7 @@
+use std::sync::{Arc, atomic::AtomicBool};
+
 use pyo3::prelude::*;
 
-use crate::fff::engine::NativeFffEngine;
 use crate::fff::find::find;
 use crate::fff::grep::{cancelled, grep, multi_grep};
 use crate::fff::python_errors::{add_exceptions, to_python_error};
@@ -11,6 +12,11 @@ use crate::fff::python_types::{
 use crate::fff::types::{
     NativeFffCancellation, NativeFffFindResult, NativeFffGrepResult, NativeFffIndexStatus,
 };
+use crate::fff::{
+    FffError,
+    engine::{FffEngineState, NativeFffEngine},
+};
+use crate::python_boundary::{register_exports, request_operation};
 use crate::workspace::NativeWorkspace;
 
 #[pyfunction]
@@ -70,10 +76,13 @@ fn fff_find(
     engine: PyRef<'_, NativeFffEngine>,
     request: PyRef<'_, NativeFffFindRequest>,
 ) -> PyResult<NativeFffFindResult> {
-    let engine = engine.inner.clone();
-    let request = request.inner.clone();
-    py.detach(move || find(&engine, request))
-        .map_err(to_python_error)
+    request_operation(
+        py,
+        &engine.inner,
+        &request.inner,
+        |engine, request| find(engine, request),
+        to_python_error,
+    )
 }
 
 #[pyfunction]
@@ -83,16 +92,7 @@ fn fff_grep(
     request: PyRef<'_, NativeFffGrepRequest>,
     cancellation: PyRef<'_, NativeFffCancellation>,
 ) -> PyResult<NativeFffGrepResult> {
-    let engine = engine.inner.clone();
-    let request = request.inner.clone();
-    let signal = cancellation.signal();
-    py.detach(move || {
-        cancelled(&signal)?;
-        let result = grep(&engine, request, signal.clone())?;
-        cancelled(&signal)?;
-        Ok(result)
-    })
-    .map_err(to_python_error)
+    grep_operation(py, &engine, &request.inner, &cancellation, grep)
 }
 
 #[pyfunction]
@@ -102,16 +102,7 @@ fn fff_multi_grep(
     request: PyRef<'_, NativeFffMultiGrepRequest>,
     cancellation: PyRef<'_, NativeFffCancellation>,
 ) -> PyResult<NativeFffGrepResult> {
-    let engine = engine.inner.clone();
-    let request = request.inner.clone();
-    let signal = cancellation.signal();
-    py.detach(move || {
-        cancelled(&signal)?;
-        let result = multi_grep(&engine, request, signal.clone())?;
-        cancelled(&signal)?;
-        Ok(result)
-    })
-    .map_err(to_python_error)
+    grep_operation(py, &engine, &request.inner, &cancellation, multi_grep)
 }
 
 #[pyfunction]
@@ -120,24 +111,34 @@ fn fff_version() -> &'static str {
 }
 
 pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
-    module.add_class::<NativeFffEngine>()?;
-    module.add_class::<NativeFffCancellation>()?;
-    module.add_class::<NativeFffConfig>()?;
-    module.add_class::<NativeFffLimits>()?;
-    module.add_class::<NativeFffFindRequest>()?;
-    module.add_class::<NativeFffGrepRequest>()?;
-    module.add_class::<NativeFffMultiGrepRequest>()?;
-    module.add_function(wrap_pyfunction!(fff_create, module)?)?;
-    module.add_function(wrap_pyfunction!(fff_start, module)?)?;
-    module.add_function(wrap_pyfunction!(fff_wait_ready, module)?)?;
-    module.add_function(wrap_pyfunction!(fff_status, module)?)?;
-    module.add_function(wrap_pyfunction!(fff_rescan, module)?)?;
-    module.add_function(wrap_pyfunction!(fff_close, module)?)?;
-    module.add_function(wrap_pyfunction!(fff_find, module)?)?;
-    module.add_function(wrap_pyfunction!(fff_grep, module)?)?;
-    module.add_function(wrap_pyfunction!(fff_multi_grep, module)?)?;
-    module.add_function(wrap_pyfunction!(fff_version, module)?)?;
-    add_exceptions(module)?;
+    register_exports!(module,
+        classes [NativeFffEngine, NativeFffCancellation, NativeFffConfig, NativeFffLimits, NativeFffFindRequest, NativeFffGrepRequest, NativeFffMultiGrepRequest],
+        functions [fff_create, fff_start, fff_wait_ready, fff_status, fff_rescan, fff_close, fff_find, fff_grep, fff_multi_grep, fff_version]
+    );
+    add_exceptions(module)
+}
 
-    Ok(())
+fn grep_operation<T>(
+    py: Python<'_>,
+    engine: &NativeFffEngine,
+    request: &T,
+    cancellation: &NativeFffCancellation,
+    operation: fn(&FffEngineState, T, Arc<AtomicBool>) -> Result<NativeFffGrepResult, FffError>,
+) -> PyResult<NativeFffGrepResult>
+where
+    T: Clone + Send,
+{
+    let signal = cancellation.signal();
+    request_operation(
+        py,
+        &engine.inner,
+        request,
+        move |engine, request| {
+            cancelled(&signal)?;
+            let result = operation(engine, request, signal.clone())?;
+            cancelled(&signal)?;
+            Ok(result)
+        },
+        to_python_error,
+    )
 }

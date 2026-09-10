@@ -2,8 +2,7 @@ import asyncio
 from collections.abc import Sequence
 from typing import Any
 
-from ovid_core.runtime.context import RunContext
-from ovid_core.tools.base import BaseTool, BaseToolset, ToolExecutionContext
+from ovid_core.tools.base import BaseTool, ToolExecutionContext
 from ovid_core.tools.models import ToolApproval
 
 from ovid_native.ast.models import (
@@ -16,22 +15,16 @@ from ovid_native.ast.models import (
     AstRewritePreviewToolResult,
     AstSearchRequest,
     AstSearchResult,
-    AstSearchToolContent,
     AstSearchToolResult,
 )
-from ovid_native.files.edit_modes import EditModeState
+from ovid_native.workspace._toolsets import WorkspaceResultTool, WorkspaceSourceTool, WorkspaceSourceToolset
 from ovid_native.workspace.evidence import (
     EditableSourceGroup,
-    WorkspaceEvidence,
-    WorkspaceObservationRequest,
-    WorkspaceSourceLineClaim,
     WorkspaceSourcePresenter,
     WorkspaceSourceSpanClaim,
-    capture_source_presentation,
     normalize_terminal_span_end,
 )
 from ovid_native.workspace.models import WorkspaceAstProvider
-from ovid_native.workspace.observations import WorkspaceLineRange, WorkspaceObservationService
 
 
 AST_GREP_DESCRIPTION = (
@@ -57,22 +50,13 @@ AST_TOOL_INSTRUCTIONS = (
 )
 
 
-class AstGrepTool[Deps](BaseTool[Deps, AstSearchRequest, AstSearchToolResult]):
+class AstGrepTool[Deps](WorkspaceSourceTool[Deps, WorkspaceAstProvider, AstSearchRequest, AstSearchToolResult]):
     id = 'ast_grep'
     description = AST_GREP_DESCRIPTION
     args_type = AstSearchRequest
     result_type = AstSearchToolResult
     timeout_seconds = 30.0
     defer_loading = True
-
-    def __init__(
-        self,
-        *,
-        provider: WorkspaceAstProvider,
-        presenter: WorkspaceSourcePresenter | None = None,
-    ) -> None:
-        self._provider = provider
-        self._presenter = presenter
 
     async def execute(
         self,
@@ -81,62 +65,19 @@ class AstGrepTool[Deps](BaseTool[Deps, AstSearchRequest, AstSearchToolResult]):
     ) -> AstSearchToolResult:
         del context
         result = await self._provider.search(arguments)
-        content_model = AstSearchToolContent(result=result).model_dump(mode='json')
-        if self._presenter is None:
-            return AstSearchToolResult(content=content_model)
-        groups = await _ast_source_groups(result, self._presenter)
-        if self._presenter.presentation.format == 'hashline':
-            content = '\n\n'.join(group.render(self._presenter.presentation) for group in groups)
-            return AstSearchToolResult(content=content, metadata=content_model)
-        return AstSearchToolResult(content=content_model)
+        return await self._present_result(result, _ast_source_groups)
 
 
-class AstSourceToolset[Deps](BaseToolset[Deps]):
+class AstSourceToolset[Deps](WorkspaceSourceToolset[Deps, WorkspaceAstProvider]):
     id = 'native_ast_source'
 
-    def __init__(
-        self,
-        *,
-        provider: WorkspaceAstProvider,
-        state: EditModeState,
-        observations: WorkspaceObservationService,
-    ) -> None:
-        self._provider = provider
-        self._state = state
-        self._observations = observations
-
-    async def for_step(self, context: RunContext[Deps]) -> BaseToolset[Deps]:
-        del context
-        selection = self._state.current
-        presenter = WorkspaceSourcePresenter(
-            observations=self._observations,
-            presentation=capture_source_presentation(selection.mode, selection.generation),
-        )
-        return _BoundAstSourceToolset(
-            owner=self,
-            tool=AstGrepTool(provider=self._provider, presenter=presenter),
-        )
-
-    async def get_tools(self, context: RunContext[Deps]) -> Sequence[BaseTool[Deps, Any, Any]]:
-        return await (await self.for_step(context)).get_tools(context)
+    def _source_tools(self, presenter: WorkspaceSourcePresenter) -> Sequence[BaseTool[Deps, Any, Any]]:
+        return (AstGrepTool(provider=self._provider, presenter=presenter),)
 
 
-class _BoundAstSourceToolset[Deps](BaseToolset[Deps]):
-    id = 'native_ast_source'
-
-    def __init__(self, *, owner: AstSourceToolset[Deps], tool: BaseTool[Deps, Any, Any]) -> None:
-        self._owner = owner
-        self._tool = tool
-
-    async def for_step(self, context: RunContext[Deps]) -> BaseToolset[Deps]:
-        return await self._owner.for_step(context)
-
-    async def get_tools(self, context: RunContext[Deps]) -> Sequence[BaseTool[Deps, Any, Any]]:
-        del context
-        return (self._tool,)
-
-
-class AstEditPreviewTool[Deps](BaseTool[Deps, AstRewritePreviewRequest, AstRewritePreviewToolResult]):
+class AstEditPreviewTool[Deps](
+    WorkspaceResultTool[Deps, WorkspaceAstProvider, AstRewritePreviewRequest, AstRewritePreviewToolResult]
+):
     id = 'ast_edit_preview'
     description = AST_EDIT_PREVIEW_DESCRIPTION
     args_type = AstRewritePreviewRequest
@@ -144,21 +85,13 @@ class AstEditPreviewTool[Deps](BaseTool[Deps, AstRewritePreviewRequest, AstRewri
     timeout_seconds = 30.0
     defer_loading = True
 
-    def __init__(self, *, provider: WorkspaceAstProvider) -> None:
-        self._provider = provider
-
-    async def execute(
-        self,
-        context: ToolExecutionContext[Deps],
-        arguments: AstRewritePreviewRequest,
-    ) -> AstRewritePreviewToolResult:
-        del context
-        preview = await self._provider.preview_rewrite(arguments)
-        content = AstRewritePreviewToolContent(preview=preview).model_dump(mode='json')
-        return AstRewritePreviewToolResult(content=content)
+    async def _content(self, arguments: AstRewritePreviewRequest) -> AstRewritePreviewToolContent:
+        return AstRewritePreviewToolContent(preview=await self._provider.preview_rewrite(arguments))
 
 
-class AstEditApplyTool[Deps](BaseTool[Deps, AstRewriteApplyRequest, AstRewriteApplyToolResult]):
+class AstEditApplyTool[Deps](
+    WorkspaceResultTool[Deps, WorkspaceAstProvider, AstRewriteApplyRequest, AstRewriteApplyToolResult]
+):
     id = 'ast_edit_apply'
     description = AST_EDIT_APPLY_DESCRIPTION
     args_type = AstRewriteApplyRequest
@@ -167,18 +100,8 @@ class AstEditApplyTool[Deps](BaseTool[Deps, AstRewriteApplyRequest, AstRewriteAp
     timeout_seconds = 30.0
     defer_loading = True
 
-    def __init__(self, *, provider: WorkspaceAstProvider) -> None:
-        self._provider = provider
-
-    async def execute(
-        self,
-        context: ToolExecutionContext[Deps],
-        arguments: AstRewriteApplyRequest,
-    ) -> AstRewriteApplyToolResult:
-        del context
-        result = await self._provider.apply_rewrite(arguments)
-        content = AstRewriteApplyToolContent(result=result).model_dump(mode='json')
-        return AstRewriteApplyToolResult(content=content)
+    async def _content(self, arguments: AstRewriteApplyRequest) -> AstRewriteApplyToolContent:
+        return AstRewriteApplyToolContent(result=await self._provider.apply_rewrite(arguments))
 
 
 async def _ast_source_groups(
@@ -216,27 +139,4 @@ async def _observe_ast_path(
             ),
         )
     )
-    evidence = WorkspaceEvidence(
-        path=path,
-        revision=None,
-        lines=tuple(WorkspaceSourceLineClaim(line_number=line, text=text) for line, text in sorted(claimed.items())),
-        visible_ranges=_line_ranges(tuple(claimed)),
-        spans=spans,
-    )
-    return await presenter.observe(
-        WorkspaceObservationRequest(
-            evidence=evidence,
-            purpose='ast_grep',
-            presentation=presenter.presentation,
-        )
-    )
-
-
-def _line_ranges(lines: tuple[int, ...]) -> tuple[WorkspaceLineRange, ...]:
-    ranges: list[WorkspaceLineRange] = []
-    for line in sorted(lines):
-        if ranges and line == ranges[-1].end + 1:
-            ranges[-1] = WorkspaceLineRange(start=ranges[-1].start, end=line)
-        else:
-            ranges.append(WorkspaceLineRange(start=line, end=line))
-    return tuple(ranges)
+    return await presenter.observe_lines(path=path, lines=claimed, spans=spans, purpose='ast_grep')

@@ -3,6 +3,7 @@ use std::ops::Range;
 
 use crate::workspace::content::NormalizedText;
 use crate::workspace::path::normalize_relative;
+use crate::workspace::text_similarity::similarity;
 use crate::workspace::workflows::{edit_result, load_current};
 use crate::workspace::{
     EditResult, FileChange, LineRange, MutationContext, Workspace, WorkspaceError, WorkspacePolicy,
@@ -200,29 +201,4 @@ fn fuzzy_matches(
         Some((range, confidence)) => (vec![range.clone()], "fuzzy".to_owned(), *confidence),
         None => (Vec::new(), "fuzzy".to_owned(), 0.0),
     })
-}
-
-fn similarity(left: &str, right: &str) -> f64 {
-    let maximum = left.chars().count().max(right.chars().count());
-    if maximum == 0 {
-        return 1.0;
-    }
-    1.0 - levenshtein(left, right) as f64 / maximum as f64
-}
-
-fn levenshtein(left: &str, right: &str) -> usize {
-    let right = right.chars().collect::<Vec<_>>();
-    let mut previous = (0..=right.len()).collect::<Vec<_>>();
-    for (left_index, left_character) in left.chars().enumerate() {
-        let mut current = vec![left_index + 1];
-        for (right_index, right_character) in right.iter().enumerate() {
-            current.push(
-                (previous[right_index + 1] + 1)
-                    .min(current[right_index] + 1)
-                    .min(previous[right_index] + usize::from(left_character != *right_character)),
-            );
-        }
-        previous = current;
-    }
-    previous[right.len()]
 }

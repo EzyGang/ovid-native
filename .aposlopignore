@@ -1,0 +1,46 @@
+# Manually excluded Aposlop findings.
+# Remove an ID to report that finding again.
+# FFF file-find and basic grep results have distinct paging and coverage contracts.
+fchYA
+# Different capability tool graphs; workspace binding and requirement validation are already shared.
+5iB_A
+# AST search and FFF find decode distinct native tuple contracts.
+QU6AB
+# Indexed and basic grep requests differ in query language, constraints, case handling, and limits.
+iKscE
+# Different FFF request types use the shared grep_operation implementation.
+DHUSG
+# Declarative AST/search capabilities select distinct instructions, tools, and permissions through WorkspaceCapability.
+3irtG
+# Typed AST/FFF query entrypoints select different evidence formatters; presentation is shared in WorkspaceSourceTool.
+cd-7H
+# Create/replace/move map different native arguments; write lifecycle and result handling are shared.
+aBRjQ
+# AstChange and FffIndexStatus are unrelated public model contracts.
+1VeVS
+# Replace/delete/move PyO3 exports preserve distinct argument schemas; workspace.write owns the shared lifecycle.
+7k1qU
+# Domain modules register different public exports through the shared register_exports macro.
+NIf8e
+# File/directory entrypoints select different predicates; resolve_contained_type owns containment behavior.
+m3QGh
+# FFF and basic search limits describe different engine ceilings and defaults.
+2mW5h
+# AST preview and FFF find declare different tool operations and schemas; WorkspaceResultTool owns common execution.
+s-I3m
+# Replace/patch are distinct typed mutation dispatchers; _WorkspaceEditTool owns common execution.
+J1iFr
+# Glob/grep retain separate typed PyO3 exports over the shared request_operation.
+mS3Ot
+# Typed query/evidence dispatch hooks remain distinct after shared source-presentation extraction.
+ZU69v
+# FFF/basic search register different export catalogues through the shared registration macro.
+l9Izy
+# Directory and multi-target read metadata describe different output structures.
+X1mI4
+# AST search/preview retain separate request/result types over the shared read_operation.
+GFCV4
+# Observation, directory-tree, and edit results preserve distinct fixed PyO3 tuple layouts.
+kwrt4
+# Declarative AST/basic-search toolsets select different typed tools; per-step binding is already shared.
+BHBu9

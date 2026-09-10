@@ -70,7 +70,7 @@ strip = true
 include = [{ path = ".cargo/config.toml", format = "sdist" }]
 
 [tool.taskipy.tasks]
-format-and-lint = "task ruff && task ty-lint && task rust-lint"
+format-and-lint = "task ruff && task ty-lint && task rust && task rust-lint && task aposlop"
 
 ruff = "ruff format ./python/ovid_native ./tests ./benchmarks && ruff check ./python/ovid_native ./tests ./benchmarks --fix --unsafe-fixes"
 tests = "pytest ./tests -v"
@@ -86,6 +86,8 @@ benchmark-record = "maturin develop --release && python -m benchmarks.run --rigo
 benchmark-report = "python -m benchmarks.report"
 benchmark-compare = "python -m benchmarks.compare"
 benchmark-check = "ty check ./benchmarks && python -m benchmarks.run --debug-single-value --scenario glob.exact_file.10k --scenario grep.literal_sparse.10k --scenario ast.search_sparse.2k --scenario fff.find_typo.small.100 --scenario fff.grep_plain_sparse.small.100"
+aposlop = "uvx --from aposlop==1.2.2 aposlop ci ."
+checks = "task ruff-lint && task ty-lint && task rust-lint && task aposlop"
 
 [tool.ruff]
 line-length = 120

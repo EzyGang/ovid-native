@@ -85,7 +85,8 @@ impl Workspace {
             })
         });
         let ranges = range.into_iter().collect::<Vec<_>>();
-        let lines = crate::workspace::bounded_render(text, &ranges, policy.max_read_bytes);
+        let lines =
+            crate::workspace::file_read::bounded_render(text, &ranges, policy.max_read_bytes);
         let complete_presentation = lines.len() == text.total_lines();
         let observation = self.observations()?.record(
             path,

@@ -59,14 +59,11 @@ class WorkspaceSessionBuilder:
         return builder
 
     def with_command_provider(self, provider: WorkspaceCommandProvider) -> Self:
-        self._select('command')
-        _require_methods(provider, operation='command', methods=('execute',))
-        self._command_provider = provider
+        self._command_provider = self._provider(provider, operation='command', methods=('execute',))
         return self
 
     def with_files_provider(self, provider: WorkspaceFilesProvider) -> Self:
-        self._select('files')
-        _require_methods(
+        self._files_provider = self._provider(
             provider,
             operation='files',
             methods=(
@@ -84,41 +81,32 @@ class WorkspaceSessionBuilder:
                 'hashline',
             ),
         )
-        self._files_provider = provider
         return self
 
     def with_search_provider(self, provider: WorkspaceSearchProvider) -> Self:
-        self._select('search')
-        _require_methods(provider, operation='search', methods=('glob', 'grep'))
-        self._search_provider = provider
+        self._search_provider = self._provider(provider, operation='search', methods=('glob', 'grep'))
         return self
 
     def with_ast_provider(self, provider: WorkspaceAstProvider) -> Self:
-        self._select('ast')
-        _require_methods(provider, operation='ast', methods=('search', 'preview_rewrite', 'apply_rewrite'))
-        self._ast_provider = provider
+        self._ast_provider = self._provider(
+            provider, operation='ast', methods=('search', 'preview_rewrite', 'apply_rewrite')
+        )
         return self
 
     def with_fff_provider(self, provider: WorkspaceFffProvider) -> Self:
-        self._select('fff')
-        _require_methods(
+        self._fff_provider = self._provider(
             provider,
             operation='fff',
             methods=('start', 'wait_ready', 'find', 'grep', 'multi_grep', 'close'),
         )
-        self._fff_provider = provider
         return self
 
     def with_view_provider(self, provider: WorkspaceViewProvider) -> Self:
-        self._select('view')
-        _require_methods(provider, operation='view', methods=('acquire_view', 'current_revision'))
-        self._view_provider = provider
+        self._view_provider = self._provider(provider, operation='view', methods=('acquire_view', 'current_revision'))
         return self
 
     def with_observation_store(self, store: WorkspaceObservationStore) -> Self:
-        self._select('observations')
-        _require_methods(store, operation='observations', methods=('bind',))
-        self._observation_store = store
+        self._observation_store = self._provider(store, operation='observations', methods=('bind',))
         return self
 
     def with_native_search(self) -> Self:
@@ -208,6 +196,11 @@ class WorkspaceSessionBuilder:
             if 'fff' in self._native_selected:
                 fff = NativeViewFffProvider(self._view_provider)
         return search, ast, fff
+
+    def _provider[Provider](self, provider: Provider, *, operation: str, methods: tuple[str, ...]) -> Provider:
+        self._select(operation)
+        _require_methods(provider, operation=operation, methods=methods)
+        return provider
 
     def _select(self, operation: str) -> None:
         if operation in self._selected:

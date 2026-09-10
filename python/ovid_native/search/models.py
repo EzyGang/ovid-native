@@ -5,6 +5,8 @@ from ovid_core.models import BaseModel
 from ovid_core.tools.models import ToolResult
 from pydantic import Field
 
+from ovid_native.workspace.models import WorkspaceScanOptions
+
 
 SearchCompletion = Literal['complete', 'file_limit_reached', 'deadline_reached']
 GlobOrder = Literal['path', 'modified_desc']
@@ -14,11 +16,8 @@ GrepRegexEngine = Literal['rust', 'pcre2']
 GrepLargeFileMode = Literal['skip', 'prefix']
 
 
-class SearchScanOptions(BaseModel):
-    paths: tuple[str, ...] = ('.',)
-    include_hidden: bool = False
-    respect_gitignore: bool = True
-    include_node_modules: bool = False
+class SearchScanOptions(WorkspaceScanOptions):
+    pass
 
 
 class SearchLimits(BaseModel):

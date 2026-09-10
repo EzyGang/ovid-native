@@ -1,9 +1,11 @@
 mod engine;
 mod find;
 mod grep;
+mod grep_result;
 mod python;
 mod python_errors;
 mod python_types;
+mod query;
 #[cfg(test)]
 mod tests;
 mod types;
@@ -26,33 +28,16 @@ pub(crate) enum FffError {
 
 impl From<crate::workspace::WorkspaceError> for FffError {
     fn from(error: crate::workspace::WorkspaceError) -> Self {
+        use crate::workspace::WorkspaceError as E;
+
         match error {
-            crate::workspace::WorkspaceError::Configuration(message) => {
-                Self::Configuration(message)
-            }
-            crate::workspace::WorkspaceError::Path(message) => Self::Path(message),
-            crate::workspace::WorkspaceError::Cancelled => Self::Cancelled,
-            crate::workspace::WorkspaceError::Read(message)
-            | crate::workspace::WorkspaceError::Encoding(message)
-            | crate::workspace::WorkspaceError::Binary(message)
-            | crate::workspace::WorkspaceError::ObservationNotFound(message)
-            | crate::workspace::WorkspaceError::ObservationCollision(message)
-            | crate::workspace::WorkspaceError::UnseenLine(message)
-            | crate::workspace::WorkspaceError::ObservedLineChanged(message)
-            | crate::workspace::WorkspaceError::Stale(message)
-            | crate::workspace::WorkspaceError::EditMode(message)
-            | crate::workspace::WorkspaceError::Patch(message)
-            | crate::workspace::WorkspaceError::Write(message) => Self::Runtime(message),
-            crate::workspace::WorkspaceError::Limit(message) => Self::Limit(message),
-            crate::workspace::WorkspaceError::PartialCommit {
-                landed, pending, ..
-            } => Self::Runtime(format!(
-                "workspace operation committed [{}] with pending [{}]",
-                landed.join(", "),
-                pending.join(", ")
-            )),
-            crate::workspace::WorkspaceError::Closed => Self::Closed,
-            crate::workspace::WorkspaceError::Deadline => Self::IndexNotReady,
+            E::Configuration(message) => Self::Configuration(message),
+            E::Path(message) => Self::Path(message),
+            E::Cancelled => Self::Cancelled,
+            E::Limit(message) => Self::Limit(message),
+            E::Closed => Self::Closed,
+            E::Deadline => Self::IndexNotReady,
+            other => Self::Runtime(other.into_message()),
         }
     }
 }

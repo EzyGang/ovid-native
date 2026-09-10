@@ -1,5 +1,7 @@
 mod glob;
 mod grep;
+mod grep_file;
+mod grep_matcher;
 mod python;
 #[cfg(test)]
 mod tests;
@@ -19,37 +21,15 @@ pub(crate) enum SearchError {
 
 impl From<crate::workspace::WorkspaceError> for SearchError {
     fn from(error: crate::workspace::WorkspaceError) -> Self {
+        use crate::workspace::WorkspaceError as E;
+
         match error {
-            crate::workspace::WorkspaceError::Configuration(message) => {
-                Self::Configuration(message)
-            }
-            crate::workspace::WorkspaceError::Path(message) => Self::Path(message),
-            crate::workspace::WorkspaceError::Read(message)
-            | crate::workspace::WorkspaceError::Encoding(message)
-            | crate::workspace::WorkspaceError::Binary(message)
-            | crate::workspace::WorkspaceError::ObservationNotFound(message)
-            | crate::workspace::WorkspaceError::ObservationCollision(message)
-            | crate::workspace::WorkspaceError::UnseenLine(message)
-            | crate::workspace::WorkspaceError::ObservedLineChanged(message)
-            | crate::workspace::WorkspaceError::Stale(message)
-            | crate::workspace::WorkspaceError::EditMode(message)
-            | crate::workspace::WorkspaceError::Patch(message)
-            | crate::workspace::WorkspaceError::Write(message) => Self::Read(message),
-            crate::workspace::WorkspaceError::Limit(message) => Self::Limit(message),
-            crate::workspace::WorkspaceError::PartialCommit {
-                landed, pending, ..
-            } => Self::Read(format!(
-                "workspace operation committed [{}] with pending [{}]",
-                landed.join(", "),
-                pending.join(", ")
-            )),
-            crate::workspace::WorkspaceError::Closed => {
-                Self::Read("workspace is closed".to_owned())
-            }
-            crate::workspace::WorkspaceError::Cancelled => Self::Cancelled,
-            crate::workspace::WorkspaceError::Deadline => {
-                Self::Limit("search operation reached its deadline".to_owned())
-            }
+            E::Configuration(message) => Self::Configuration(message),
+            E::Path(message) => Self::Path(message),
+            E::Limit(message) => Self::Limit(message),
+            E::Cancelled => Self::Cancelled,
+            E::Deadline => Self::Limit("search operation reached its deadline".to_owned()),
+            other => Self::Read(other.into_message()),
         }
     }
 }

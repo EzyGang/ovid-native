@@ -1,7 +1,6 @@
-use pyo3::create_exception;
-use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 
+use crate::python_boundary::{python_errors, register_exports, request_operation};
 use crate::search::SearchError;
 use crate::search::glob::glob;
 use crate::search::grep::grep;
@@ -10,12 +9,15 @@ use crate::search::types::{
 };
 use crate::workspace::NativeWorkspace;
 
-create_exception!(_native, NativeSearchConfigurationError, PyException);
-create_exception!(_native, NativeSearchPathError, PyException);
-create_exception!(_native, NativeSearchPatternError, PyException);
-create_exception!(_native, NativeSearchLimitError, PyException);
-create_exception!(_native, NativeSearchCancelledError, PyException);
-create_exception!(_native, NativeSearchReadError, PyException);
+python_errors! {
+    SearchError;
+    NativeSearchConfigurationError: SearchError::Configuration(message) => message,
+    NativeSearchPathError: SearchError::Path(message) => message,
+    NativeSearchPatternError: SearchError::Pattern(message) => message,
+    NativeSearchLimitError: SearchError::Limit(message) => message,
+    NativeSearchCancelledError: SearchError::Cancelled => "search operation cancelled",
+    NativeSearchReadError: SearchError::Read(message) => message,
+}
 
 #[pyclass(frozen)]
 struct NativeGlobRequest {
@@ -99,10 +101,7 @@ fn search_glob(
     workspace: PyRef<'_, NativeWorkspace>,
     request: PyRef<'_, NativeGlobRequest>,
 ) -> PyResult<NativeGlobResult> {
-    let workspace = workspace.inner.clone();
-    let request = request.inner.clone();
-    py.detach(move || glob(&workspace, request))
-        .map_err(to_python_error)
+    request_operation(py, &workspace.inner, &request.inner, glob, to_python_error)
 }
 
 #[pyfunction]
@@ -111,60 +110,13 @@ fn search_grep(
     workspace: PyRef<'_, NativeWorkspace>,
     request: PyRef<'_, NativeGrepRequest>,
 ) -> PyResult<NativeGrepResult> {
-    let workspace = workspace.inner.clone();
-    let request = request.inner.clone();
-    py.detach(move || grep(&workspace, request))
-        .map_err(to_python_error)
+    request_operation(py, &workspace.inner, &request.inner, grep, to_python_error)
 }
 
 pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
-    module.add_class::<NativeSearchCancellation>()?;
-    module.add_class::<NativeGlobRequest>()?;
-    module.add_class::<NativeGrepRequest>()?;
-    module.add_function(wrap_pyfunction!(search_glob, module)?)?;
-    module.add_function(wrap_pyfunction!(search_grep, module)?)?;
-    add_exceptions(module)?;
-
-    Ok(())
-}
-
-fn add_exceptions(module: &Bound<'_, PyModule>) -> PyResult<()> {
-    let py = module.py();
-    module.add(
-        "NativeSearchConfigurationError",
-        py.get_type::<NativeSearchConfigurationError>(),
-    )?;
-    module.add(
-        "NativeSearchPathError",
-        py.get_type::<NativeSearchPathError>(),
-    )?;
-    module.add(
-        "NativeSearchPatternError",
-        py.get_type::<NativeSearchPatternError>(),
-    )?;
-    module.add(
-        "NativeSearchLimitError",
-        py.get_type::<NativeSearchLimitError>(),
-    )?;
-    module.add(
-        "NativeSearchCancelledError",
-        py.get_type::<NativeSearchCancelledError>(),
-    )?;
-    module.add(
-        "NativeSearchReadError",
-        py.get_type::<NativeSearchReadError>(),
-    )?;
-
-    Ok(())
-}
-
-fn to_python_error(error: SearchError) -> PyErr {
-    match error {
-        SearchError::Configuration(message) => NativeSearchConfigurationError::new_err(message),
-        SearchError::Path(message) => NativeSearchPathError::new_err(message),
-        SearchError::Pattern(message) => NativeSearchPatternError::new_err(message),
-        SearchError::Limit(message) => NativeSearchLimitError::new_err(message),
-        SearchError::Cancelled => NativeSearchCancelledError::new_err("search operation cancelled"),
-        SearchError::Read(message) => NativeSearchReadError::new_err(message),
-    }
+    register_exports!(module,
+        classes [NativeSearchCancellation, NativeGlobRequest, NativeGrepRequest],
+        functions [search_glob, search_grep]
+    );
+    add_exceptions(module)
 }

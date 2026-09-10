@@ -12,6 +12,7 @@ from ovid_native.files.tool_metadata import (
     WorkspaceFileReadToolMetadata,
     WorkspaceReadErrorToolMetadata,
     WorkspaceReadTargetToolMetadata,
+    WorkspaceReadTruncationMetadata,
     WorkspaceReadTruncationReason,
 )
 from ovid_native.workspace.evidence import WorkspaceSourcePresentation
@@ -33,11 +34,41 @@ def render_file_read(
     header = f'[{result.path}#{result.observation.tag}]' if hashline else f'[{result.path}]'
     rows = [header, *_render_source_lines(result.lines, hashline)]
     visible_ranges = _line_ranges(tuple(line.line_number for line in result.lines))
+    notices, truncation, unmatched = _file_read_notices(result, target)
+    rows.extend(notices)
+
+    metadata: WorkspaceFileReadToolMetadata = {
+        'status': 'ok',
+        'kind': 'file',
+        'requested': target.argument,
+        'path': result.path,
+        'total_bytes': result.total_bytes,
+        'total_lines': result.total_lines,
+        'returned_lines': len(result.lines),
+        'visible_ranges': [[line_range.start, line_range.end] for line_range in visible_ranges],
+        'editable': result.editable,
+        'complete_presentation': result.complete_presentation,
+        'truncated': bool(truncation['reasons']),
+    }
+    if result.observation is not None:
+        metadata['observation'] = result.observation.tag
+    if truncation['reasons']:
+        metadata['truncation'] = truncation
+    if unmatched:
+        metadata['unmatched_ranges'] = [[line_range.start, line_range.end] for line_range in unmatched]
+    return RenderedReadTarget(content='\n'.join(rows), metadata=metadata)
+
+
+def _file_read_notices(
+    result: WorkspaceReadFileResult,
+    target: PlannedReadTarget,
+) -> tuple[list[str], WorkspaceReadTruncationMetadata, tuple[ReadLineRange, ...]]:
     expected = _expected_lines(target.ranges, result.total_lines)
     returned = {line.line_number for line in result.lines}
     missing = tuple(number for number in expected if number not in returned)
     remaining = _remaining_ranges(target, result.total_lines)
     unmatched = tuple(line_range for line_range in target.requested_ranges if line_range.start > result.total_lines)
+    rows: list[str] = []
     reasons: list[WorkspaceReadTruncationReason] = []
     continuations: list[str] = []
 
@@ -57,30 +88,7 @@ def render_file_read(
         rows.append(f'[No lines found for {rendered}; file has {result.total_lines} lines]')
     if continuations:
         rows.append(f'[Read limit reached. Continue with {continuations[0]}]')
-
-    metadata: WorkspaceFileReadToolMetadata = {
-        'status': 'ok',
-        'kind': 'file',
-        'requested': target.argument,
-        'path': result.path,
-        'total_bytes': result.total_bytes,
-        'total_lines': result.total_lines,
-        'returned_lines': len(result.lines),
-        'visible_ranges': [[line_range.start, line_range.end] for line_range in visible_ranges],
-        'editable': result.editable,
-        'complete_presentation': result.complete_presentation,
-        'truncated': bool(reasons),
-    }
-    if result.observation is not None:
-        metadata['observation'] = result.observation.tag
-    if reasons:
-        metadata['truncation'] = {
-            'reasons': reasons,
-            'continuations': continuations,
-        }
-    if unmatched:
-        metadata['unmatched_ranges'] = [[line_range.start, line_range.end] for line_range in unmatched]
-    return RenderedReadTarget(content='\n'.join(rows), metadata=metadata)
+    return rows, {'reasons': reasons, 'continuations': continuations}, unmatched
 
 
 def render_directory_read(

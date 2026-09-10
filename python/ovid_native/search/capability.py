@@ -1,63 +1,34 @@
 from dataclasses import dataclass, field
-from typing import Self
 
-from ovid_core.capabilities.base import BaseCapability, CapabilityContributions
-from ovid_core.services import AgentServiceRequirement, AgentServices
+from ovid_core.capabilities.base import CapabilityContributions
 
 from ovid_native.search.tools import SEARCH_TOOL_INSTRUCTIONS, GlobTool, SearchSourceToolset
-from ovid_native.workspace.operations import WORKSPACE_SERVICE_KEY, WorkspaceOperation, workspace_ref
+from ovid_native.workspace._capability import WorkspaceCapability
+from ovid_native.workspace.models import WorkspaceSession
+from ovid_native.workspace.operations import WorkspaceOperation
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class SearchCapability[Deps](BaseCapability[Deps]):
-    workspace: str = 'default'
+class SearchCapability[Deps](WorkspaceCapability[Deps]):
     id: str = field(default='native_search', init=False)
     description: str = field(
         default='Fast workspace path discovery and bounded text search',
         init=False,
     )
     defer_loading: bool = field(default=False, init=False)
-    contributions: CapabilityContributions[Deps] = field(init=False, repr=False)
-    requirements: tuple[AgentServiceRequirement, ...] = field(init=False)
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, 'contributions', CapabilityContributions())
-        object.__setattr__(
-            self,
-            'requirements',
-            (
-                AgentServiceRequirement(
-                    service_id=WORKSPACE_SERVICE_KEY.id,
-                    api_version=WORKSPACE_SERVICE_KEY.api_version,
-                    name=self.workspace,
-                    required_features=frozenset(
-                        (
-                            WorkspaceOperation.FILES.value,
-                            WorkspaceOperation.OBSERVATIONS.value,
-                            WorkspaceOperation.SEARCH.value,
-                        )
-                    ),
+    def _required_operations(self) -> frozenset[WorkspaceOperation]:
+        return frozenset((WorkspaceOperation.FILES, WorkspaceOperation.OBSERVATIONS, WorkspaceOperation.SEARCH))
+
+    def _contribute(self, session: WorkspaceSession) -> CapabilityContributions[Deps]:
+        return CapabilityContributions(
+            instructions=(SEARCH_TOOL_INSTRUCTIONS,),
+            tools=(GlobTool(provider=session.search),),
+            toolsets=(
+                SearchSourceToolset(
+                    provider=session.search,
+                    state=session.edit_mode,
+                    observations=session.observations,
                 ),
             ),
         )
-
-    def bind(self, services: AgentServices) -> Self:
-        super().bind(services)
-        session = services.resolve(workspace_ref(self.workspace))
-        bound = type(self)(workspace=self.workspace)
-        object.__setattr__(
-            bound,
-            'contributions',
-            CapabilityContributions(
-                instructions=(SEARCH_TOOL_INSTRUCTIONS,),
-                tools=(GlobTool(provider=session.search),),
-                toolsets=(
-                    SearchSourceToolset(
-                        provider=session.search,
-                        state=session.edit_mode,
-                        observations=session.observations,
-                    ),
-                ),
-            ),
-        )
-        return bound

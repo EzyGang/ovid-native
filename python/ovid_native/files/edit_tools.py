@@ -1,3 +1,7 @@
+from abc import abstractmethod
+from collections.abc import Awaitable
+
+from ovid_core.models import BaseModel
 from ovid_core.tools.base import BaseTool, ToolExecutionContext, ToolGrammar, ToolPresentation
 from ovid_core.tools.models import ToolApproval
 from pydantic import TypeAdapter
@@ -37,128 +41,76 @@ _HASHLINE_DESCRIPTION = (
 )
 
 
-class ReplaceEditTool[Deps](BaseTool[Deps, ReplaceEditRequest, WorkspaceFilesToolResult]):
+class _WorkspaceEditTool[Deps, Args: BaseModel](BaseTool[Deps, Args, WorkspaceFilesToolResult]):
+    result_type = WorkspaceFilesToolResult
+    presentation = ToolPresentation(wire_name='edit')
+    approval = ToolApproval(required=True, reason='Modify workspace files')
+    timeout_seconds = 30.0
+
+    def __init__(
+        self,
+        *,
+        provider: WorkspaceFilesProvider,
+        mutation: _native.NativeWorkspaceMutation,
+        presentation: WorkspaceSourcePresentation,
+    ) -> None:
+        self._provider = provider
+        self._mutation = mutation
+        self._presentation = presentation
+
+    async def execute(
+        self,
+        context: ToolExecutionContext[Deps],
+        arguments: Args,
+    ) -> WorkspaceFilesToolResult:
+        del context
+        result = await self._apply(arguments)
+        return tool_edit_result(result, self._presentation)
+
+    @abstractmethod
+    def _apply(self, arguments: Args) -> Awaitable[WorkspaceEditResult]: ...
+
+
+class ReplaceEditTool[Deps](_WorkspaceEditTool[Deps, ReplaceEditRequest]):
     id = 'native_files_replace'
     description = _REPLACE_DESCRIPTION
     args_type = ReplaceEditRequest
-    result_type = WorkspaceFilesToolResult
-    presentation = ToolPresentation(wire_name='edit')
-    approval = ToolApproval(required=True, reason='Modify workspace files')
-    timeout_seconds = 30.0
 
-    def __init__(
-        self,
-        *,
-        provider: WorkspaceFilesProvider,
-        mutation: _native.NativeWorkspaceMutation,
-        presentation: WorkspaceSourcePresentation,
-    ) -> None:
-        self._provider = provider
-        self._mutation = mutation
-        self._presentation = presentation
-
-    async def execute(
-        self,
-        context: ToolExecutionContext[Deps],
-        arguments: ReplaceEditRequest,
-    ) -> WorkspaceFilesToolResult:
-        del context
-        result = await self._provider.replace(arguments, mutation=self._mutation)
-        return tool_edit_result(result, self._presentation)
+    def _apply(self, arguments: ReplaceEditRequest) -> Awaitable[WorkspaceEditResult]:
+        return self._provider.replace(arguments, mutation=self._mutation)
 
 
-class PatchEditTool[Deps](BaseTool[Deps, PatchEditRequest, WorkspaceFilesToolResult]):
+class PatchEditTool[Deps](_WorkspaceEditTool[Deps, PatchEditRequest]):
     id = 'native_files_patch'
     description = _PATCH_DESCRIPTION
     args_type = PatchEditRequest
-    result_type = WorkspaceFilesToolResult
-    presentation = ToolPresentation(wire_name='edit')
-    approval = ToolApproval(required=True, reason='Modify workspace files')
-    timeout_seconds = 30.0
 
-    def __init__(
-        self,
-        *,
-        provider: WorkspaceFilesProvider,
-        mutation: _native.NativeWorkspaceMutation,
-        presentation: WorkspaceSourcePresentation,
-    ) -> None:
-        self._provider = provider
-        self._mutation = mutation
-        self._presentation = presentation
-
-    async def execute(
-        self,
-        context: ToolExecutionContext[Deps],
-        arguments: PatchEditRequest,
-    ) -> WorkspaceFilesToolResult:
-        del context
-        result = await self._provider.patch(arguments, mutation=self._mutation)
-        return tool_edit_result(result, self._presentation)
+    def _apply(self, arguments: PatchEditRequest) -> Awaitable[WorkspaceEditResult]:
+        return self._provider.patch(arguments, mutation=self._mutation)
 
 
-class ApplyPatchEditTool[Deps](BaseTool[Deps, ApplyPatchEditRequest, WorkspaceFilesToolResult]):
+class ApplyPatchEditTool[Deps](_WorkspaceEditTool[Deps, ApplyPatchEditRequest]):
     id = 'native_files_apply_patch'
     description = _APPLY_PATCH_DESCRIPTION
     args_type = ApplyPatchEditRequest
-    result_type = WorkspaceFilesToolResult
     presentation = ToolPresentation(wire_name='edit', input_format='text')
-    approval = ToolApproval(required=True, reason='Modify workspace files')
-    timeout_seconds = 30.0
 
-    def __init__(
-        self,
-        *,
-        provider: WorkspaceFilesProvider,
-        mutation: _native.NativeWorkspaceMutation,
-        presentation: WorkspaceSourcePresentation,
-    ) -> None:
-        self._provider = provider
-        self._mutation = mutation
-        self._presentation = presentation
-
-    async def execute(
-        self,
-        context: ToolExecutionContext[Deps],
-        arguments: ApplyPatchEditRequest,
-    ) -> WorkspaceFilesToolResult:
-        del context
-        result = await self._provider.apply_patch(arguments, mutation=self._mutation)
-        return tool_edit_result(result, self._presentation)
+    def _apply(self, arguments: ApplyPatchEditRequest) -> Awaitable[WorkspaceEditResult]:
+        return self._provider.apply_patch(arguments, mutation=self._mutation)
 
 
-class HashlineEditTool[Deps](BaseTool[Deps, HashlineEditRequest, WorkspaceFilesToolResult]):
+class HashlineEditTool[Deps](_WorkspaceEditTool[Deps, HashlineEditRequest]):
     id = 'native_files_hashline'
     description = _HASHLINE_DESCRIPTION
     args_type = HashlineEditRequest
-    result_type = WorkspaceFilesToolResult
     presentation = ToolPresentation(
         wire_name='edit',
         input_format='text',
         grammar=ToolGrammar(syntax='lark', definition=HASHLINE_GRAMMAR),
     )
-    approval = ToolApproval(required=True, reason='Modify workspace files')
-    timeout_seconds = 30.0
 
-    def __init__(
-        self,
-        *,
-        provider: WorkspaceFilesProvider,
-        mutation: _native.NativeWorkspaceMutation,
-        presentation: WorkspaceSourcePresentation,
-    ) -> None:
-        self._provider = provider
-        self._mutation = mutation
-        self._presentation = presentation
-
-    async def execute(
-        self,
-        context: ToolExecutionContext[Deps],
-        arguments: HashlineEditRequest,
-    ) -> WorkspaceFilesToolResult:
-        del context
-        result = await self._provider.hashline(arguments, mutation=self._mutation)
-        return tool_edit_result(result, self._presentation)
+    def _apply(self, arguments: HashlineEditRequest) -> Awaitable[WorkspaceEditResult]:
+        return self._provider.hashline(arguments, mutation=self._mutation)
 
 
 _EDIT_TOOL_METADATA_ADAPTER = TypeAdapter(WorkspaceEditToolMetadata)

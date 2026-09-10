@@ -1,7 +1,9 @@
 mod language;
+mod matches;
 mod python;
 mod rewrite;
 mod search;
+mod source;
 #[cfg(test)]
 mod tests;
 mod types;
@@ -24,37 +26,19 @@ pub enum AstError {
 
 impl From<crate::workspace::WorkspaceError> for AstError {
     fn from(error: crate::workspace::WorkspaceError) -> Self {
+        use crate::workspace::WorkspaceError as E;
+
         match error {
-            crate::workspace::WorkspaceError::Configuration(message) => {
-                Self::Configuration(message)
+            E::Configuration(message) => Self::Configuration(message),
+            E::Path(message) | E::Read(message) | E::Encoding(message) | E::Binary(message) => {
+                Self::Path(message)
             }
-            crate::workspace::WorkspaceError::Path(message)
-            | crate::workspace::WorkspaceError::Read(message)
-            | crate::workspace::WorkspaceError::Encoding(message)
-            | crate::workspace::WorkspaceError::Binary(message) => Self::Path(message),
-            crate::workspace::WorkspaceError::Limit(message) => Self::Limit(message),
-            crate::workspace::WorkspaceError::ObservationNotFound(message)
-            | crate::workspace::WorkspaceError::ObservationCollision(message)
-            | crate::workspace::WorkspaceError::UnseenLine(message)
-            | crate::workspace::WorkspaceError::ObservedLineChanged(message)
-            | crate::workspace::WorkspaceError::Stale(message) => Self::Stale(message),
-            crate::workspace::WorkspaceError::EditMode(message)
-            | crate::workspace::WorkspaceError::Patch(message) => Self::Pattern(message),
-            crate::workspace::WorkspaceError::PartialCommit {
-                landed, pending, ..
-            } => Self::Write(format!(
-                "workspace operation committed [{}] with pending [{}]",
-                landed.join(", "),
-                pending.join(", ")
-            )),
-            crate::workspace::WorkspaceError::Write(message) => Self::Write(message),
-            crate::workspace::WorkspaceError::Cancelled => Self::Cancelled,
-            crate::workspace::WorkspaceError::Closed => {
-                Self::Stale("workspace is closed".to_owned())
-            }
-            crate::workspace::WorkspaceError::Deadline => {
-                Self::Limit("workspace operation reached its deadline".to_owned())
-            }
+            E::Limit(message) => Self::Limit(message),
+            E::EditMode(message) | E::Patch(message) => Self::Pattern(message),
+            E::PartialCommit { .. } | E::Write(_) => Self::Write(error.into_message()),
+            E::Cancelled => Self::Cancelled,
+            E::Deadline => Self::Limit("workspace operation reached its deadline".to_owned()),
+            other => Self::Stale(other.into_message()),
         }
     }
 }

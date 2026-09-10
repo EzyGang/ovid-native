@@ -1,15 +1,13 @@
 import asyncio
-from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ovid_native.fff import FffConfig, FffEngine, FffFindRequest, FffGrepRequest, FffLimits, FffMultiGrepRequest
 from ovid_native.search import GlobRequest, GrepRequest, SearchEngine, SearchLimits, SearchScanOptions
 
 
-type Measure = Callable[[int], float]
-type AsyncMeasure = Callable[[Callable[[], Awaitable[object]]], Measure]
-type BenchmarkCase = tuple[str, str, str, Measure, int, str]
-type BenchmarkCases = tuple[tuple[BenchmarkCase, ...], Callable[[], None]]
+if TYPE_CHECKING:
+    from benchmarks.scenarios import AsyncMeasure, BenchmarkCase, BenchmarkCases
 
 
 def fff_benchmark_cases(fixture_root: Path, loop: asyncio.AbstractEventLoop, measure: AsyncMeasure) -> BenchmarkCases:

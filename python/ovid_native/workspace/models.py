@@ -3,9 +3,10 @@ from __future__ import annotations
 from contextlib import AbstractAsyncContextManager
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from ovid_core.models import BaseModel, BaseRootModel
+from pydantic import Field
 
 
 if TYPE_CHECKING:
@@ -55,6 +56,20 @@ from ovid_native.workspace.operations import WorkspaceOperation
 
 class WorkspaceSessionId(BaseRootModel[str]):
     pass
+
+
+class WorkspaceScanOptions(BaseModel):
+    paths: tuple[str, ...] = ('.',)
+    include_hidden: bool = False
+    respect_gitignore: bool = True
+    include_node_modules: bool = False
+
+
+class WorkspacePathChange(BaseModel):
+    path: str
+    operation: Literal['create', 'update', 'delete', 'move']
+    destination: str | None = None
+    revision: int = Field(ge=1)
 
 
 class WorkspaceMutation(Protocol):

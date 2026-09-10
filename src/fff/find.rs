@@ -2,7 +2,7 @@ use fff_search::{FuzzySearchOptions, MixedItemRef, PaginationArgs};
 
 use crate::fff::FffError;
 use crate::fff::engine::FffEngineState;
-use crate::fff::grep::{build_query, validate_request_limits};
+use crate::fff::query::{build_query, validate_request_limits};
 use crate::fff::types::{FffFindRequest, NativeFffFindResult, NativeFffPathMatch};
 
 pub(crate) fn find(

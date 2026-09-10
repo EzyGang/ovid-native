@@ -2,6 +2,7 @@ mod ast;
 mod command;
 mod discovery;
 mod fff;
+mod python_boundary;
 mod search;
 mod workspace;
 

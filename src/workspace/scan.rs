@@ -1,19 +1,14 @@
-use std::collections::HashSet;
-use std::fs;
-use std::path::Path;
-use std::sync::Arc;
+use std::{collections::HashSet, path::Path, sync::Arc};
 
 use ignore::{DirEntry, WalkBuilder};
 
-use crate::workspace::WorkspaceError;
-use crate::workspace::control::{WorkControl, WorkStopped};
-use crate::workspace::path::{
-    build_selections, explicitly_includes_node_modules, explicitly_selected_file, relative_path,
-    relevant_directory, selected,
+use crate::workspace::path::relative_path;
+use crate::workspace::scan_entry::ScanCandidate;
+use crate::workspace::selection::{
+    Selection, build_selections, explicitly_includes_node_modules, relevant_directory, selected,
 };
-use crate::workspace::types::{
-    MetadataLevel, ScanFileKind, ScanOrder, ScanRequest, ScanResult, WorkCompletion,
-    WorkspaceEntry, WorkspaceFileType,
+use crate::workspace::{
+    ScanOrder, ScanRequest, ScanResult, WorkCompletion, WorkControl, WorkStopped, WorkspaceError,
 };
 
 pub(crate) fn scan(
@@ -51,135 +46,39 @@ pub(crate) fn scan(
     let mut completion = WorkCompletion::Complete;
     let mut walked_entries = 0;
 
-    match control.checkpoint() {
-        Ok(()) => (),
-        Err(WorkStopped::Cancelled) => return Err(WorkspaceError::Cancelled),
-        Err(WorkStopped::Deadline) => {
-            return Ok(ScanResult {
-                entries,
-                scanned_entries,
-                skipped_entries,
-                completion: WorkCompletion::DeadlineReached,
-            });
-        }
+    if !within_deadline(control.checkpoint())? {
+        return Ok(ScanResult {
+            entries,
+            scanned_entries,
+            skipped_entries,
+            completion: WorkCompletion::DeadlineReached,
+        });
     }
     for walked in builder.build() {
         walked_entries += 1;
-        match control.checkpoint_periodic(walked_entries, 128) {
-            Ok(()) => (),
-            Err(WorkStopped::Cancelled) => return Err(WorkspaceError::Cancelled),
-            Err(WorkStopped::Deadline) => {
-                completion = WorkCompletion::DeadlineReached;
-                break;
-            }
+        if !within_deadline(control.checkpoint_periodic(walked_entries, 128))? {
+            completion = WorkCompletion::DeadlineReached;
+            break;
         }
-
         let entry = walked.map_err(|_| WorkspaceError::Path("workspace scan failed".to_owned()))?;
-        let relative = relative_path(root, entry.path())?;
-        if relative.is_empty() || !selected(&relative, &selections) {
+        let Some(candidate) = ScanCandidate::select(root, entry, &selections, request.file_kind)?
+        else {
+            skipped_entries += 1;
+            continue;
+        };
+        if !canonical_paths.insert(candidate.identity(root)?) {
             skipped_entries += 1;
             continue;
         }
-
-        let native_file_type = entry.file_type().ok_or_else(|| {
-            WorkspaceError::Path(format!("cannot classify workspace path {relative}"))
-        })?;
-        let is_symlink = native_file_type.is_symlink();
-        if is_symlink && !explicitly_selected_file(&relative, &selections) {
-            skipped_entries += 1;
-            continue;
-        }
-
-        let followed_metadata = if is_symlink {
-            Some(fs::metadata(entry.path()).map_err(|error| {
-                WorkspaceError::Path(format!("cannot inspect workspace path {relative}: {error}"))
-            })?)
-        } else {
-            None
-        };
-        let file_type = match (
-            followed_metadata
-                .as_ref()
-                .is_some_and(std::fs::Metadata::is_file)
-                || native_file_type.is_file(),
-            followed_metadata
-                .as_ref()
-                .is_some_and(std::fs::Metadata::is_dir)
-                || native_file_type.is_dir(),
-        ) {
-            (true, false) if request.file_kind != ScanFileKind::Directories => {
-                WorkspaceFileType::File
-            }
-            (false, true) if request.file_kind != ScanFileKind::Files => {
-                WorkspaceFileType::Directory
-            }
-            _ => {
-                skipped_entries += 1;
-                continue;
-            }
-        };
-        let identity = if is_symlink {
-            let canonical = entry.path().canonicalize().map_err(|error| {
-                WorkspaceError::Path(format!("cannot resolve workspace path {relative}: {error}"))
-            })?;
-            if !canonical.starts_with(root) {
-                return Err(WorkspaceError::Path(format!(
-                    "path resolves outside the workspace: {relative}"
-                )));
-            }
-            canonical
-        } else {
-            entry.path().to_path_buf()
-        };
-        if !canonical_paths.insert(identity) {
-            skipped_entries += 1;
-            continue;
-        }
-
         scanned_entries += 1;
         if entries.len() == request.max_files {
             completion = WorkCompletion::FileLimitReached;
             break;
         }
-        let needs_metadata = match (request.metadata, file_type) {
-            (MetadataLevel::Minimal, _) | (MetadataLevel::Size, WorkspaceFileType::Directory) => {
-                false
-            }
-            (MetadataLevel::Size | MetadataLevel::Full, WorkspaceFileType::File)
-            | (MetadataLevel::Full, WorkspaceFileType::Directory) => true,
-        };
-        let metadata = match (followed_metadata, needs_metadata) {
-            (Some(metadata), _) => Some(metadata),
-            (None, true) => Some(entry.metadata().map_err(|error| {
-                WorkspaceError::Path(format!("cannot inspect workspace path {relative}: {error}"))
-            })?),
-            (None, false) => None,
-        };
-        let size =
-            if request.metadata != MetadataLevel::Minimal && file_type == WorkspaceFileType::File {
-                metadata.as_ref().map(std::fs::Metadata::len)
-            } else {
-                None
-            };
-        let modified = if request.metadata == MetadataLevel::Full {
-            metadata.as_ref().and_then(|value| value.modified().ok())
-        } else {
-            None
-        };
-        entries.push(WorkspaceEntry {
-            path: entry.into_path(),
-            relative,
-            file_type,
-            size,
-            modified,
-        });
+        entries.push(candidate.into_entry(request.metadata)?);
     }
-    if completion == WorkCompletion::Complete {
-        match control.checkpoint() {
-            Ok(()) => (),
-            Err(WorkStopped::Cancelled) => return Err(WorkspaceError::Cancelled),
-            Err(WorkStopped::Deadline) => completion = WorkCompletion::DeadlineReached,
-        }
+    if completion == WorkCompletion::Complete && !within_deadline(control.checkpoint())? {
+        completion = WorkCompletion::DeadlineReached;
     }
 
     if request.order == ScanOrder::Path {
@@ -199,11 +98,7 @@ fn allowed_entry(entry: &DirEntry, include_node_modules: bool) -> bool {
     name != ".git" && (include_node_modules || name != "node_modules")
 }
 
-fn relevant_entry(
-    root: &Path,
-    entry: &DirEntry,
-    selections: &[crate::workspace::path::Selection],
-) -> bool {
+fn relevant_entry(root: &Path, entry: &DirEntry, selections: &[Selection]) -> bool {
     let Ok(relative) = relative_path(root, entry.path()) else {
         return false;
     };
@@ -215,5 +110,13 @@ fn relevant_entry(
         relevant_directory(&relative, selections)
     } else {
         selected(&relative, selections)
+    }
+}
+
+fn within_deadline(result: Result<(), WorkStopped>) -> Result<bool, WorkspaceError> {
+    match result {
+        Ok(()) => Ok(true),
+        Err(WorkStopped::Deadline) => Ok(false),
+        Err(WorkStopped::Cancelled) => Err(WorkspaceError::Cancelled),
     }
 }

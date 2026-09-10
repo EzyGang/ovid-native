@@ -132,21 +132,15 @@ class NativeWorkspaceSession:
 
     @property
     def command(self) -> WorkspaceCommandProvider:
-        self._require(WorkspaceOperation.COMMAND)
-        assert self._services.command is not None
-        return self._services.command
+        return self._require_service(WorkspaceOperation.COMMAND, self._services.command)
 
     @property
     def files(self) -> WorkspaceFilesProvider:
-        self._require(WorkspaceOperation.FILES)
-        assert self._services.files is not None
-        return self._services.files
+        return self._require_service(WorkspaceOperation.FILES, self._services.files)
 
     @property
     def observations(self) -> WorkspaceObservationService:
-        self._require(WorkspaceOperation.OBSERVATIONS)
-        assert self._services.observations is not None
-        return self._services.observations
+        return self._require_service(WorkspaceOperation.OBSERVATIONS, self._services.observations)
 
     @property
     def change_events(self) -> WorkspaceChangeEvents:
@@ -155,27 +149,19 @@ class NativeWorkspaceSession:
 
     @property
     def search(self) -> WorkspaceSearchProvider:
-        self._require(WorkspaceOperation.SEARCH)
-        assert self._services.search is not None
-        return self._services.search
+        return self._require_service(WorkspaceOperation.SEARCH, self._services.search)
 
     @property
     def ast(self) -> WorkspaceAstProvider:
-        self._require(WorkspaceOperation.AST)
-        assert self._services.ast is not None
-        return self._services.ast
+        return self._require_service(WorkspaceOperation.AST, self._services.ast)
 
     @property
     def fff(self) -> WorkspaceFffProvider:
-        self._require(WorkspaceOperation.FFF)
-        assert self._services.fff is not None
-        return self._services.fff
+        return self._require_service(WorkspaceOperation.FFF, self._services.fff)
 
     @property
     def view(self) -> WorkspaceViewProvider:
-        self._require(WorkspaceOperation.VIEW)
-        assert self._services.view is not None
-        return self._services.view
+        return self._require_service(WorkspaceOperation.VIEW, self._services.view)
 
     async def close(self) -> None:
         async with self._close_lock:
@@ -206,6 +192,11 @@ class NativeWorkspaceSession:
 
         self._edit_mode_providers = tuple(providers)
         self._edit_mode.set(edit_mode)
+
+    def _require_service[Service](self, operation: WorkspaceOperation, service: Service | None) -> Service:
+        self._require(operation)
+        assert service is not None
+        return service
 
     def _require(self, operation: WorkspaceOperation) -> None:
         if self._closed or _native.workspace_is_closed(self._native):

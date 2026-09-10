@@ -6,6 +6,7 @@ from ovid_core.tools.models import ToolResult
 from pydantic import Field
 
 from ovid_native.workspace.evidence import WorkspaceSourceLineClaim
+from ovid_native.workspace.models import WorkspaceScanOptions
 
 
 AstStrictness = Literal['cst', 'smart', 'ast', 'relaxed', 'signature', 'template']
@@ -42,11 +43,8 @@ class AstIssue(BaseModel):
     message: str
 
 
-class AstScanOptions(BaseModel):
-    paths: tuple[str, ...] = ('.',)
-    include_hidden: bool = False
-    respect_gitignore: bool = True
-    include_node_modules: bool = False
+class AstScanOptions(WorkspaceScanOptions):
+    pass
 
 
 class AstLimits(BaseModel):

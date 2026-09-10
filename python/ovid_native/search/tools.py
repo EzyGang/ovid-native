@@ -1,10 +1,8 @@
 from collections.abc import Sequence
 from typing import Any
 
-from ovid_core.runtime.context import RunContext
-from ovid_core.tools.base import BaseTool, BaseToolset, ToolExecutionContext
+from ovid_core.tools.base import BaseTool, ToolExecutionContext
 
-from ovid_native.files.edit_modes import EditModeState
 from ovid_native.search.models import (
     GlobRequest,
     GlobToolContent,
@@ -12,22 +10,17 @@ from ovid_native.search.models import (
     GrepFileMatches,
     GrepRequest,
     GrepResult,
-    GrepToolContent,
     GrepToolRequest,
     GrepToolResult,
 )
+from ovid_native.workspace._toolsets import WorkspaceResultTool, WorkspaceSourceTool, WorkspaceSourceToolset
 from ovid_native.workspace.evidence import (
     EditableSourceGroup,
-    WorkspaceEvidence,
-    WorkspaceObservationRequest,
-    WorkspaceSourceLineClaim,
     WorkspaceSourcePresenter,
     WorkspaceSourceSpanClaim,
-    capture_source_presentation,
     normalize_terminal_span_end,
 )
 from ovid_native.workspace.models import WorkspaceSearchProvider
-from ovid_native.workspace.observations import WorkspaceLineRange, WorkspaceObservationService
 
 
 GLOB_DESCRIPTION = (
@@ -48,7 +41,7 @@ SEARCH_TOOL_INSTRUCTIONS = (
 )
 
 
-class GlobTool[Deps](BaseTool[Deps, GlobRequest, GlobToolResult]):
+class GlobTool[Deps](WorkspaceResultTool[Deps, WorkspaceSearchProvider, GlobRequest, GlobToolResult]):
     id = 'glob'
     description = GLOB_DESCRIPTION
     args_type = GlobRequest
@@ -56,36 +49,17 @@ class GlobTool[Deps](BaseTool[Deps, GlobRequest, GlobToolResult]):
     timeout_seconds = 5.0
     defer_loading = False
 
-    def __init__(self, *, provider: WorkspaceSearchProvider) -> None:
-        self._provider = provider
-
-    async def execute(
-        self,
-        context: ToolExecutionContext[Deps],
-        arguments: GlobRequest,
-    ) -> GlobToolResult:
-        del context
-        result = await self._provider.glob(arguments)
-        content = GlobToolContent(result=result).model_dump(mode='json')
-        return GlobToolResult(content=content)
+    async def _content(self, arguments: GlobRequest) -> GlobToolContent:
+        return GlobToolContent(result=await self._provider.glob(arguments))
 
 
-class GrepTool[Deps](BaseTool[Deps, GrepToolRequest, GrepToolResult]):
+class GrepTool[Deps](WorkspaceSourceTool[Deps, WorkspaceSearchProvider, GrepToolRequest, GrepToolResult]):
     id = 'grep'
     description = GREP_DESCRIPTION
     args_type = GrepToolRequest
     result_type = GrepToolResult
     timeout_seconds = 30.0
     defer_loading = False
-
-    def __init__(
-        self,
-        *,
-        provider: WorkspaceSearchProvider,
-        presenter: WorkspaceSourcePresenter | None = None,
-    ) -> None:
-        self._provider = provider
-        self._presenter = presenter
 
     async def execute(
         self,
@@ -94,62 +68,14 @@ class GrepTool[Deps](BaseTool[Deps, GrepToolRequest, GrepToolResult]):
     ) -> GrepToolResult:
         del context
         result = await self._provider.grep(_grep_request(arguments))
-        if self._presenter is None:
-            return GrepToolResult(content=GrepToolContent(result=result).model_dump(mode='json'))
-        groups = await _grep_source_groups(result, self._presenter)
-        if self._presenter.presentation.format == 'hashline':
-            content = '\n\n'.join(group.render(self._presenter.presentation) for group in groups)
-            return GrepToolResult(
-                content=content,
-                metadata=GrepToolContent(result=result).model_dump(mode='json'),
-            )
-        content = GrepToolContent(result=result).model_dump(mode='json')
-        return GrepToolResult(content=content)
+        return await self._present_result(result, _grep_source_groups)
 
 
-class SearchSourceToolset[Deps](BaseToolset[Deps]):
+class SearchSourceToolset[Deps](WorkspaceSourceToolset[Deps, WorkspaceSearchProvider]):
     id = 'native_search_source'
 
-    def __init__(
-        self,
-        *,
-        provider: WorkspaceSearchProvider,
-        state: EditModeState,
-        observations: WorkspaceObservationService,
-    ) -> None:
-        self._provider = provider
-        self._state = state
-        self._observations = observations
-
-    async def for_step(self, context: RunContext[Deps]) -> BaseToolset[Deps]:
-        del context
-        selection = self._state.current
-        presenter = WorkspaceSourcePresenter(
-            observations=self._observations,
-            presentation=capture_source_presentation(selection.mode, selection.generation),
-        )
-        return _BoundSearchSourceToolset(
-            owner=self,
-            tool=GrepTool(provider=self._provider, presenter=presenter),
-        )
-
-    async def get_tools(self, context: RunContext[Deps]) -> Sequence[BaseTool[Deps, Any, Any]]:
-        return await (await self.for_step(context)).get_tools(context)
-
-
-class _BoundSearchSourceToolset[Deps](BaseToolset[Deps]):
-    id = 'native_search_source'
-
-    def __init__(self, *, owner: SearchSourceToolset[Deps], tool: BaseTool[Deps, Any, Any]) -> None:
-        self._owner = owner
-        self._tool = tool
-
-    async def for_step(self, context: RunContext[Deps]) -> BaseToolset[Deps]:
-        return await self._owner.for_step(context)
-
-    async def get_tools(self, context: RunContext[Deps]) -> Sequence[BaseTool[Deps, Any, Any]]:
-        del context
-        return (self._tool,)
+    def _source_tools(self, presenter: WorkspaceSourcePresenter) -> Sequence[BaseTool[Deps, Any, Any]]:
+        return (GrepTool(provider=self._provider, presenter=presenter),)
 
 
 def _grep_request(arguments: GrepToolRequest) -> GrepRequest:
@@ -189,7 +115,6 @@ async def _grep_source_group(
             if not line.truncated:
                 claimed[line.line_number] = line.text
 
-    lines = tuple(WorkspaceSourceLineClaim(line_number=line, text=text) for line, text in sorted(claimed.items()))
     spans = tuple(
         WorkspaceSourceSpanClaim(
             start_line=match.range.start.line,
@@ -207,27 +132,4 @@ async def _grep_source_group(
             ),
         )
     )
-    evidence = WorkspaceEvidence(
-        path=file.path,
-        revision=None,
-        lines=lines,
-        visible_ranges=_line_ranges(tuple(claimed)),
-        spans=spans,
-    )
-    return await presenter.observe(
-        WorkspaceObservationRequest(
-            evidence=evidence,
-            purpose='grep',
-            presentation=presenter.presentation,
-        )
-    )
-
-
-def _line_ranges(lines: tuple[int, ...]) -> tuple[WorkspaceLineRange, ...]:
-    ranges: list[WorkspaceLineRange] = []
-    for line in sorted(lines):
-        if ranges and line == ranges[-1].end + 1:
-            ranges[-1] = WorkspaceLineRange(start=ranges[-1].start, end=line)
-        else:
-            ranges.append(WorkspaceLineRange(start=line, end=line))
-    return tuple(ranges)
+    return await presenter.observe_lines(path=file.path, lines=claimed, spans=spans, purpose='grep')

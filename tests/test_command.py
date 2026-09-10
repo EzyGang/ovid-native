@@ -3,6 +3,7 @@ import os
 import shlex
 import sys
 from pathlib import Path
+from threading import Event
 
 import pytest
 from pytest_mock import MockerFixture
@@ -164,5 +165,39 @@ def test_native_call_translates_known_errors() -> None:
                 cancellation=cancellation,
                 translator=_ERROR_TRANSLATOR,
             )
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('cooperative', (False, True))
+def test_repeated_cancellation_waits_for_native_worker(cooperative: bool) -> None:
+    async def run() -> None:
+        loop = asyncio.get_running_loop()
+        started = asyncio.Event()
+        release = Event()
+        completed = Event()
+
+        def operation() -> None:
+            loop.call_soon_threadsafe(started.set)
+            release.wait(timeout=5)
+            completed.set()
+
+        cancellation = _native.NativeCommandCancellation() if cooperative else None
+        task = asyncio.create_task(
+            run_native_translated(operation, cancellation=cancellation, translator=_ERROR_TRANSLATOR)
+        )
+        try:
+            await asyncio.wait_for(started.wait(), timeout=5)
+            task.cancel()
+            await asyncio.sleep(0)
+            task.cancel()
+            await asyncio.sleep(0)
+            assert not task.done()
+        finally:
+            release.set()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert completed.is_set()
 
     asyncio.run(run())

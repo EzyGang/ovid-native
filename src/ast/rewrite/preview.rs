@@ -3,10 +3,10 @@ use std::ops::Range as ByteRange;
 use std::path::Path;
 
 use ast_grep_core::Pattern;
-use ast_grep_language::{LanguageExt, SupportLang};
+use ast_grep_language::SupportLang;
 
 use crate::ast::language::{canonical_name, resolve_language, strictness};
-use crate::ast::search::{classify_files, discover_files, parse_issue, read_source};
+use crate::ast::source::{classify_files, discover_files, read_tree};
 use crate::ast::types::{
     FileChange, FileComputation, PreviewResult, RewriteComputation, RewriteRequest,
 };
@@ -42,32 +42,17 @@ pub fn preview(root: &Path, request: RewriteRequest) -> Result<PreviewResult, As
     let mut total_replacements = 0;
 
     for (candidate, language) in files {
-        if request.cancellation.is_cancelled() {
-            return Err(AstError::Cancelled);
-        }
-        let source = match read_source(
+        let Some(tree) = read_tree(
             &candidate,
+            language,
             request.limits.max_file_bytes,
             &request.cancellation,
-        ) {
-            Ok(source) => source,
-            Err(issue) => {
-                if request.cancellation.is_cancelled() {
-                    return Err(AstError::Cancelled);
-                }
-                issues.push(issue);
-                continue;
-            }
-        };
-        let tree = language.ast_grep(&source);
-        if tree
-            .root()
-            .dfs()
-            .any(|node| node.is_error() || node.is_missing())
-        {
-            issues.push(parse_issue(&candidate, language));
+            &mut issues,
+        )?
+        else {
             continue;
-        }
+        };
+        let source = tree.source();
         files_searched += 1;
         let mut edits = Vec::new();
         for (sequence, (pattern, replacement)) in patterns[&language].iter().enumerate() {
@@ -103,14 +88,14 @@ pub fn preview(root: &Path, request: RewriteRequest) -> Result<PreviewResult, As
                 request.limits.max_changed_files
             )));
         }
-        let updated = apply_edits(&source, &edits);
+        let updated = apply_edits(source, &edits);
         changes.extend(edits.iter().map(|edit| {
             (
                 candidate.relative.clone(),
                 canonical_name(language).to_owned(),
                 source[edit.range.clone()].to_owned(),
                 edit.replacement.clone(),
-                source_range(&source, edit.range.clone()),
+                source_range(source, edit.range.clone()),
             )
         }));
         let normalized = NormalizedText::decode(source.as_bytes().to_vec())?;

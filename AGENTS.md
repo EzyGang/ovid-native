@@ -275,6 +275,7 @@ uv run task ty-lint
 uv run task ruff-lint
 uv run task rust-lint
 uv run task rust-tests
+uv run task aposlop
 uv run maturin develop
 uv run task tests
 uv run task build
@@ -283,6 +284,10 @@ uv run task build
 The Python integration layer requires 100% branch coverage. Install the built wheel in a clean environment and exercise a changed operation. For release changes, also build and install the source distribution in isolation.
 
 Do not weaken checks or thresholds. If a repository problem blocks a check, report the exact blocker.
+
+`uv run task checks` runs the static quality gates, including the pinned `uvx` Aposlop check.
+Inspect Aposlop findings with `uvx --from aposlop==1.2.2 aposlop . --format json`.
+Keep production duplicate, complexity, and file-length findings at zero without adding unreviewed ignores or weakening the policy.
 
 
 # Output guidance

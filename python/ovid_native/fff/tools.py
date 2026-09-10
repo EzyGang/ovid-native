@@ -2,8 +2,7 @@ import asyncio
 from collections.abc import Sequence
 from typing import Any
 
-from ovid_core.runtime.context import RunContext
-from ovid_core.tools.base import BaseTool, BaseToolset, ToolExecutionContext
+from ovid_core.tools.base import BaseTool, ToolExecutionContext
 
 from ovid_native.fff.models import (
     FffFindRequest,
@@ -17,17 +16,15 @@ from ovid_native.fff.models import (
     FffMultiGrepToolResult,
 )
 from ovid_native.files.edit_modes import EditModeState
+from ovid_native.workspace._toolsets import WorkspaceResultTool, WorkspaceSourceTool, WorkspaceSourceToolset
 from ovid_native.workspace.evidence import (
     EditableSourceGroup,
-    WorkspaceEvidence,
-    WorkspaceObservationRequest,
-    WorkspaceSourceLineClaim,
     WorkspaceSourcePresenter,
     WorkspaceSourceSpanClaim,
-    capture_source_presentation,
+    source_line_ranges,
 )
 from ovid_native.workspace.models import WorkspaceFffProvider
-from ovid_native.workspace.observations import WorkspaceLineRange, WorkspaceObservationService, WorkspaceRenderedLine
+from ovid_native.workspace.observations import WorkspaceObservationService, WorkspaceRenderedLine
 
 
 FIND_DESCRIPTION = (
@@ -45,7 +42,7 @@ MULTI_GREP_DESCRIPTION = (
 )
 
 
-class FffFindTool[Deps](BaseTool[Deps, FffFindRequest, FffFindToolResult]):
+class FffFindTool[Deps](WorkspaceResultTool[Deps, WorkspaceFffProvider, FffFindRequest, FffFindToolResult]):
     id = 'find_files'
     description = FIND_DESCRIPTION
     args_type = FffFindRequest
@@ -53,16 +50,11 @@ class FffFindTool[Deps](BaseTool[Deps, FffFindRequest, FffFindToolResult]):
     timeout_seconds = 10.0
     defer_loading = True
 
-    def __init__(self, *, provider: WorkspaceFffProvider) -> None:
-        self._provider = provider
-
-    async def execute(self, context: ToolExecutionContext[Deps], arguments: FffFindRequest) -> FffFindToolResult:
-        del context
-        result = await self._provider.find(arguments)
-        return FffFindToolResult(content=FffFindToolContent(result=result).model_dump(mode='json'))
+    async def _content(self, arguments: FffFindRequest) -> FffFindToolContent:
+        return FffFindToolContent(result=await self._provider.find(arguments))
 
 
-class FffGrepTool[Deps](BaseTool[Deps, FffGrepRequest, FffGrepToolResult]):
+class FffGrepTool[Deps](WorkspaceSourceTool[Deps, WorkspaceFffProvider, FffGrepRequest, FffGrepToolResult]):
     id = 'grep'
     description = GREP_DESCRIPTION
     args_type = FffGrepRequest
@@ -70,37 +62,21 @@ class FffGrepTool[Deps](BaseTool[Deps, FffGrepRequest, FffGrepToolResult]):
     timeout_seconds = 10.0
     defer_loading = True
 
-    def __init__(
-        self,
-        *,
-        provider: WorkspaceFffProvider,
-        presenter: WorkspaceSourcePresenter | None = None,
-    ) -> None:
-        self._provider = provider
-        self._presenter = presenter
-
     async def execute(self, context: ToolExecutionContext[Deps], arguments: FffGrepRequest) -> FffGrepToolResult:
         del context
         result = await self._provider.grep(arguments)
-        return await _grep_result(result, self._presenter, result_type=FffGrepToolResult)
+        return await self._present_result(result, _fff_source_groups)
 
 
-class FffMultiGrepTool[Deps](BaseTool[Deps, FffMultiGrepRequest, FffMultiGrepToolResult]):
+class FffMultiGrepTool[Deps](
+    WorkspaceSourceTool[Deps, WorkspaceFffProvider, FffMultiGrepRequest, FffMultiGrepToolResult]
+):
     id = 'multi_grep'
     description = MULTI_GREP_DESCRIPTION
     args_type = FffMultiGrepRequest
     result_type = FffMultiGrepToolResult
     timeout_seconds = 10.0
     defer_loading = True
-
-    def __init__(
-        self,
-        *,
-        provider: WorkspaceFffProvider,
-        presenter: WorkspaceSourcePresenter | None = None,
-    ) -> None:
-        self._provider = provider
-        self._presenter = presenter
 
     async def execute(
         self,
@@ -109,10 +85,10 @@ class FffMultiGrepTool[Deps](BaseTool[Deps, FffMultiGrepRequest, FffMultiGrepToo
     ) -> FffMultiGrepToolResult:
         del context
         result = await self._provider.multi_grep(arguments)
-        return await _grep_result(result, self._presenter, result_type=FffMultiGrepToolResult)
+        return await self._present_result(result, _fff_source_groups)
 
 
-class FffSourceToolset[Deps](BaseToolset[Deps]):
+class FffSourceToolset[Deps](WorkspaceSourceToolset[Deps, WorkspaceFffProvider]):
     id = 'native_fff_source'
 
     def __init__(
@@ -124,64 +100,17 @@ class FffSourceToolset[Deps](BaseToolset[Deps]):
         include_grep: bool,
         include_multi_grep: bool,
     ) -> None:
-        self._provider = provider
-        self._state = state
-        self._observations = observations
+        super().__init__(provider=provider, state=state, observations=observations)
         self._include_grep = include_grep
         self._include_multi_grep = include_multi_grep
 
-    async def for_step(self, context: RunContext[Deps]) -> BaseToolset[Deps]:
-        del context
-        selection = self._state.current
-        presenter = WorkspaceSourcePresenter(
-            observations=self._observations,
-            presentation=capture_source_presentation(selection.mode, selection.generation),
-        )
+    def _source_tools(self, presenter: WorkspaceSourcePresenter) -> Sequence[BaseTool[Deps, Any, Any]]:
         tools: list[BaseTool[Deps, Any, Any]] = []
         if self._include_grep:
             tools.append(FffGrepTool(provider=self._provider, presenter=presenter))
         if self._include_multi_grep:
             tools.append(FffMultiGrepTool(provider=self._provider, presenter=presenter))
-        return _BoundFffSourceToolset(owner=self, tools=tools)
-
-    async def get_tools(self, context: RunContext[Deps]) -> Sequence[BaseTool[Deps, Any, Any]]:
-        return await (await self.for_step(context)).get_tools(context)
-
-
-class _BoundFffSourceToolset[Deps](BaseToolset[Deps]):
-    id = 'native_fff_source'
-
-    def __init__(
-        self,
-        *,
-        owner: FffSourceToolset[Deps],
-        tools: Sequence[BaseTool[Deps, Any, Any]],
-    ) -> None:
-        self._owner = owner
-        self._tools = tuple(tools)
-
-    async def for_step(self, context: RunContext[Deps]) -> BaseToolset[Deps]:
-        return await self._owner.for_step(context)
-
-    async def get_tools(self, context: RunContext[Deps]) -> Sequence[BaseTool[Deps, Any, Any]]:
-        del context
-        return self._tools
-
-
-async def _grep_result[Result: (FffGrepToolResult, FffMultiGrepToolResult)](
-    result: FffGrepResult,
-    presenter: WorkspaceSourcePresenter | None,
-    *,
-    result_type: type[Result],
-) -> Result:
-    metadata = {'result': result.model_dump(mode='json')}
-    if presenter is None:
-        return result_type(content=metadata)
-    groups = await _fff_source_groups(result, presenter)
-    if presenter.presentation.format == 'hashline':
-        content = '\n\n'.join(group.render(presenter.presentation) for group in groups)
-        return result_type(content=content, metadata=metadata)
-    return result_type(content=metadata)
+        return tools
 
 
 async def _fff_source_groups(
@@ -214,8 +143,12 @@ async def _observe_fff_path(
     revision: str | None,
 ) -> EditableSourceGroup:
     claimed = {line_number: text for match in matches for line_number, text in _fff_lines(match)}
-    ranges = _line_ranges(tuple(claimed))
+    reason = None
     if any(match.approximate for match in matches):
+        reason = 'FFF match is approximate; rerun an exact source-producing tool'
+    elif any(not match.match_ranges for match in matches):
+        reason = 'FFF match has no exact source span; rerun an exact source-producing tool'
+    if reason is not None:
         return EditableSourceGroup(
             path=path,
             observation=None,
@@ -224,34 +157,15 @@ async def _observe_fff_path(
                 WorkspaceRenderedLine(line_number=line, short_hash='--', text=text)
                 for line, text in sorted(claimed.items())
             ),
-            visible_ranges=ranges,
-            uneditable_reason='FFF match is approximate; rerun an exact source-producing tool',
+            visible_ranges=source_line_ranges(claimed),
+            uneditable_reason=reason,
         )
-    if any(not match.match_ranges for match in matches):
-        return EditableSourceGroup(
-            path=path,
-            observation=None,
-            editable=False,
-            lines=tuple(
-                WorkspaceRenderedLine(line_number=line, short_hash='--', text=text)
-                for line, text in sorted(claimed.items())
-            ),
-            visible_ranges=ranges,
-            uneditable_reason='FFF match has no exact source span; rerun an exact source-producing tool',
-        )
-    evidence = WorkspaceEvidence(
+    return await presenter.observe_lines(
         path=path,
         revision=revision,
-        lines=tuple(WorkspaceSourceLineClaim(line_number=line, text=text) for line, text in sorted(claimed.items())),
-        visible_ranges=ranges,
+        lines=claimed,
         spans=_fff_spans(matches),
-    )
-    return await presenter.observe(
-        WorkspaceObservationRequest(
-            evidence=evidence,
-            purpose='fff_grep',
-            presentation=presenter.presentation,
-        )
+        purpose='fff_grep',
     )
 
 
@@ -277,13 +191,3 @@ def _fff_spans(matches: list[FffGrepMatch]) -> tuple[WorkspaceSourceSpanClaim, .
             for byte_range in match.match_ranges
         )
     return tuple(spans)
-
-
-def _line_ranges(lines: tuple[int, ...]) -> tuple[WorkspaceLineRange, ...]:
-    ranges: list[WorkspaceLineRange] = []
-    for line in sorted(lines):
-        if ranges and line == ranges[-1].end + 1:
-            ranges[-1] = WorkspaceLineRange(start=ranges[-1].start, end=line)
-        else:
-            ranges.append(WorkspaceLineRange(start=line, end=line))
-    return tuple(ranges)

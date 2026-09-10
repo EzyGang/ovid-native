@@ -1,37 +1,22 @@
 from collections.abc import Callable
-from threading import Lock
 from typing import Literal, Protocol
 
-from ovid_core.models import BaseModel
 from pydantic import Field
 
-from ovid_native.workspace.models import WorkspaceSessionId
+from ovid_native.workspace._subscriptions import CallbackSubscription, ListenerRegistry
+from ovid_native.workspace.models import WorkspacePathChange, WorkspaceSessionId
 
 
-class WorkspaceChangeEvent(BaseModel):
+class WorkspaceChangeEvent(WorkspacePathChange):
     session_id: WorkspaceSessionId
-    path: str
-    operation: Literal['create', 'update', 'delete', 'move']
-    destination: str | None = None
     generation: int = Field(ge=1)
-    revision: int = Field(ge=1)
 
 
 type WorkspaceChangeListener = Callable[[WorkspaceChangeEvent], None]
 
 
-class WorkspaceChangeSubscription:
-    def __init__(self, cancel: Callable[[], None]) -> None:
-        self._cancel = cancel
-        self._closed = False
-        self._lock = Lock()
-
-    def close(self) -> None:
-        with self._lock:
-            if self._closed:
-                return
-            self._closed = True
-        self._cancel()
+class WorkspaceChangeSubscription(CallbackSubscription):
+    pass
 
 
 class WorkspaceChangeEvents(Protocol):
@@ -41,16 +26,10 @@ class WorkspaceChangeEvents(Protocol):
 class NativeWorkspaceChangeEvents:
     def __init__(self, *, session_id: WorkspaceSessionId) -> None:
         self._session_id = session_id
-        self._listeners: dict[int, WorkspaceChangeListener] = {}
-        self._lock = Lock()
-        self._next_listener = 0
+        self._listeners = ListenerRegistry[WorkspaceChangeEvent]()
 
     def subscribe(self, listener: WorkspaceChangeListener) -> WorkspaceChangeSubscription:
-        with self._lock:
-            listener_id = self._next_listener
-            self._next_listener += 1
-            self._listeners[listener_id] = listener
-        return WorkspaceChangeSubscription(lambda: self._remove(listener_id))
+        return self._listeners.subscribe(listener, WorkspaceChangeSubscription)
 
     def publish(
         self,
@@ -69,11 +48,4 @@ class NativeWorkspaceChangeEvents:
             generation=generation,
             revision=revision,
         )
-        with self._lock:
-            listeners = tuple(self._listeners.values())
-        for listener in listeners:
-            listener(event)
-
-    def _remove(self, listener_id: int) -> None:
-        with self._lock:
-            self._listeners.pop(listener_id, None)
+        self._listeners.publish(event)

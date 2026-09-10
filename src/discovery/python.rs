@@ -9,6 +9,7 @@ use crate::discovery::{
     DiscoveryError, NamedFileRequest, NamedFileResult, discover_named_files, find_ancestor_entry,
     read_text_files,
 };
+use crate::python_boundary::{add_exceptions, register_exports};
 use crate::workspace::{Cancellation, WorkCompletion, WorkControl};
 
 create_exception!(_native, NativeDiscoveryError, PyException);
@@ -103,34 +104,20 @@ fn discovery_find_named_files(
 }
 
 pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
-    module.add_class::<NativeDiscoveryCancellation>()?;
-    module.add(
-        "NativeDiscoveryError",
-        module.py().get_type::<NativeDiscoveryError>(),
+    add_exceptions(
+        module,
+        [
+            module.py().get_type::<NativeDiscoveryError>(),
+            module.py().get_type::<NativeDiscoveryConfigurationError>(),
+            module.py().get_type::<NativeDiscoveryPathError>(),
+            module.py().get_type::<NativeDiscoveryReadError>(),
+            module.py().get_type::<NativeDiscoveryEncodingError>(),
+            module.py().get_type::<NativeDiscoveryCancelledError>(),
+        ],
     )?;
-    module.add(
-        "NativeDiscoveryConfigurationError",
-        module.py().get_type::<NativeDiscoveryConfigurationError>(),
-    )?;
-    module.add(
-        "NativeDiscoveryPathError",
-        module.py().get_type::<NativeDiscoveryPathError>(),
-    )?;
-    module.add(
-        "NativeDiscoveryReadError",
-        module.py().get_type::<NativeDiscoveryReadError>(),
-    )?;
-    module.add(
-        "NativeDiscoveryEncodingError",
-        module.py().get_type::<NativeDiscoveryEncodingError>(),
-    )?;
-    module.add(
-        "NativeDiscoveryCancelledError",
-        module.py().get_type::<NativeDiscoveryCancelledError>(),
-    )?;
-    module.add_function(wrap_pyfunction!(discovery_find_ancestor_entry, module)?)?;
-    module.add_function(wrap_pyfunction!(discovery_read_text_files, module)?)?;
-    module.add_function(wrap_pyfunction!(discovery_find_named_files, module)?)?;
+    register_exports!(module, classes [NativeDiscoveryCancellation], functions [
+        discovery_find_ancestor_entry, discovery_read_text_files, discovery_find_named_files,
+    ]);
     Ok(())
 }
 

@@ -1,5 +1,6 @@
 import asyncio
 import difflib
+from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from time import monotonic
@@ -228,16 +229,10 @@ class NativeViewFffProvider:
         return await engine.find(request)
 
     async def grep(self, request: FffGrepRequest) -> FffGrepResult:
-        engine, revision = self._require_engine()
-        await self._validate_revision()
-        result = await engine.grep(request)
-        return result.model_copy(update={'workspace_revision': revision})
+        return await self._search_content(lambda engine: engine.grep(request))
 
     async def multi_grep(self, request: FffMultiGrepRequest) -> FffGrepResult:
-        engine, revision = self._require_engine()
-        await self._validate_revision()
-        result = await engine.multi_grep(request)
-        return result.model_copy(update={'workspace_revision': revision})
+        return await self._search_content(lambda engine: engine.multi_grep(request))
 
     async def close(self) -> None:
         async with self._lifecycle_lock:
@@ -253,6 +248,15 @@ class NativeViewFffProvider:
             finally:
                 if context is not None:
                     await context.__aexit__(None, None, None)
+
+    async def _search_content(
+        self,
+        operation: Callable[[FffEngine], Awaitable[FffGrepResult]],
+    ) -> FffGrepResult:
+        engine, revision = self._require_engine()
+        await self._validate_revision()
+        result = await operation(engine)
+        return result.model_copy(update={'workspace_revision': revision})
 
     def _require_engine(self) -> tuple[FffEngine, str]:
         if self._engine is None:

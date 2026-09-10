@@ -34,7 +34,7 @@ class WorkspaceFilesWorkflows(WorkspaceEditResultMapper):
         self._workspace = workspace
 
     async def create_file(self, request: WorkspaceCreateRequest) -> WorkspaceWriteResult:
-        native = await self._mutate(
+        return await self._write(
             lambda cancellation: _native.workspace_create_file(
                 self._workspace,
                 request.path,
@@ -43,10 +43,9 @@ class WorkspaceFilesWorkflows(WorkspaceEditResultMapper):
                 cancellation,
             )
         )
-        return self._write_result(native)
 
     async def replace_file(self, request: WorkspaceReplaceRequest) -> WorkspaceWriteResult:
-        native = await self._mutate(
+        return await self._write(
             lambda cancellation: _native.workspace_replace_file(
                 self._workspace,
                 request.path,
@@ -55,16 +54,14 @@ class WorkspaceFilesWorkflows(WorkspaceEditResultMapper):
                 cancellation,
             )
         )
-        return self._write_result(native)
 
     async def delete_file(self, request: WorkspaceDeleteRequest) -> WorkspaceWriteResult:
-        native = await self._mutate(
+        return await self._write(
             lambda cancellation: _native.workspace_delete_file(self._workspace, request.path, cancellation)
         )
-        return self._write_result(native)
 
     async def move_file(self, request: WorkspaceMoveRequest) -> WorkspaceWriteResult:
-        native = await self._mutate(
+        return await self._write(
             lambda cancellation: _native.workspace_move_file(
                 self._workspace,
                 request.path,
@@ -72,7 +69,6 @@ class WorkspaceFilesWorkflows(WorkspaceEditResultMapper):
                 cancellation,
             )
         )
-        return self._write_result(native)
 
     async def replace(
         self,
@@ -152,6 +148,12 @@ class WorkspaceFilesWorkflows(WorkspaceEditResultMapper):
         if mutation is not None:
             return cast(_native.NativeWorkspaceMutation, mutation)
         return _native.workspace_capture_mutation(self._workspace, mode)
+
+    async def _write(
+        self,
+        operation: Callable[[_native.NativeWorkspaceCancellation], _native.NativeWorkspaceEditResult],
+    ) -> WorkspaceWriteResult:
+        return self._write_result(await self._mutate(operation))
 
     async def _mutate[Result](
         self,

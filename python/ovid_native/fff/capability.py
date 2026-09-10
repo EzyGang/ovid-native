@@ -1,19 +1,19 @@
 from dataclasses import dataclass, field
-from typing import Any, Self
+from typing import Any
 
-from ovid_core.capabilities.base import BaseCapability, CapabilityContributions
-from ovid_core.services import AgentServiceRequirement, AgentServices
+from ovid_core.capabilities.base import CapabilityContributions
 from ovid_core.tools.base import BaseTool
 
 from ovid_native.fff.errors import FffConfigurationError
 from ovid_native.fff.tools import FffFindTool, FffSourceToolset
 from ovid_native.search.tools import GlobTool
-from ovid_native.workspace.operations import WORKSPACE_SERVICE_KEY, WorkspaceOperation, workspace_ref
+from ovid_native.workspace._capability import WorkspaceCapability
+from ovid_native.workspace.models import WorkspaceSession
+from ovid_native.workspace.operations import WorkspaceOperation
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class FffCapability[Deps](BaseCapability[Deps]):
-    workspace: str = 'default'
+class FffCapability[Deps](WorkspaceCapability[Deps]):
     include_glob: bool = False
     include_find_files: bool = True
     include_grep: bool = True
@@ -21,38 +21,21 @@ class FffCapability[Deps](BaseCapability[Deps]):
     id: str = field(default='native_fff', init=False)
     description: str = field(default='Warm typo-resistant path and content search', init=False)
     defer_loading: bool = field(default=True, init=False)
-    contributions: CapabilityContributions[Deps] = field(init=False, repr=False)
-    requirements: tuple[AgentServiceRequirement, ...] = field(init=False)
 
-    def __post_init__(self) -> None:
+    def _required_operations(self) -> frozenset[WorkspaceOperation]:
         if not any((self.include_glob, self.include_find_files, self.include_grep, self.include_multi_grep)):
             raise FffConfigurationError('at least one FFF tool must be enabled')
 
-        required_features: set[str] = set()
+        operations: set[WorkspaceOperation] = set()
         if any((self.include_find_files, self.include_grep, self.include_multi_grep)):
-            required_features.add(WorkspaceOperation.FFF.value)
+            operations.add(WorkspaceOperation.FFF)
         if self.include_glob:
-            required_features.add(WorkspaceOperation.SEARCH.value)
+            operations.add(WorkspaceOperation.SEARCH)
         if self.include_grep or self.include_multi_grep:
-            required_features.update((WorkspaceOperation.FILES.value, WorkspaceOperation.OBSERVATIONS.value))
+            operations.update((WorkspaceOperation.FILES, WorkspaceOperation.OBSERVATIONS))
+        return frozenset(operations)
 
-        object.__setattr__(self, 'contributions', CapabilityContributions())
-        object.__setattr__(
-            self,
-            'requirements',
-            (
-                AgentServiceRequirement(
-                    service_id=WORKSPACE_SERVICE_KEY.id,
-                    api_version=WORKSPACE_SERVICE_KEY.api_version,
-                    name=self.workspace,
-                    required_features=frozenset(required_features),
-                ),
-            ),
-        )
-
-    def bind(self, services: AgentServices) -> Self:
-        super().bind(services)
-        session = services.resolve(workspace_ref(self.workspace))
+    def _contribute(self, session: WorkspaceSession) -> CapabilityContributions[Deps]:
         tools: list[BaseTool[Deps, Any, Any]] = []
 
         if self.include_glob:
@@ -60,33 +43,21 @@ class FffCapability[Deps](BaseCapability[Deps]):
         if self.include_find_files:
             tools.append(FffFindTool(provider=session.fff))
 
-        bound = type(self)(
-            workspace=self.workspace,
-            include_glob=self.include_glob,
-            include_find_files=self.include_find_files,
-            include_grep=self.include_grep,
-            include_multi_grep=self.include_multi_grep,
+        return CapabilityContributions(
+            instructions=(self._instructions(),),
+            tools=tuple(tools),
+            toolsets=(
+                FffSourceToolset(
+                    provider=session.fff,
+                    state=session.edit_mode,
+                    observations=session.observations,
+                    include_grep=self.include_grep,
+                    include_multi_grep=self.include_multi_grep,
+                ),
+            )
+            if self.include_grep or self.include_multi_grep
+            else (),
         )
-        object.__setattr__(
-            bound,
-            'contributions',
-            CapabilityContributions(
-                instructions=(self._instructions(),),
-                tools=tuple(tools),
-                toolsets=(
-                    FffSourceToolset(
-                        provider=session.fff,
-                        state=session.edit_mode,
-                        observations=session.observations,
-                        include_grep=self.include_grep,
-                        include_multi_grep=self.include_multi_grep,
-                    ),
-                )
-                if self.include_grep or self.include_multi_grep
-                else (),
-            ),
-        )
-        return bound
 
     def _instructions(self) -> str:
         instructions: list[str] = []

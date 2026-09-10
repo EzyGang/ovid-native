@@ -6,11 +6,12 @@ from ovid_core.tools.base import BaseTool, BaseToolset
 
 from ovid_native.files.edit_modes import EditMode, EditModeProvider, EditModeSelection, EditModeState
 from ovid_native.files.edit_tools import ApplyPatchEditTool, HashlineEditTool, PatchEditTool, ReplaceEditTool
+from ovid_native.workspace._toolsets import BoundWorkspaceToolset, WorkspaceStepToolset
 from ovid_native.workspace.evidence import capture_source_presentation
 from ovid_native.workspace.models import WorkspaceFilesProvider, WorkspaceSession
 
 
-class EditModeToolset[Deps](BaseToolset[Deps]):
+class EditModeToolset[Deps](WorkspaceStepToolset[Deps]):
     id = 'native_files_edit_mode'
 
     def __init__(
@@ -59,10 +60,7 @@ class EditModeToolset[Deps](BaseToolset[Deps]):
             else self._custom_tool(mutation.mode, selection)
         )
         tools: tuple[BaseTool[Deps, Any, Any], ...] = (edit_tool,)
-        return _BoundEditModeToolset(owner=self, tools=tools)
-
-    async def get_tools(self, context: RunContext[Deps]) -> Sequence[BaseTool[Deps, Any, Any]]:
-        return await (await self.for_step(context)).get_tools(context)
+        return BoundWorkspaceToolset(owner=self, tools=tools)
 
     def _custom_tool(
         self,
@@ -78,23 +76,3 @@ class EditModeToolset[Deps](BaseToolset[Deps]):
         if not tool.approval.required:
             raise ValueError(f'Workspace edit mode must require approval: {mode}')
         return cast(BaseTool[Deps, Any, Any], tool)
-
-
-class _BoundEditModeToolset[Deps](BaseToolset[Deps]):
-    id = 'native_files_edit_mode'
-
-    def __init__(
-        self,
-        *,
-        owner: EditModeToolset[Deps],
-        tools: Sequence[BaseTool[Deps, Any, Any]],
-    ) -> None:
-        self._owner = owner
-        self._tools = tuple(tools)
-
-    async def for_step(self, context: RunContext[Deps]) -> BaseToolset[Deps]:
-        return await self._owner.for_step(context)
-
-    async def get_tools(self, context: RunContext[Deps]) -> Sequence[BaseTool[Deps, Any, Any]]:
-        del context
-        return self._tools

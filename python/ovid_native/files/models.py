@@ -5,6 +5,7 @@ from ovid_core.tools.models import ToolResult
 from pydantic import AfterValidator, Field, model_validator
 
 from ovid_native.files.tool_metadata import WorkspaceFilesToolMetadata
+from ovid_native.workspace.models import WorkspacePathChange
 from ovid_native.workspace.observations import WorkspaceObservationReceipt, WorkspaceRenderedLine
 
 
@@ -175,15 +176,11 @@ class WorkspaceWriteRequest(BaseModel):
         return self
 
 
-class WorkspaceFileChange(BaseModel):
-    path: str
-    operation: Literal['create', 'update', 'delete', 'move']
-    destination: str | None = None
+class WorkspaceFileChange(WorkspacePathChange):
     before_sha256: str | None = None
     after_sha256: str | None = None
     observation: WorkspaceObservationReceipt | None = None
     file_generation: int = Field(ge=1)
-    revision: int = Field(ge=1)
 
 
 class WorkspacePostEditSource(BaseModel):
