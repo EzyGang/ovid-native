@@ -85,28 +85,27 @@ class ReadTool[Deps](_FilePresentationTool[Deps, WorkspaceReadRequest]):
     ) -> WorkspaceFilesToolResult:
         del context
         presentation = self._current_presentation()
-        raw_targets = (arguments.path,)
-        if ';' in arguments.path:
-            try:
-                literal = plan_read_target(parse_read_target(arguments.path, arguments.ranges), MAX_READ_LINES)
-                rendered = await self._read_target(literal, arguments.directory_depth, presentation)
-            except WorkspacePathError:
-                raw_targets = split_read_targets(arguments.path)
-            else:
-                return _read_tool_result((rendered,))
+        try:
+            raw_targets = (arguments.path,)
+            if ';' in arguments.path:
+                try:
+                    literal = plan_read_target(parse_read_target(arguments.path, arguments.ranges), MAX_READ_LINES)
+                    rendered = await self._read_target(literal, arguments.directory_depth, presentation)
+                except WorkspacePathError:
+                    raw_targets = split_read_targets(arguments.path)
+                else:
+                    return _read_tool_result((rendered,))
+        except WorkspaceError as error:
+            return _read_tool_result((render_read_error(arguments.path, error),))
 
         line_budget = max(1, MAX_READ_LINES // len(raw_targets))
-        targets = tuple(
-            plan_read_target(parse_read_target(target, arguments.ranges), line_budget) for target in raw_targets
-        )
         rendered_targets: list[RenderedReadTarget] = []
-        for target in targets:
+        for argument in raw_targets:
             try:
+                target = plan_read_target(parse_read_target(argument, arguments.ranges), line_budget)
                 rendered_targets.append(await self._read_target(target, arguments.directory_depth, presentation))
             except WorkspaceError as error:
-                if len(targets) == 1:
-                    raise
-                rendered_targets.append(render_read_error(target.argument, error))
+                rendered_targets.append(render_read_error(argument, error))
 
         return _read_tool_result(tuple(rendered_targets))
 

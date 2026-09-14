@@ -4,6 +4,7 @@ from typing import cast
 
 import pytest
 from ovid_core.tools.base import ToolExecutionContext
+from pytest_mock import MockerFixture
 
 from ovid_native.files import (
     ReadLineRange,
@@ -22,7 +23,7 @@ from ovid_native.files.read_targets import (
     plan_read_target,
     split_read_targets,
 )
-from ovid_native.workspace.errors import WorkspacePathError, WorkspaceReadError
+from ovid_native.workspace.errors import WorkspaceReadError
 from ovid_native.workspace.evidence import capture_source_presentation
 from ovid_native.workspace.policy import WorkspacePolicy
 from ovid_native.workspace.service import NativeWorkspaceSession
@@ -81,23 +82,66 @@ def test_read_tool_combines_targets_and_keeps_partial_failures(tmp_path: Path) -
     result = asyncio.run(
         read_tool.execute(
             tool_context(),
-            WorkspaceReadRequest(path='one.txt:1; missing.txt; two.txt:2-2'),
+            WorkspaceReadRequest(path='one.txt:1; missing.txt; one.txt:1+x; two.txt:2-2'),
         )
     )
     content = cast(str, result.content)
     assert '[one.txt]\n1:one' in content
     assert '[Could not read missing.txt: cannot inspect missing.txt:' in content
+    assert '[Could not read one.txt:1+x: Invalid read selector' in content
     assert '[two.txt]\n2:two' in content
     assert result.metadata['kind'] == 'multi'
-    assert result.metadata['target_count'] == 3
+    assert result.metadata['target_count'] == 4
     assert result.metadata['successful_targets'] == 2
-    assert result.metadata['failed_targets'] == 1
+    assert result.metadata['failed_targets'] == 2
 
     literal = asyncio.run(read_tool.execute(tool_context(), WorkspaceReadRequest(path='literal;name.txt')))
     assert cast(str, literal.content).splitlines() == ['[literal;name.txt]', '1:literal']
     assert literal.metadata['kind'] == 'file'
-    with pytest.raises(WorkspacePathError):
-        asyncio.run(read_tool.execute(tool_context(), WorkspaceReadRequest(path='missing-only.txt')))
+    asyncio.run(workspace.close())
+
+
+@pytest.mark.parametrize(
+    ('path', 'error_type', 'diagnostic'),
+    [
+        ('missing.txt', 'WorkspacePathError', 'cannot inspect missing.txt'),
+        ('source.txt:1+x', 'WorkspaceReadError', 'Invalid read selector'),
+        ('../outside.txt', 'WorkspacePathError', 'outside'),
+        ('source.txt;;missing.txt', 'WorkspaceReadError', 'cannot be empty'),
+        ('literal;name.txt:1+x', 'WorkspaceReadError', 'Invalid read selector'),
+        ('binary;name.bin', 'WorkspaceBinaryFileError', 'binary'),
+    ],
+)
+def test_read_tool_returns_expected_errors_and_allows_later_reads(
+    tmp_path: Path, path: str, error_type: str, diagnostic: str
+) -> None:
+    (tmp_path / 'source.txt').write_text('recovered\n')
+    (tmp_path / 'binary;name.bin').write_bytes(b'\x00binary')
+    workspace = NativeWorkspaceSession(root=tmp_path)
+    read_tool = ReadTool[None](provider=workspace.files)
+
+    failed = asyncio.run(read_tool.execute(tool_context(), WorkspaceReadRequest(path=path)))
+    assert failed.metadata['status'] == 'error'
+    assert failed.metadata['error_type'] == error_type
+    assert failed.metadata['requested'] == path
+    assert diagnostic in cast(str, failed.metadata['error'])
+    assert diagnostic in cast(str, failed.content)
+    recovered = asyncio.run(read_tool.execute(tool_context(), WorkspaceReadRequest(path='source.txt')))
+    assert recovered.metadata['status'] == 'ok'
+    assert '1:recovered' in cast(str, recovered.content)
+    asyncio.run(workspace.close())
+
+
+@pytest.mark.parametrize('error', [RuntimeError('implementation bug'), asyncio.CancelledError()])
+def test_read_tool_propagates_unexpected_errors_and_cancellation(
+    tmp_path: Path, mocker: MockerFixture, error: BaseException
+) -> None:
+    workspace = NativeWorkspaceSession(root=tmp_path)
+    mocker.patch.object(workspace.files, 'read_file', side_effect=error)
+    read_tool = ReadTool[None](provider=workspace.files)
+
+    with pytest.raises(type(error)):
+        asyncio.run(read_tool.execute(tool_context(), WorkspaceReadRequest(path='source.txt')))
     asyncio.run(workspace.close())
 
 

@@ -169,6 +169,53 @@ def test_real_agent_sees_mode_schema_change_without_rebuild(tmp_path: Path, mock
     asyncio.run(workspace.close())
 
 
+def test_real_agent_recovers_from_native_read_errors(tmp_path: Path, mocker: MockerFixture) -> None:
+    (tmp_path / 'source.txt').write_text('recovered\n')
+    workspace = NativeWorkspaceSession(root=tmp_path)
+
+    def model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        del info
+        returns = [part for message in messages for part in message.parts if isinstance(part, ToolReturnPart)]
+        if not returns:
+            return ModelResponse(parts=[ToolCallPart('read', {'path': 'missing.txt'})])
+        result = returns[-1].content
+        if len(returns) == 1:
+            assert result['metadata']['status'] == 'error'
+            assert result['metadata']['error_type'] == 'WorkspacePathError'
+            assert 'cannot inspect missing.txt' in result['content']
+            return ModelResponse(parts=[ToolCallPart('read', {'path': 'source.txt:1+x'})])
+        if len(returns) == 2:
+            assert result['metadata']['status'] == 'error'
+            assert result['metadata']['error_type'] == 'WorkspaceReadError'
+            assert 'Invalid read selector' in result['content']
+            return ModelResponse(parts=[ToolCallPart('read', {'path': 'source.txt'})])
+        assert result['metadata']['status'] == 'ok'
+        assert '1:recovered' in result['content']
+        return ModelResponse(parts=[TextPart('recovered after native read errors')])
+
+    model_factory = mocker.Mock()
+    model_factory.build = mocker.AsyncMock(return_value=handle(FunctionModel(model)))
+    factory = AgentFactory(
+        config=OvidConfig(models={'test': ModelConfig(provider='test', model='function')}),
+        model_factory=cast('ModelFactory', model_factory),
+    )
+    definition = AgentDefinition[None, str](
+        model=ModelRef(name='test'),
+        deps_type=type(None),
+        output_type=str,
+        capabilities=(WorkspaceFilesCapability[None](),),
+        services=AgentServices((workspace_binding(workspace),)),
+    )
+
+    async def run() -> str:
+        agent = await factory.build(definition)
+        result = await agent.run('Read the source, correcting failed read requests.', deps=None)
+        return result.output
+
+    assert asyncio.run(run()) == 'recovered after native read errors'
+    asyncio.run(workspace.close())
+
+
 def test_custom_edit_mode_binds_captured_selection_and_requires_approval(
     tmp_path: Path,
     mocker: MockerFixture,
