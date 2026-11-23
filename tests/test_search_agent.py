@@ -9,6 +9,7 @@ from ovid_core.routing.factory import ModelFactory
 from ovid_core.routing.models import ModelCapabilities, ModelHandle, ModelRef
 from ovid_core.services import AgentServices
 from pydantic_ai import ModelMessage, ModelResponse, TextPart, ToolCallPart, ToolReturnPart
+from pydantic_ai.messages import LoadCapabilityCallPart, LoadCapabilityReturnPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai_harness.planning import Planning
 from pytest_mock import MockerFixture
@@ -46,9 +47,22 @@ def test_search_capability_runs_through_real_agent_factory(tmp_path: Path, mocke
     workspace = NativeWorkspaceSession(root=tmp_path)
 
     def model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        parts = [part for message in messages for part in message.parts]
         tool_names = {tool.name for tool in info.function_tools}
+        if not any(isinstance(part, LoadCapabilityReturnPart) for part in parts):
+            assert tool_names == {'load_capability', 'glob', 'grep'}
+            return ModelResponse(
+                parts=[
+                    LoadCapabilityCallPart(args={'id': 'native_ast'}, tool_call_id='load-ast'),
+                    LoadCapabilityCallPart(args={'id': 'native_fff'}, tool_call_id='load-fff'),
+                ]
+            )
 
-        tool_returns = [part for message in messages for part in message.parts if isinstance(part, ToolReturnPart)]
+        tool_returns = [
+            part
+            for part in parts
+            if isinstance(part, ToolReturnPart) and not isinstance(part, LoadCapabilityReturnPart)
+        ]
         assert tool_names - {'load_capability'} == {
             'ast_edit_apply',
             'ast_edit_preview',

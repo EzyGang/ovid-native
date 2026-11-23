@@ -8,6 +8,7 @@ from ovid_core.routing.factory import ModelFactory
 from ovid_core.routing.models import ModelCapabilities, ModelHandle, ModelRef
 from ovid_core.services import AgentServices
 from pydantic_ai import ModelMessage, ModelResponse, TextPart, ToolCallPart, ToolReturnPart
+from pydantic_ai.messages import LoadCapabilityCallPart, LoadCapabilityReturnPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pytest_mock import MockerFixture
 
@@ -23,9 +24,18 @@ def test_ast_capability_runs_through_real_agent_factory(tmp_path: Path, mocker: 
 
     def model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         nonlocal proposal_id
-        tool_returns = [part for message in messages for part in message.parts if isinstance(part, ToolReturnPart)]
+        parts = [part for message in messages for part in message.parts]
         names = {tool.name for tool in info.function_tools}
-        assert {'ast_grep', 'ast_edit_preview', 'ast_edit_apply'} <= names
+        if not any(isinstance(part, LoadCapabilityReturnPart) for part in parts):
+            assert names == {'load_capability'}
+            return ModelResponse(parts=[LoadCapabilityCallPart(args={'id': 'native_ast'}, tool_call_id='load')])
+
+        tool_returns = [
+            part
+            for part in parts
+            if isinstance(part, ToolReturnPart) and not isinstance(part, LoadCapabilityReturnPart)
+        ]
+        assert names == {'load_capability', 'ast_grep', 'ast_edit_preview', 'ast_edit_apply'}
         if not tool_returns:
             return ModelResponse(parts=[ToolCallPart('ast_grep', {'pattern': 'print($A)', 'language': 'python'})])
         if len(tool_returns) == 1:
