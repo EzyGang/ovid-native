@@ -44,8 +44,8 @@ jobs:
           working-directory: ovid-native
           enable-cache: true
           cache-dependency-glob: |
-            ovid-native/uv.lock
-            ovid-core/uv.lock
+            uv.lock
+            ../ovid-core/uv.lock
       # This job restores the cache that the Ubuntu test job saves on main.
       - name: Restore Rust build cache
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
