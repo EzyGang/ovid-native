@@ -40,19 +40,25 @@ jobs:
           cache-dependency-glob: |
             ovid-native/uv.lock
             ovid-core/uv.lock
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: ovid-native
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install dependencies
         run: uv sync --locked --no-install-project
         working-directory: ovid-native
+      # `uv run` without `--no-sync` installs the project, which compiles a release build of the extension.
       - name: Check Python formatting and lint
         run: |
-          uv run ruff format --check ./python/ovid_native ./tests ./benchmarks
-          uv run ruff check ./python/ovid_native ./tests ./benchmarks
+          uv run --no-sync ruff format --check ./python/ovid_native ./tests ./benchmarks
+          uv run --no-sync ruff check ./python/ovid_native ./tests ./benchmarks
         working-directory: ovid-native
       - name: Check Python types
-        run: uv run task ty-lint
+        run: uv run --no-sync task ty-lint
         working-directory: ovid-native
       - name: Check Rust formatting and lint
-        run: uv run task rust-lint
+        run: uv run --no-sync task rust-lint
         working-directory: ovid-native
 
   tests:
@@ -87,26 +93,36 @@ jobs:
           cache-dependency-glob: |
             ovid-native/uv.lock
             ovid-core/uv.lock
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: ovid-native
+          shared-key: tests
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install dependencies
         run: uv sync --locked --no-install-project
         working-directory: ovid-native
+      # `uv run` without `--no-sync` installs the project, which compiles a release build of the extension.
       - name: Run Rust tests
-        run: uv run task rust-tests
+        run: uv run --no-sync task rust-tests
         working-directory: ovid-native
       - name: Build development extension
-        run: uv run maturin develop
+        run: uv run --no-sync maturin develop
         working-directory: ovid-native
       - name: Run Python tests
-        run: uv run task tests
+        run: uv run --no-sync task tests
         working-directory: ovid-native
+      # Pull requests test the development build. The release build runs on main and on manual runs.
       - name: Build release wheel
-        run: uv run maturin build --release --compatibility pypi
+        if: github.event_name != 'pull_request'
+        run: uv run --no-sync maturin build --release --compatibility pypi
         working-directory: ovid-native
       - name: Build source distribution
-        if: runner.os == 'Linux'
-        run: uv run maturin sdist
+        if: github.event_name != 'pull_request' && runner.os == 'Linux'
+        run: uv run --no-sync maturin sdist
         working-directory: ovid-native
       - name: Upload distributions
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: distributions-${{ runner.os }}

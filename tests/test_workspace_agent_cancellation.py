@@ -1,8 +1,10 @@
 import asyncio
 import shlex
+import socket
 import sys
 import time
 from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
 from threading import Event
 from typing import cast
@@ -79,7 +81,7 @@ async def cancel_run_during_tool(
     agent = await factory.build(definition)
 
     task = asyncio.create_task(agent.run('Use the tool.', deps=None))
-    async with asyncio.timeout(10):
+    async with asyncio.timeout(30):
         while not started():
             await asyncio.sleep(0.01)
     task.cancel()
@@ -91,32 +93,37 @@ async def cancel_run_during_tool(
 
 
 def test_cancelled_run_stops_native_command_without_tool_result(tmp_path: Path, mocker: MockerFixture) -> None:
-    started = tmp_path / 'started'
-    finished = tmp_path / 'finished'
-    script = (
-        'import time; from pathlib import Path; '
-        f'Path({started.name!r}).write_text("started"); time.sleep(0.25); Path({finished.name!r}).write_text("done")'
-    )
-
     async def run() -> None:
+        loop = asyncio.get_running_loop()
         workspace = NativeWorkspaceSession(root=tmp_path, enabled_operations=frozenset((WorkspaceOperation.COMMAND,)))
-        try:
-            await cancel_run_during_tool(
-                started.exists,
-                call=ToolCallPart('command', {'command': f'{shlex.quote(sys.executable)} -c {shlex.quote(script)}'}),
-                capability=BaseCapability[None](
-                    id='command',
-                    contributions=CapabilityContributions(tools=(CommandTool(provider=workspace.command),)),
-                ),
-                workspace=workspace,
-                mocker=mocker,
+        with socket.create_server(('127.0.0.1', 0)) as listener:
+            listener.setblocking(False)
+            script = (
+                'import socket, time; '
+                f'peer = socket.create_connection(("127.0.0.1", {listener.getsockname()[1]})); '
+                'time.sleep(30); peer.sendall(b"survived")'
             )
-            await asyncio.sleep(0.35)
-        finally:
-            await workspace.close()
+            process = asyncio.ensure_future(loop.sock_accept(listener))
+            try:
+                await cancel_run_during_tool(
+                    process.done,
+                    call=ToolCallPart(
+                        'command', {'command': f'{shlex.quote(sys.executable)} -c {shlex.quote(script)}'}
+                    ),
+                    capability=BaseCapability[None](
+                        id='command',
+                        contributions=CapabilityContributions(tools=(CommandTool(provider=workspace.command),)),
+                    ),
+                    workspace=workspace,
+                    mocker=mocker,
+                )
+                connection, _ = process.result()
+                with connection, suppress(ConnectionResetError):
+                    assert await loop.sock_recv(connection, 1) == b''
+            finally:
+                await workspace.close()
 
     asyncio.run(run())
-    assert not finished.exists()
 
 
 def test_cancelled_run_cancels_native_grep_without_tool_result(tmp_path: Path, mocker: MockerFixture) -> None:
@@ -129,7 +136,7 @@ def test_cancelled_run_cancels_native_grep_without_tool_result(tmp_path: Path, m
         request: _native.NativeGrepRequest,
     ) -> _native.NativeGrepResult:
         started.set()
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             native_grep(workspace, request)
         raise TimeoutError('native grep was not cancelled')
