@@ -62,7 +62,7 @@ mod platform {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
-    use sysinfo::{Pid, ProcessesToUpdate, System};
+    use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
     use tokio::time;
 
     pub(crate) struct SpawnRegistry {
@@ -147,9 +147,14 @@ mod platform {
         }
     }
 
+    // Linux reports each thread as a process. A kill signal to a thread ID stops this process.
     fn process_system() -> System {
         let mut system = System::new();
-        system.refresh_processes(ProcessesToUpdate::All, true);
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::nothing().without_tasks(),
+        );
         system
     }
 
