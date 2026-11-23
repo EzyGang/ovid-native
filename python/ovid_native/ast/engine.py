@@ -11,7 +11,6 @@ from ovid_native._native_execution import NativeErrorTranslator, run_native_tran
 from ovid_native.ast import _mapping
 from ovid_native.ast.errors import (
     AstConfigurationError,
-    AstError,
     AstLanguageError,
     AstLimitError,
     AstPathError,
@@ -53,8 +52,7 @@ _ERROR_TRANSLATOR = NativeErrorTranslator(
         _native.NativeAstLimitError: AstLimitError,
         _native.NativeAstProposalStaleError: AstProposalStaleError,
         _native.NativeAstWriteError: AstWriteError,
-    },
-    fallback=AstError,
+    }
 )
 
 
@@ -67,7 +65,6 @@ class AstEngine:
             raise AstConfigurationError(str(error)) from error
 
         self._initialize(workspace, session_id=secrets.token_urlsafe(24), limits=limits)
-        self._root = root.resolve(strict=True)
 
     @classmethod
     def _from_workspace(
@@ -89,20 +86,11 @@ class AstEngine:
         limits: AstLimits | None,
     ) -> None:
         self._workspace = workspace
-        self._root = Path(workspace.root)
         self._session_id = session_id
         self._limits = limits if limits is not None else AstLimits()
         self._proposals: dict[str, _Proposal] = {}
         self._proposal_lock = asyncio.Lock()
         self._workspace_write_lock = asyncio.Lock()
-
-    @property
-    def root(self) -> Path:
-        return self._root
-
-    @property
-    def limits(self) -> AstLimits:
-        return self._limits
 
     async def search(self, request: AstSearchRequest) -> AstSearchResult:
         self._ensure_open()

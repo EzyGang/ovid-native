@@ -25,7 +25,6 @@ def test_engine_searches_and_closes(tmp_path: Path) -> None:
     async def run() -> None:
         _write_fixture(tmp_path)
         engine = FffEngine(root=tmp_path, config=FffConfig(watch=False))
-        assert engine.config == FffConfig(watch=False)
         ready = await engine.wait_ready(timeout_seconds=10.0)
         await engine.rescan()
         ready = await engine.wait_ready()

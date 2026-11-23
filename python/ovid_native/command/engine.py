@@ -6,7 +6,6 @@ from ovid_native.command.errors import (
     CommandCancelledError,
     CommandClosedError,
     CommandConfigurationError,
-    CommandError,
     CommandExecutionError,
     CommandPathError,
 )
@@ -20,8 +19,7 @@ _ERROR_TRANSLATOR = NativeErrorTranslator(
         _native.NativeCommandExecutionError: CommandExecutionError,
         _native.NativeCommandCancelledError: CommandCancelledError,
         _native.NativeCommandClosedError: CommandClosedError,
-    },
-    fallback=CommandError,
+    }
 )
 
 

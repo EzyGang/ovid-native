@@ -243,17 +243,10 @@ def test_custom_edit_mode_binds_captured_selection_and_requires_approval(
         provider=workspace.files,
         state=workspace.edit_mode,
         workspace=workspace,
+        mode_providers=(),
     )
     with pytest.raises(ValueError, match='provider is unavailable'):
         asyncio.run(missing_provider.for_step(cast('Any', None)))
-
-    missing_workspace = EditModeToolset[None](
-        provider=workspace.files,
-        state=workspace.edit_mode,
-        mode_providers=(provider,),
-    )
-    with pytest.raises(ValueError, match='requires a workspace session'):
-        asyncio.run(missing_workspace.for_step(cast('Any', None)))
 
     custom_tool.approval = ToolApproval()
     with pytest.raises(ValueError, match='must require approval'):

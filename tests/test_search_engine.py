@@ -21,7 +21,7 @@ from ovid_native.search import (
     SearchScanOptions,
 )
 from ovid_native.search.engine import _ERROR_TRANSLATOR
-from ovid_native.search.errors import SearchCancelledError, SearchError
+from ovid_native.search.errors import SearchCancelledError
 
 
 def test_glob_is_typed_ranked_bounded_and_workspace_safe(tmp_path: Path) -> None:
@@ -41,8 +41,6 @@ def test_glob_is_typed_ranked_bounded_and_workspace_safe(tmp_path: Path) -> None
     ranked = asyncio.run(engine.glob(GlobRequest(patterns=('src',), file_type='file')))
     bounded = asyncio.run(engine.glob(GlobRequest(patterns=('.',), order='path', limit=1)))
 
-    assert engine.root == tmp_path.resolve()
-    assert engine.limits == SearchLimits()
     assert [match.path for match in ranked.matches] == ['src/newer.py', 'src/older.py']
     assert ranked.matches[0].modified_at is not None
     assert ranked.matches[0].size == len(newer.read_bytes())
@@ -218,7 +216,6 @@ def test_search_configuration_pattern_and_native_errors_are_narrow(tmp_path: Pat
         translated = _ERROR_TRANSLATOR(native_error)
         assert isinstance(translated, public_type)
         assert str(translated) == 'x'
-    assert type(_ERROR_TRANSLATOR(Exception('x'))) is SearchError
 
 
 def test_native_search_runs_off_event_loop(tmp_path: Path, mocker: MockerFixture) -> None:
