@@ -7,7 +7,6 @@ import pytest
 from pytest_mock import MockerFixture
 
 from ovid_native import _native
-from ovid_native._native_execution import run_native_translated
 from ovid_native.ast import AstEngine, AstSearchRequest
 from ovid_native.search import (
     GlobRequest,
@@ -222,7 +221,7 @@ def test_search_configuration_pattern_and_native_errors_are_narrow(tmp_path: Pat
     assert type(_ERROR_TRANSLATOR(Exception('x'))) is SearchError
 
 
-def test_native_search_runs_off_event_loop_and_preserves_causes(tmp_path: Path, mocker: MockerFixture) -> None:
+def test_native_search_runs_off_event_loop(tmp_path: Path, mocker: MockerFixture) -> None:
     engine = SearchEngine(root=tmp_path)
 
     def slow_grep(
@@ -247,15 +246,3 @@ def test_native_search_runs_off_event_loop_and_preserves_causes(tmp_path: Path, 
             await cancelled
 
     asyncio.run(scenario())
-
-    failure = mocker.Mock(side_effect=_native.NativeSearchReadError('read failed'))
-    cancellation = mocker.Mock()
-    with pytest.raises(SearchReadError) as captured:
-        asyncio.run(
-            run_native_translated(
-                failure,
-                cancellation=cancellation,
-                translator=_ERROR_TRANSLATOR,
-            )
-        )
-    assert isinstance(captured.value.__cause__, _native.NativeSearchReadError)

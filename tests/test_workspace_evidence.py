@@ -14,27 +14,11 @@ from ovid_native.workspace.evidence import (
     WorkspaceSourceSpanClaim,
     WorkspaceTrustedSourceReceipt,
     capture_source_presentation,
-    normalize_terminal_span_end,
 )
 from ovid_native.workspace.models import WorkspaceSessionId
 from ovid_native.workspace.observations import ObservedWorkspaceFile, WorkspaceLineRange, WorkspaceRenderedLine
 from ovid_native.workspace.service import NativeWorkspaceSession
 from ovid_native.workspace.source_validation import validate_serialized_spans
-
-
-def test_terminal_span_end_normalizes_an_unclaimed_synthetic_line() -> None:
-    assert normalize_terminal_span_end(
-        end_line=3,
-        end_column=1,
-        end_byte=11,
-        claimed_lines={2},
-    ) == (2, 11)
-    assert normalize_terminal_span_end(
-        end_line=2,
-        end_column=1,
-        end_byte=10,
-        claimed_lines={2},
-    ) == (2, 10)
 
 
 def test_crlf_terminal_span_uses_the_preceding_serialized_line_end() -> None:

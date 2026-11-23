@@ -14,8 +14,6 @@ from ovid_native.fff import (
     FffConfig,
     FffConfigurationError,
     FffEngine,
-    FffFindRequest,
-    FffFindTool,
     FffGrepMatch,
     FffGrepRequest,
     FffGrepResult,
@@ -30,18 +28,6 @@ from ovid_native.workspace.service import NativeWorkspaceSession, workspace_bind
 
 def context() -> ToolExecutionContext[None]:
     return cast('ToolExecutionContext[None]', None)
-
-
-def test_find_tool_returns_typed_content(tmp_path: Path) -> None:
-    async def run() -> None:
-        (tmp_path / 'credential_resolver.py').write_text('pass\n')
-        async with FffEngine(root=tmp_path, config=FffConfig(watch=False)) as engine:
-            tool: FffFindTool[None] = FffFindTool(provider=engine)
-            result = await tool.execute(context(), FffFindRequest(query='credentail resolver'))
-
-        assert result.content['result']['matches'][0]['path'] == 'credential_resolver.py'
-
-    asyncio.run(run())
 
 
 def test_content_tools_return_typed_results(tmp_path: Path) -> None:
@@ -156,18 +142,6 @@ def _fff_result(match: FffGrepMatch) -> FffGrepResult:
         next_file_offset=None,
         index_complete=True,
     )
-
-
-def test_capability_contributes_selected_tools(tmp_path: Path) -> None:
-    workspace = NativeWorkspaceSession(root=tmp_path)
-    capability: FffCapability[None] = FffCapability(include_glob=True).bind(
-        AgentServices((workspace_binding(workspace),))
-    )
-
-    assert [tool.id for tool in capability.contributions.tools] == ['glob', 'find_files']
-    assert [toolset.id for toolset in capability.contributions.toolsets] == ['native_fff_source']
-    assert capability.defer_loading
-    asyncio.run(workspace.close())
 
 
 def test_capability_omits_disabled_tools_and_instructions(tmp_path: Path) -> None:

@@ -285,8 +285,9 @@ The Python integration layer requires 100% branch coverage. Install the built wh
 
 Do not weaken checks or thresholds. If a repository problem blocks a check, report the exact blocker.
 
-`uv run task checks` runs the static quality gates, including the pinned `uvx` Aposlop check.
-Inspect Aposlop findings with `uvx --from aposlop==1.2.2 aposlop . --format json`.
+`uv run task checks` runs the static quality gates, including the Aposlop check.
+The check uses the latest Aposlop release through `uvx`.
+Inspect Aposlop findings with `uvx aposlop . --format json`.
 Keep production duplicate, complexity, and file-length findings at zero without adding unreviewed ignores or weakening the policy.
 
 

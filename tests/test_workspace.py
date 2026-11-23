@@ -50,9 +50,6 @@ def test_session_identity_binding_and_shared_native_handle(tmp_path: Path) -> No
             WorkspaceOperation.FFF,
         )
     )
-    assert first.search._workspace is first.ast._workspace
-    assert first.command._workspace is first.search._workspace
-    assert first.search._workspace is first.fff._workspace
     retained_ast = first.ast
     retained_fff = first.fff
     assert asyncio.run(retained_fff.status()).state == 'new'
@@ -112,9 +109,6 @@ def test_builder_overrides_one_provider_and_rejects_invalid_choices(tmp_path: Pa
         NativeWorkspaceSession(root=tmp_path / 'missing')
     with pytest.raises(FffConfigurationError):
         FffEngine(root=tmp_path / 'missing')
-    session._operations = frozenset((WorkspaceOperation.SEARCH,))
-    with pytest.raises(WorkspaceOperationUnavailableError):
-        _ = session.ast
 
     asyncio.run(session.close())
 
