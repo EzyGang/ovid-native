@@ -37,6 +37,8 @@ jobs:
           python-version: '3.14'
           working-directory: ovid-native
           enable-cache: true
+          # The Ubuntu test job saves the same cache key. Two writers of one key race.
+          save-cache: false
           cache-dependency-glob: |
             uv.lock
             ../ovid-core/uv.lock
