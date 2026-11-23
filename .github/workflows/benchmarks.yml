@@ -43,6 +43,8 @@ jobs:
           python-version: '3.14'
           working-directory: ovid-native
           enable-cache: true
+          # The Ubuntu test job in the CI workflow saves the same cache key.
+          save-cache: false
           cache-dependency-glob: |
             uv.lock
             ../ovid-core/uv.lock
