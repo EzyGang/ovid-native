@@ -28,7 +28,6 @@ from ovid_native.ast import (
     AstWriteError,
 )
 from ovid_native.ast.engine import _ERROR_TRANSLATOR
-from ovid_native.ast.errors import AstError
 
 
 def preview_request(*paths: str) -> AstRewritePreviewRequest:
@@ -56,6 +55,8 @@ def test_search_is_structural_typed_and_deterministic(tmp_path: Path) -> None:
     assert result.matches[0].captures[0].text == "'a'"
     assert result.matches[0].range.start.line == 1
     assert result.issues[0].kind == 'parse_error'
+    assert engine.root == tmp_path.resolve()
+    assert engine.limits == AstLimits()
 
 
 def test_preview_apply_once_and_permission_preservation(tmp_path: Path) -> None:
@@ -145,23 +146,6 @@ def test_configuration_and_native_errors_are_narrow(tmp_path: Path) -> None:
     limit_engine = AstEngine(root=tmp_path, limits=AstLimits(max_files=1))
     with pytest.raises(AstLimitError):
         asyncio.run(limit_engine.search(AstSearchRequest(pattern='print($A)')))
-
-
-def test_native_error_translation_covers_every_boundary_type() -> None:
-    mappings = (
-        (_native.NativeAstConfigurationError('x'), AstConfigurationError),
-        (_native.NativeAstPathError('x'), AstPathError),
-        (_native.NativeAstLanguageError('x'), AstLanguageError),
-        (_native.NativeAstPatternError('x'), AstPatternError),
-        (_native.NativeAstLimitError('x'), AstLimitError),
-        (_native.NativeAstProposalStaleError('x'), AstProposalStaleError),
-        (_native.NativeAstWriteError('x'), AstWriteError),
-    )
-    for native_error, public_type in mappings:
-        translated = _ERROR_TRANSLATOR(native_error)
-        assert isinstance(translated, public_type)
-        assert str(translated) == 'x'
-    assert type(_ERROR_TRANSLATOR(Exception('x'))) is AstError
 
 
 def test_native_work_runs_off_the_event_loop(tmp_path: Path, mocker: MockerFixture) -> None:

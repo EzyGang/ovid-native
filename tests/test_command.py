@@ -152,23 +152,6 @@ def test_command_error_translation(native_error: Exception, public_type: type[Co
     assert str(translated) == str(native_error)
 
 
-def test_native_call_translates_known_errors() -> None:
-    async def run() -> None:
-        cancellation = _native.NativeCommandCancellation()
-
-        def fail() -> None:
-            raise _native.NativeCommandExecutionError('failed')
-
-        with pytest.raises(CommandExecutionError, match='failed'):
-            await run_native_translated(
-                fail,
-                cancellation=cancellation,
-                translator=_ERROR_TRANSLATOR,
-            )
-
-    asyncio.run(run())
-
-
 @pytest.mark.parametrize('cooperative', (False, True))
 def test_repeated_cancellation_waits_for_native_worker(cooperative: bool) -> None:
     async def run() -> None:

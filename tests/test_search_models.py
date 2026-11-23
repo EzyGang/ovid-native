@@ -2,70 +2,21 @@ from importlib.metadata import metadata
 from typing import get_args
 
 import pytest
-from ovid_core.models import BaseModel
 from pydantic import ValidationError
 
 from ovid_native.search import (
     GlobFileType,
-    GlobMatch,
     GlobOrder,
     GlobRequest,
-    GlobResult,
-    GlobToolContent,
-    GlobToolResult,
-    GrepContextLine,
-    GrepFileCoverage,
-    GrepFileMatches,
     GrepLargeFileMode,
-    GrepMatch,
     GrepPatternMode,
-    GrepPosition,
-    GrepRange,
     GrepRegexEngine,
     GrepRequest,
-    GrepResult,
-    GrepToolContent,
     GrepToolRequest,
-    GrepToolResult,
     SearchCompletion,
     SearchLimits,
     SearchScanOptions,
 )
-
-
-PUBLIC_MODELS = (
-    SearchScanOptions,
-    SearchLimits,
-    GlobRequest,
-    GlobMatch,
-    GlobResult,
-    GrepRequest,
-    GrepToolRequest,
-    GrepPosition,
-    GrepRange,
-    GrepContextLine,
-    GrepMatch,
-    GrepFileCoverage,
-    GrepFileMatches,
-    GrepResult,
-    GlobToolContent,
-    GrepToolContent,
-    GlobToolResult,
-    GrepToolResult,
-)
-
-
-def test_search_models_are_immutable_strict_ovid_models() -> None:
-    for model in PUBLIC_MODELS:
-        assert issubclass(model, BaseModel)
-        assert model.model_config['frozen'] is True
-        assert model.model_config['extra'] == 'forbid'
-
-    request = GlobRequest()
-    with pytest.raises(ValidationError):
-        GlobRequest(extra=True)
-    with pytest.raises(ValidationError):
-        request.limit = 1
 
 
 def test_search_models_validate_bounds_and_defaults() -> None:

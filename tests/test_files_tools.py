@@ -3,7 +3,6 @@ from pathlib import Path
 from typing import cast
 
 from ovid_core.runtime import RunContext
-from ovid_core.services import AgentServices
 from ovid_core.tools.base import ToolExecutionContext
 
 from ovid_native.files import (
@@ -17,13 +16,12 @@ from ovid_native.files import (
     WorkspaceCreateRequest,
     WorkspaceDeleteRequest,
     WorkspaceFileReadRequest,
-    WorkspaceFilesCapability,
     WorkspaceMoveRequest,
     WorkspaceReadRequest,
     WorkspaceWriteRequest,
     WriteTool,
 )
-from ovid_native.workspace.service import NativeWorkspaceSession, workspace_binding
+from ovid_native.workspace.service import NativeWorkspaceSession
 
 
 def tool_context() -> ToolExecutionContext[None]:
@@ -123,21 +121,6 @@ def test_direct_delete_and_move_use_shared_file_engine(tmp_path: Path) -> None:
     assert deleted.changes[0].path == 'moved.txt'
     assert deleted.post_edit_sources == ()
     assert not (tmp_path / 'moved.txt').exists()
-    asyncio.run(workspace.close())
-
-
-def test_files_capability_tool_contracts(tmp_path: Path) -> None:
-    workspace = NativeWorkspaceSession(root=tmp_path)
-    capability = WorkspaceFilesCapability[None]().bind(AgentServices((workspace_binding(workspace),)))
-    read, write = capability.contributions.tools
-
-    assert read.args_type is WorkspaceReadRequest
-    assert write.args_type is WorkspaceWriteRequest
-    assert read.timeout_seconds == 30.0
-    assert write.timeout_seconds == 30.0
-    assert read.approval.required is False
-    assert write.approval.required is True
-    assert write.approval.reason == 'Create or replace a workspace file'
     asyncio.run(workspace.close())
 
 

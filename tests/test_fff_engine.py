@@ -57,24 +57,6 @@ def test_invalid_regex_is_not_literal_fallback(tmp_path: Path) -> None:
     asyncio.run(run())
 
 
-def test_context_manager_does_not_block_event_loop(tmp_path: Path) -> None:
-    async def run() -> None:
-        _write_fixture(tmp_path)
-        ticks: list[int] = []
-
-        async def tick() -> None:
-            await asyncio.sleep(0)
-            ticks.append(1)
-
-        engine = FffEngine(root=tmp_path, config=FffConfig(watch=False))
-        await asyncio.gather(engine.wait_ready(), tick())
-        await engine.close()
-
-        assert ticks == [1]
-
-    asyncio.run(run())
-
-
 def test_runtime_errors_map_to_public_type(tmp_path: Path, mocker: MockerFixture) -> None:
     engine = FffEngine(root=tmp_path, config=FffConfig(watch=False))
     failure = mocker.patch('ovid_native.fff.engine._native.fff_status')

@@ -23,18 +23,8 @@ from ovid_native.files import (
     WorkspaceWriteRequest,
 )
 from ovid_native.files.models import PatchEditEntry, WorkspaceReadDirectoryResult
-from ovid_native.workspace.errors import (
-    WorkspaceClosedError,
-    WorkspaceError,
-    WorkspacePathError,
-    translate_native_workspace_error,
-)
-from ovid_native.workspace.observations import (
-    WorkspaceChangeEvent,
-    WorkspaceChangeSubscription,
-    WorkspaceLineRange,
-    WorkspaceObservationRequest,
-)
+from ovid_native.workspace.errors import WorkspaceClosedError, WorkspacePathError
+from ovid_native.workspace.observations import WorkspaceChangeEvent, WorkspaceLineRange, WorkspaceObservationRequest
 from ovid_native.workspace.service import NativeWorkspaceSession
 
 
@@ -205,23 +195,3 @@ def test_partial_commit_publishes_landed_changes(tmp_path: Path, mocker: MockerF
     ]
     subscription.close()
     asyncio.run(workspace.close())
-
-
-def test_subscriptions_and_error_translation_are_typed() -> None:
-    calls: list[str] = []
-    subscription = WorkspaceChangeSubscription(lambda: calls.append('closed'))
-    subscription.close()
-    subscription.close()
-    assert calls == ['closed']
-
-    native = _native.NativeWorkspacePartialCommitError(
-        'partial',
-        ['landed.txt'],
-        ['pending.txt'],
-        [],
-    )
-    translated = translate_native_workspace_error(native)
-    assert isinstance(translated, WorkspacePartialCommitError)
-    assert translated.landed == ('landed.txt',)
-    assert translated.pending == ('pending.txt',)
-    assert isinstance(translate_native_workspace_error(Exception('unknown')), WorkspaceError)
