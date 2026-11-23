@@ -98,8 +98,7 @@ _ERROR_TRANSLATOR = NativeErrorTranslator(
         _native.NativeWorkspaceWriteError: WorkspaceWriteError,
         _native.NativeWorkspacePathError: WorkspacePathError,
         _native.NativeWorkspaceClosedError: WorkspaceClosedError,
-    },
-    fallback=WorkspaceError,
+    }
 )
 
 

@@ -7,7 +7,6 @@ from ovid_native.discovery.errors import (
     FileDiscoveryCancelledError,
     FileDiscoveryConfigurationError,
     FileDiscoveryEncodingError,
-    FileDiscoveryError,
     FileDiscoveryPathError,
     FileDiscoveryReadError,
 )
@@ -22,8 +21,7 @@ _ERROR_TRANSLATOR = NativeErrorTranslator(
         _native.NativeDiscoveryEncodingError: FileDiscoveryEncodingError,
         _native.NativeDiscoveryReadError: FileDiscoveryReadError,
         _native.NativeDiscoveryCancelledError: FileDiscoveryCancelledError,
-    },
-    fallback=FileDiscoveryError,
+    }
 )
 
 

@@ -11,15 +11,11 @@ from pytest_mock import MockerFixture
 from ovid_native.fff import (
     FffByteRange,
     FffCapability,
-    FffConfig,
     FffConfigurationError,
-    FffEngine,
     FffGrepMatch,
     FffGrepRequest,
     FffGrepResult,
-    FffGrepTool,
     FffMultiGrepRequest,
-    FffMultiGrepTool,
 )
 from ovid_native.fff.tools import FffSourceToolset
 from ovid_native.files.edit_modes import EditMode
@@ -30,28 +26,9 @@ def context() -> ToolExecutionContext[None]:
     return cast('ToolExecutionContext[None]', None)
 
 
-def test_content_tools_return_typed_results(tmp_path: Path) -> None:
-    async def run() -> None:
-        (tmp_path / 'variants.txt').write_text('credential_resolver\na+b\n')
-        async with FffEngine(root=tmp_path, config=FffConfig(watch=False)) as engine:
-            grep = await FffGrepTool[None](provider=engine).execute(
-                context(),
-                FffGrepRequest(query='credential_resolver', mode='plain'),
-            )
-            multi = await FffMultiGrepTool[None](provider=engine).execute(
-                context(),
-                FffMultiGrepRequest(patterns=('a+b',)),
-            )
-
-        assert grep.content['result']['matches'][0]['line'] == 'credential_resolver'
-        assert multi.content['result']['matches'][0]['line'] == 'a+b'
-
-    asyncio.run(run())
-
-
 def test_source_toolset_captures_plain_context_and_rejects_approximate_hashline(tmp_path: Path) -> None:
     async def run() -> None:
-        (tmp_path / 'variants.txt').write_text('before\ncredential_resolver\nafter\n')
+        (tmp_path / 'variants.txt').write_text('before\ncredential_resolver\nafter\na+b\n')
         workspace = NativeWorkspaceSession(root=tmp_path, edit_mode=EditMode.APPLY_PATCH)
         await workspace.fff.start()
         await workspace.fff.wait_ready(timeout_seconds=10.0)
@@ -73,8 +50,9 @@ def test_source_toolset_captures_plain_context_and_rejects_approximate_hashline(
                 context_after=1,
             ),
         )
-        assert isinstance(plain.content, dict)
-        assert multi.id == 'multi_grep'
+        literal = await multi.execute(context(), FffMultiGrepRequest(patterns=('a+b',)))
+        assert plain.content['result']['matches'][0]['line'] == 'credential_resolver'
+        assert literal.content['result']['matches'][0]['line'] == 'a+b'
 
         workspace.edit_mode.set(EditMode.HASHLINE)
         hashline_grep = (await toolset.get_tools(run_context))[0]

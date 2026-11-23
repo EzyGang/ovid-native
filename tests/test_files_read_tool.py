@@ -37,7 +37,7 @@ def test_read_tool_supports_inline_ranges_and_bounded_continuations(tmp_path: Pa
     source = tmp_path / 'source.txt'
     source.write_text(''.join(f'line-{number}\n' for number in range(1, 401)))
     workspace = NativeWorkspaceSession(root=tmp_path)
-    read_tool = ReadTool[None](provider=workspace.files)
+    read_tool = ReadTool[None](provider=workspace.files, state=workspace.edit_mode)
 
     bounded = asyncio.run(read_tool.execute(tool_context(), WorkspaceReadRequest(path='source.txt:5')))
     bounded_lines = cast(str, bounded.content).splitlines()
@@ -77,7 +77,7 @@ def test_read_tool_combines_targets_and_keeps_partial_failures(tmp_path: Path) -
     (tmp_path / 'two.txt').write_text('first\ntwo\n')
     (tmp_path / 'literal;name.txt').write_text('literal\n')
     workspace = NativeWorkspaceSession(root=tmp_path)
-    read_tool = ReadTool[None](provider=workspace.files)
+    read_tool = ReadTool[None](provider=workspace.files, state=workspace.edit_mode)
 
     result = asyncio.run(
         read_tool.execute(
@@ -118,7 +118,7 @@ def test_read_tool_returns_expected_errors_and_allows_later_reads(
     (tmp_path / 'source.txt').write_text('recovered\n')
     (tmp_path / 'binary;name.bin').write_bytes(b'\x00binary')
     workspace = NativeWorkspaceSession(root=tmp_path)
-    read_tool = ReadTool[None](provider=workspace.files)
+    read_tool = ReadTool[None](provider=workspace.files, state=workspace.edit_mode)
 
     failed = asyncio.run(read_tool.execute(tool_context(), WorkspaceReadRequest(path=path)))
     assert failed.metadata['status'] == 'error'
@@ -138,7 +138,7 @@ def test_read_tool_propagates_unexpected_errors_and_cancellation(
 ) -> None:
     workspace = NativeWorkspaceSession(root=tmp_path)
     mocker.patch.object(workspace.files, 'read_file', side_effect=error)
-    read_tool = ReadTool[None](provider=workspace.files)
+    read_tool = ReadTool[None](provider=workspace.files, state=workspace.edit_mode)
 
     with pytest.raises(type(error)):
         asyncio.run(read_tool.execute(tool_context(), WorkspaceReadRequest(path='source.txt')))
@@ -152,7 +152,7 @@ def test_read_tool_reports_byte_limits_and_empty_files(tmp_path: Path) -> None:
         root=tmp_path,
         policy=WorkspacePolicy(max_read_bytes=3),
     )
-    read_tool = ReadTool[None](provider=workspace.files)
+    read_tool = ReadTool[None](provider=workspace.files, state=workspace.edit_mode)
 
     partial = asyncio.run(read_tool.execute(tool_context(), WorkspaceReadRequest(path='source.txt:1-3')))
     assert cast(str, partial.content).splitlines() == [
@@ -217,7 +217,7 @@ def test_read_tool_renders_nested_directories_as_a_tree(tmp_path: Path) -> None:
     (tmp_path / 'src' / 'pkg' / 'module.py').write_text('value = 1\n')
     (tmp_path / 'src' / 'root.py').write_text('value = 2\n')
     workspace = NativeWorkspaceSession(root=tmp_path)
-    read_tool = ReadTool[None](provider=workspace.files)
+    read_tool = ReadTool[None](provider=workspace.files, state=workspace.edit_mode)
 
     result = asyncio.run(
         read_tool.execute(

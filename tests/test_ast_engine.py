@@ -55,8 +55,6 @@ def test_search_is_structural_typed_and_deterministic(tmp_path: Path) -> None:
     assert result.matches[0].captures[0].text == "'a'"
     assert result.matches[0].range.start.line == 1
     assert result.issues[0].kind == 'parse_error'
-    assert engine.root == tmp_path.resolve()
-    assert engine.limits == AstLimits()
 
 
 def test_preview_apply_once_and_permission_preservation(tmp_path: Path) -> None:

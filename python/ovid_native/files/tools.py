@@ -55,22 +55,13 @@ class _FilePresentationTool[Deps, Args: BaseModel](BaseTool[Deps, Args, Workspac
     result_type = WorkspaceFilesToolResult
     timeout_seconds = 30.0
 
-    def __init__(
-        self,
-        *,
-        provider: WorkspaceFilesProvider,
-        presentation: WorkspaceSourcePresentation | None = None,
-        state: EditModeState | None = None,
-    ) -> None:
+    def __init__(self, *, provider: WorkspaceFilesProvider, state: EditModeState) -> None:
         self._provider = provider
-        self._presentation = presentation
         self._state = state
 
     def _current_presentation(self) -> WorkspaceSourcePresentation:
-        if self._state is not None:
-            selection = self._state.current
-            return capture_source_presentation(selection.mode, selection.generation)
-        return self._presentation or capture_source_presentation('apply_patch', 1)
+        selection = self._state.current
+        return capture_source_presentation(selection.mode, selection.generation)
 
 
 class ReadTool[Deps](_FilePresentationTool[Deps, WorkspaceReadRequest]):

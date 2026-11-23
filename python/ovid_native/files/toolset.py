@@ -19,8 +19,8 @@ class EditModeToolset[Deps](WorkspaceStepToolset[Deps]):
         *,
         provider: WorkspaceFilesProvider,
         state: EditModeState,
-        workspace: WorkspaceSession | None = None,
-        mode_providers: Sequence[EditModeProvider] = (),
+        workspace: WorkspaceSession,
+        mode_providers: Sequence[EditModeProvider],
     ) -> None:
         self._provider = provider
         self._state = state
@@ -70,8 +70,6 @@ class EditModeToolset[Deps](WorkspaceStepToolset[Deps]):
         provider = self._mode_providers.get(mode)
         if provider is None:
             raise ValueError(f'Workspace edit mode provider is unavailable: {mode}')
-        if self._workspace is None:
-            raise ValueError(f'Workspace edit mode provider requires a workspace session: {mode}')
         tool = provider.bind(self._workspace, selection)
         if not tool.approval.required:
             raise ValueError(f'Workspace edit mode must require approval: {mode}')

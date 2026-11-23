@@ -6,7 +6,7 @@ from ovid_core.runtime.context import RunContext
 from ovid_core.tools.base import ToolExecutionContext
 
 from ovid_native.files.edit_modes import EditMode
-from ovid_native.search import GlobRequest, GlobTool, GrepTool, GrepToolRequest, SearchEngine, SearchScanOptions
+from ovid_native.search import GlobRequest, GlobTool, GrepToolRequest, SearchScanOptions
 from ovid_native.search.tools import SearchSourceToolset
 from ovid_native.workspace.service import NativeWorkspaceSession
 
@@ -17,9 +17,14 @@ def context() -> ToolExecutionContext[None]:
 
 def test_search_tools_execute_glob_and_auto_mode_grep(tmp_path: Path) -> None:
     (tmp_path / 'sample.py').write_text('value = (\n')
-    engine = SearchEngine(root=tmp_path)
-    glob = GlobTool[None](provider=engine)
-    grep = GrepTool[None](provider=engine)
+    workspace = NativeWorkspaceSession(root=tmp_path)
+    glob = GlobTool[None](provider=workspace.search)
+    toolset = SearchSourceToolset[None](
+        provider=workspace.search,
+        state=workspace.edit_mode,
+        observations=workspace.observations,
+    )
+    grep = asyncio.run(toolset.get_tools(cast('RunContext[None]', None)))[0]
 
     discovered = asyncio.run(
         glob.execute(
@@ -37,6 +42,7 @@ def test_search_tools_execute_glob_and_auto_mode_grep(tmp_path: Path) -> None:
     assert discovered.content['result']['matches'][0]['path'] == 'sample.py'
     assert searched.content['result']['interpreted_as_literal'] is True
     assert searched.content['result']['files'][0]['matches'][0]['text'] == '('
+    asyncio.run(workspace.close())
 
 
 def test_source_toolset_keeps_inflight_presentation_and_recaptures_next_step(tmp_path: Path) -> None:

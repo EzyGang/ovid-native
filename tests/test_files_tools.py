@@ -34,8 +34,8 @@ def run_context() -> RunContext[None]:
 
 def test_read_and_write_tools_execute_both_dispatch_branches(tmp_path: Path) -> None:
     workspace = NativeWorkspaceSession(root=tmp_path)
-    read_tool = ReadTool[None](provider=workspace.files)
-    write_tool = WriteTool[None](provider=workspace.files)
+    read_tool = ReadTool[None](provider=workspace.files, state=workspace.edit_mode)
+    write_tool = WriteTool[None](provider=workspace.files, state=workspace.edit_mode)
 
     directory = asyncio.run(read_tool.execute(tool_context(), WorkspaceReadRequest(path='.')))
     assert directory.metadata == {
@@ -83,7 +83,12 @@ def test_edit_mode_toolset_executes_patch_and_recaptures_each_step(tmp_path: Pat
     (tmp_path / 'source.txt').write_text('one\n')
     workspace = NativeWorkspaceSession(root=tmp_path, edit_mode=EditMode.PATCH)
     asyncio.run(workspace.files.read_file(WorkspaceFileReadRequest(path='source.txt')))
-    toolset = EditModeToolset[None](provider=workspace.files, state=workspace.edit_mode)
+    toolset = EditModeToolset[None](
+        provider=workspace.files,
+        state=workspace.edit_mode,
+        workspace=workspace,
+        mode_providers=(),
+    )
     tools = asyncio.run(toolset.get_tools(run_context()))
     assert [tool.id for tool in tools] == ['native_files_patch']
 
@@ -138,6 +143,7 @@ def test_read_and_hashline_tools_render_captured_source_modes(tmp_path: Path) ->
             provider=workspace.files,
             state=workspace.edit_mode,
             workspace=workspace,
+            mode_providers=(),
         )
         hashline = (await toolset.get_tools(run_context()))[0]
         locator = first.split('|', maxsplit=1)[0]

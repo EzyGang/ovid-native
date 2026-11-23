@@ -29,7 +29,7 @@ class WorkspaceResultTool[Deps, Provider, Args: BaseModel, Result: ToolResult](B
 
 
 class WorkspaceSourceTool[Deps, Provider, Args: BaseModel, Result: ToolResult](BaseTool[Deps, Args, Result]):
-    def __init__(self, *, provider: Provider, presenter: WorkspaceSourcePresenter | None = None) -> None:
+    def __init__(self, *, provider: Provider, presenter: WorkspaceSourcePresenter) -> None:
         self._provider = provider
         self._presenter = presenter
 
@@ -39,8 +39,6 @@ class WorkspaceSourceTool[Deps, Provider, Args: BaseModel, Result: ToolResult](B
         observe: Callable[[Data, WorkspaceSourcePresenter], Awaitable[tuple[EditableSourceGroup, ...]]],
     ) -> Result:
         metadata = {'result': result.model_dump(mode='json')}
-        if self._presenter is None:
-            return self.result_type(content=metadata)
         groups = await observe(result, self._presenter)
         if self._presenter.presentation.format == 'hashline':
             content = '\n\n'.join(group.render(self._presenter.presentation) for group in groups)

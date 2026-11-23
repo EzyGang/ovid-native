@@ -9,19 +9,12 @@ class NativeCancellation(Protocol):
 
 
 class NativeErrorTranslator[Error: Exception]:
-    def __init__(
-        self,
-        mapping: dict[type[Exception], type[Error]],
-        *,
-        fallback: type[Error],
-    ) -> None:
+    def __init__(self, mapping: dict[type[Exception], type[Error]]) -> None:
         self.native_errors = tuple(mapping)
         self._mapping = mapping
-        self._fallback = fallback
 
     def __call__(self, error: Exception) -> Error:
-        public_type = self._mapping.get(type(error), self._fallback)
-        return public_type(str(error))
+        return self._mapping[type(error)](str(error))
 
 
 async def run_native[Result](

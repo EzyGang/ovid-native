@@ -24,14 +24,6 @@ impl NativeWorkspace {
     }
 }
 
-#[pymethods]
-impl NativeWorkspace {
-    #[getter]
-    fn root(&self) -> String {
-        self.inner.root().to_string_lossy().into_owned()
-    }
-}
-
 #[pyclass(frozen, skip_from_py_object)]
 #[derive(Clone, Debug)]
 struct NativeWorkspaceMutation {

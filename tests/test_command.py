@@ -142,7 +142,6 @@ def test_command_provider_rejects_unavailable_and_closed_workspace(tmp_path: Pat
         (_native.NativeCommandExecutionError('execution'), CommandExecutionError),
         (_native.NativeCommandCancelledError('cancelled'), CommandCancelledError),
         (_native.NativeCommandClosedError('closed'), CommandClosedError),
-        (RuntimeError('unknown'), CommandError),
     ],
 )
 def test_command_error_translation(native_error: Exception, public_type: type[CommandError]) -> None:

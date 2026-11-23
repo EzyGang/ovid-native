@@ -45,8 +45,7 @@ _ERROR_TRANSLATOR = NativeErrorTranslator(
         _native.NativeFffCancelledError: FffCancelledError,
         _native.NativeFffRuntimeError: FffRuntimeError,
         _native.NativeFffStartupError: FffStartupError,
-    },
-    fallback=FffRuntimeError,
+    }
 )
 
 
@@ -111,10 +110,6 @@ class FffEngine:
                 ),
             )
         )
-
-    @property
-    def config(self) -> FffConfig:
-        return self._config
 
     async def start(self) -> FffIndexStatus:
         self._ensure_open()

@@ -8,7 +8,6 @@ from ovid_native.search import _mapping
 from ovid_native.search.errors import (
     SearchCancelledError,
     SearchConfigurationError,
-    SearchError,
     SearchLimitError,
     SearchPathError,
     SearchPatternError,
@@ -26,8 +25,7 @@ _ERROR_TRANSLATOR = NativeErrorTranslator(
         _native.NativeSearchLimitError: SearchLimitError,
         _native.NativeSearchCancelledError: SearchCancelledError,
         _native.NativeSearchReadError: SearchReadError,
-    },
-    fallback=SearchError,
+    }
 )
 
 
@@ -40,7 +38,6 @@ class SearchEngine:
             raise SearchConfigurationError(str(error)) from error
 
         self._workspace = workspace
-        self._root = root.resolve(strict=True)
         self._limits = limits if limits is not None else SearchLimits()
 
     @classmethod
@@ -52,17 +49,8 @@ class SearchEngine:
     ) -> Self:
         engine = cls.__new__(cls)
         engine._workspace = workspace
-        engine._root = Path(workspace.root)
         engine._limits = limits if limits is not None else SearchLimits()
         return engine
-
-    @property
-    def root(self) -> Path:
-        return self._root
-
-    @property
-    def limits(self) -> SearchLimits:
-        return self._limits
 
     async def glob(self, request: GlobRequest) -> GlobResult:
         self._ensure_open()
