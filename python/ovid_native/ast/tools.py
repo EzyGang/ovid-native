@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from ovid_core.tools.base import BaseTool, ToolExecutionContext
-from ovid_core.tools.models import ToolApproval
+from ovid_core.tools.models import ToolApproval, ToolEffect
 
 from ovid_native.ast.models import (
     AstMatch,
@@ -82,6 +82,7 @@ class AstEditPreviewTool[Deps](
     description = AST_EDIT_PREVIEW_DESCRIPTION
     args_type = AstRewritePreviewRequest
     result_type = AstRewritePreviewToolResult
+    effect = ToolEffect(kind='read', replay='safe')
     timeout_seconds = 30.0
     defer_loading = True
 
@@ -97,6 +98,7 @@ class AstEditApplyTool[Deps](
     args_type = AstRewriteApplyRequest
     result_type = AstRewriteApplyToolResult
     approval = ToolApproval(required=True, reason='Apply a staged structural rewrite to workspace files')
+    effect = ToolEffect(kind='workspace_write', replay='unsafe')
     timeout_seconds = 30.0
     defer_loading = True
 

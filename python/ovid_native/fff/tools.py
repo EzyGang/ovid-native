@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from ovid_core.tools.base import BaseTool, ToolExecutionContext
+from ovid_core.tools.models import ToolEffect
 
 from ovid_native.fff.models import (
     FffFindRequest,
@@ -47,6 +48,7 @@ class FffFindTool[Deps](WorkspaceResultTool[Deps, WorkspaceFffProvider, FffFindR
     description = FIND_DESCRIPTION
     args_type = FffFindRequest
     result_type = FffFindToolResult
+    effect = ToolEffect(kind='read', replay='safe')
     timeout_seconds = 10.0
     defer_loading = True
 

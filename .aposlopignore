@@ -13,7 +13,7 @@ DHUSG
 # Declarative AST/search capabilities select distinct instructions, tools, and permissions through WorkspaceCapability.
 3irtG
 # Typed AST/FFF query entrypoints select different evidence formatters; presentation is shared in WorkspaceSourceTool.
-cd-7H
+ipUlz
 # Create/replace/move map different native arguments; write lifecycle and result handling are shared.
 aBRjQ
 # AstChange and FffIndexStatus are unrelated public model contracts.
@@ -26,14 +26,14 @@ NIf8e
 m3QGh
 # FFF and basic search limits describe different engine ceilings and defaults.
 2mW5h
-# AST preview and FFF find declare different tool operations and schemas; WorkspaceResultTool owns common execution.
-s-I3m
+# AST preview/apply and FFF find declare different tool operations, schemas, and effects; WorkspaceResultTool owns common execution.
+8wsss
 # Replace/patch are distinct typed mutation dispatchers; _WorkspaceEditTool owns common execution.
-J1iFr
+XkGeg
 # Glob/grep retain separate typed PyO3 exports over the shared request_operation.
 mS3Ot
 # Typed query/evidence dispatch hooks remain distinct after shared source-presentation extraction.
-ZU69v
+d6RYi
 # FFF/basic search register different export catalogues through the shared registration macro.
 l9Izy
 # Directory and multi-target read metadata describe different output structures.
@@ -43,4 +43,4 @@ GFCV4
 # Observation, directory-tree, and edit results preserve distinct fixed PyO3 tuple layouts.
 kwrt4
 # Declarative AST/basic-search toolsets select different typed tools; per-step binding is already shared.
-BHBu9
+Mav1o
