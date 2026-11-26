@@ -1,4 +1,4 @@
-use fff_search::{FuzzySearchOptions, MixedItemRef, PaginationArgs};
+use fff_search::{FuzzySearchOptions, MixedItemRef, PaginationArgs, Score};
 
 use crate::fff::FffError;
 use crate::fff::engine::FffEngineState;
@@ -29,54 +29,44 @@ pub(crate) fn find(
         },
         ..Default::default()
     };
-    let guard = engine
-        .picker
-        .read()
-        .map_err(|error| FffError::Runtime(error.to_string()))?;
-    let picker = guard
-        .as_ref()
-        .ok_or_else(|| FffError::Runtime("FFF picker is unavailable".to_owned()))?;
-
-    let (matches, total_matches) = match request.kind.as_str() {
+    let (matches, total_matches) = engine.with_picker(|picker| match request.kind.as_str() {
         "file" => {
             let result = picker.fuzzy_search(&query, None, options);
-            let values: Vec<NativeFffPathMatch> = result
-                .items
-                .into_iter()
-                .zip(result.scores)
-                .map(|(item, score)| file_match(picker, item, score.exact_match))
-                .collect();
-            (values, result.total_matched)
+            let values = path_matches(picker, result.items, result.scores, file_match);
+            Ok((values, result.total_matched))
         }
         "directory" => {
             let result = picker.fuzzy_search_directories(&query, options);
-            let values: Vec<NativeFffPathMatch> = result
-                .items
-                .into_iter()
-                .zip(result.scores)
-                .map(|(item, score)| directory_match(picker, item, score.exact_match))
-                .collect();
-            (values, result.total_matched)
+            let values = path_matches(picker, result.items, result.scores, directory_match);
+            Ok((values, result.total_matched))
         }
         "any" => {
             let result = picker.fuzzy_search_mixed(&query, None, options);
-            let values: Vec<NativeFffPathMatch> = result
-                .items
-                .into_iter()
-                .zip(result.scores)
-                .map(|(item, score)| match item {
-                    MixedItemRef::File(item) => file_match(picker, item, score.exact_match),
-                    MixedItemRef::Dir(item) => directory_match(picker, item, score.exact_match),
-                })
-                .collect();
-            (values, result.total_matched)
+            let values = path_matches(picker, result.items, result.scores, mixed_match);
+            Ok((values, result.total_matched))
         }
-        _ => return Err(FffError::Configuration("unknown FFF find kind".to_owned())),
-    };
+        _ => Err(FffError::Configuration("unknown FFF find kind".to_owned())),
+    })?;
     let next_offset =
         (request.offset + matches.len() < total_matches).then_some(request.offset + matches.len());
 
     Ok((matches, total_matches, next_offset, true))
+}
+
+fn path_matches<I, F>(
+    picker: &fff_search::FilePicker,
+    items: Vec<I>,
+    scores: Vec<Score>,
+    path_match: F,
+) -> Vec<NativeFffPathMatch>
+where
+    F: Fn(&fff_search::FilePicker, I, bool) -> NativeFffPathMatch,
+{
+    items
+        .into_iter()
+        .zip(scores)
+        .map(|(item, score)| path_match(picker, item, score.exact_match))
+        .collect()
 }
 
 fn file_match(
@@ -113,6 +103,17 @@ fn directory_match(
         None,
         "unknown".to_owned(),
     )
+}
+
+fn mixed_match(
+    picker: &fff_search::FilePicker,
+    item: MixedItemRef<'_>,
+    exact_match: bool,
+) -> NativeFffPathMatch {
+    match item {
+        MixedItemRef::File(item) => file_match(picker, item, exact_match),
+        MixedItemRef::Dir(item) => directory_match(picker, item, exact_match),
+    }
 }
 
 pub(crate) fn normalize_path(value: String) -> String {

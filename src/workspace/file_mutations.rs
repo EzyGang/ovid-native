@@ -29,23 +29,14 @@ impl Workspace {
         }
         context.ensure_active()?;
         create_file(self.root(), &path, &text.serialize(), parents_allowed)?;
-        let (file_generation, revision) = self.mark_file_changed(&path)?;
         let after = sha256(text.source.as_bytes());
-        let post = self.record_post_edit(&path, &text, file_generation, None, &context.policy)?;
-        let observation = post.as_ref().map(|source| source.observation.clone());
+        let (change, post) = self
+            .record_edit(&path, &text, None, &context.policy)?
+            .into_change(path, "create", None, None, after);
 
         Ok(edit_result(
             context,
-            vec![FileChange {
-                path: path.clone(),
-                operation: "create".to_owned(),
-                destination: None,
-                before_sha256: None,
-                after_sha256: Some(after),
-                observation,
-                file_generation,
-                revision,
-            }],
+            vec![change],
             post.into_iter().collect(),
             None,
             None,
@@ -72,24 +63,14 @@ impl Workspace {
         let replacement = NormalizedText::from_replacement(content);
         context.ensure_active()?;
         atomic_replace_path(&target, &path, &before, &replacement.serialize())?;
-        let (file_generation, revision) = self.mark_file_changed(&path)?;
         let after = sha256(replacement.source.as_bytes());
-        let post =
-            self.record_post_edit(&path, &replacement, file_generation, None, &context.policy)?;
-        let observation = post.as_ref().map(|source| source.observation.clone());
+        let (change, post) = self
+            .record_edit(&path, &replacement, None, &context.policy)?
+            .into_change(path, "update", None, Some(before), after);
 
         Ok(edit_result(
             context,
-            vec![FileChange {
-                path: path.clone(),
-                operation: "update".to_owned(),
-                destination: None,
-                before_sha256: Some(before),
-                after_sha256: Some(after),
-                observation,
-                file_generation,
-                revision,
-            }],
+            vec![change],
             post.into_iter().collect(),
             None,
             None,
@@ -105,11 +86,7 @@ impl Workspace {
         let _coordinator = self.write_guard()?;
         context.ensure_active()?;
 
-        let (target, current) = load_current(self, &path, &context.policy)?;
-        let before = sha256(current.source.as_bytes());
-        self.observations()?
-            .current(&path, &before)?
-            .require_complete(&path)?;
+        let (target, _, before) = self.load_complete_file(&path, &context.policy)?;
         context.ensure_active()?;
         fs::remove_file(&target)
             .map_err(|error| WorkspaceError::Write(format!("cannot delete {path}: {error}")))?;
@@ -142,38 +119,25 @@ impl Workspace {
         let path = normalize_relative(path)?;
         let destination = normalize_relative(destination)?;
         let _coordinator = self.write_guard()?;
-        let (target, current) = load_current(self, &path, &context.policy)?;
-        let before = sha256(current.source.as_bytes());
-        self.observations()?
-            .current(&path, &before)?
-            .require_complete(&path)?;
+        let (target, current, before) = self.load_complete_file(&path, &context.policy)?;
         context.ensure_active()?;
         let destination_path =
             crate::workspace::path::resolve_new_file(self.root(), &destination, false)?;
         context.ensure_active()?;
         move_file_noclobber(&target, &destination_path, &path, &destination)?;
-        let (file_generation, revision) = self.mark_file_changed(&destination)?;
-        let post = self.record_post_edit(
-            &destination,
-            &current,
-            file_generation,
-            None,
-            &context.policy,
-        )?;
-        let observation = post.as_ref().map(|source| source.observation.clone());
+        let (change, post) = self
+            .record_edit(&destination, &current, None, &context.policy)?
+            .into_change(
+                path,
+                "move",
+                Some(destination),
+                Some(before.clone()),
+                before,
+            );
 
         Ok(edit_result(
             context,
-            vec![FileChange {
-                path: path.clone(),
-                operation: "move".to_owned(),
-                destination: Some(destination.clone()),
-                before_sha256: Some(before.clone()),
-                after_sha256: Some(before),
-                observation,
-                file_generation,
-                revision,
-            }],
+            vec![change],
             post.into_iter().collect(),
             None,
             None,

@@ -107,14 +107,7 @@ impl FffEngineState {
             ));
         }
 
-        let guard = self
-            .picker
-            .read()
-            .map_err(|error| FffError::Runtime(error.to_string()))?;
-        let picker = guard
-            .as_ref()
-            .ok_or_else(|| FffError::Runtime("FFF picker is unavailable".to_owned()))?;
-        let progress = picker.get_scan_progress();
+        let progress = self.with_picker(|picker| Ok(picker.get_scan_progress()))?;
         let complete = !progress.is_scanning && progress.is_warmup_complete;
         let state = if complete { "ready" } else { "indexing" };
 
@@ -125,6 +118,20 @@ impl FffEngineState {
             self.config.watch,
             self.config.enable_content_indexing,
         ))
+    }
+
+    pub(crate) fn with_picker<T, F>(&self, operation: F) -> Result<T, FffError>
+    where
+        F: FnOnce(&FilePicker) -> Result<T, FffError>,
+    {
+        let guard = self
+            .picker
+            .read()
+            .map_err(|error| FffError::Runtime(error.to_string()))?;
+        let picker = guard
+            .as_ref()
+            .ok_or_else(|| FffError::Runtime("FFF picker is unavailable".to_owned()))?;
+        operation(picker)
     }
 
     pub(crate) fn rescan(&self) -> Result<NativeFffIndexStatus, FffError> {

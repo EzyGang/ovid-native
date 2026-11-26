@@ -153,13 +153,7 @@ pub(crate) fn atomic_replace_path(
     expected_sha256: &str,
     contents: &[u8],
 ) -> Result<(), WorkspaceError> {
-    let current = fs::read(target)
-        .map_err(|_| WorkspaceError::Stale(format!("cannot read rewrite target: {relative}")))?;
-    if sha256(NormalizedText::decode(current)?.source.as_bytes()) != expected_sha256 {
-        return Err(WorkspaceError::Stale(format!(
-            "rewrite target changed: {relative}"
-        )));
-    }
+    ensure_current_path(target, relative, expected_sha256)?;
     let permissions = fs::metadata(target)
         .map_err(|error| WorkspaceError::Write(format!("cannot inspect {relative}: {error}")))?
         .permissions();

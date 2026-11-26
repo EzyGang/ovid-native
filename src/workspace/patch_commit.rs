@@ -71,22 +71,12 @@ impl Workspace {
                 let create_parents = context.policy.create_parent_directories;
                 context.ensure_active()?;
                 create_file(self.root(), &path, &text.serialize(), create_parents)?;
-                let (file_generation, revision) = self.mark_file_changed(&path)?;
                 let after = sha256(text.source.as_bytes());
-                let post =
-                    self.record_post_edit(&path, &text, file_generation, None, &context.policy)?;
-                let observation = post.as_ref().map(|source| source.observation.clone());
+                let (change, post) = self
+                    .record_edit(&path, &text, None, &context.policy)?
+                    .into_change(path.clone(), "create", None, None, after);
                 post_edit_sources.extend(post);
-                changes.push(FileChange {
-                    path: path.clone(),
-                    operation: "create".to_owned(),
-                    destination: None,
-                    before_sha256: None,
-                    after_sha256: Some(after),
-                    observation,
-                    file_generation,
-                    revision,
-                });
+                changes.push(change);
                 Ok(path)
             }
             PreparedOperation::Update {
@@ -108,27 +98,18 @@ impl Workspace {
                     }
                     None => (path.clone(), "update", None),
                 };
-                let (file_generation, revision) = self.mark_file_changed(&result_path)?;
                 let after = sha256(text.source.as_bytes());
-                let post = self.record_post_edit(
-                    &result_path,
-                    &text,
-                    file_generation,
-                    changed,
-                    &context.policy,
-                )?;
-                let observation = post.as_ref().map(|source| source.observation.clone());
+                let (change, post) = self
+                    .record_edit(&result_path, &text, changed, &context.policy)?
+                    .into_change(
+                        path.clone(),
+                        operation,
+                        destination_name,
+                        Some(before),
+                        after,
+                    );
                 post_edit_sources.extend(post);
-                changes.push(FileChange {
-                    path: path.clone(),
-                    operation: operation.to_owned(),
-                    destination: destination_name,
-                    before_sha256: Some(before),
-                    after_sha256: Some(after),
-                    observation,
-                    file_generation,
-                    revision,
-                });
+                changes.push(change);
                 Ok(path)
             }
             PreparedOperation::Delete {

@@ -150,12 +150,7 @@ impl PatchOperation {
                 self.path
             )));
         }
-        let (target, current) = load_current(workspace, &self.path, &context.policy)?;
-        let before = sha256(current.source.as_bytes());
-        workspace
-            .observations()?
-            .current(&self.path, &before)?
-            .require_complete(&self.path)?;
+        let (target, _, before) = workspace.load_complete_file(&self.path, &context.policy)?;
         Ok(PreparedOperation::Delete {
             path: self.path.clone(),
             target,

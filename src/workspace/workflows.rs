@@ -16,6 +16,12 @@ pub(crate) struct MutationContext {
     pub cancellation: crate::workspace::Cancellation,
 }
 
+pub(crate) struct RecordedEdit {
+    file_generation: u64,
+    revision: u64,
+    post: Option<PostEditSource>,
+}
+
 impl MutationContext {
     pub(crate) fn write(
         policy: PolicyGeneration,
@@ -106,6 +112,58 @@ impl Workspace {
             lines,
             complete_presentation,
         }))
+    }
+
+    pub(crate) fn record_edit(
+        &self,
+        path: &str,
+        text: &NormalizedText,
+        changed: Option<LineRange>,
+        policy: &WorkspacePolicy,
+    ) -> Result<RecordedEdit, WorkspaceError> {
+        let (file_generation, revision) = self.mark_file_changed(path)?;
+        let post = self.record_post_edit(path, text, file_generation, changed, policy)?;
+        Ok(RecordedEdit {
+            file_generation,
+            revision,
+            post,
+        })
+    }
+
+    pub(crate) fn load_complete_file(
+        &self,
+        path: &str,
+        policy: &WorkspacePolicy,
+    ) -> Result<(std::path::PathBuf, NormalizedText, String), WorkspaceError> {
+        let (target, current) = load_current(self, path, policy)?;
+        let before = sha256(current.source.as_bytes());
+        self.observations()?
+            .current(path, &before)?
+            .require_complete(path)?;
+        Ok((target, current, before))
+    }
+}
+
+impl RecordedEdit {
+    pub(crate) fn into_change(
+        self,
+        path: String,
+        operation: &str,
+        destination: Option<String>,
+        before_sha256: Option<String>,
+        after_sha256: String,
+    ) -> (FileChange, Option<PostEditSource>) {
+        let change = FileChange {
+            path,
+            operation: operation.to_owned(),
+            destination,
+            before_sha256,
+            after_sha256: Some(after_sha256),
+            observation: self.post.as_ref().map(|source| source.observation.clone()),
+            file_generation: self.file_generation,
+            revision: self.revision,
+        };
+        (change, self.post)
     }
 }
 

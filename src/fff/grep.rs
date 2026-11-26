@@ -119,25 +119,20 @@ pub(crate) fn multi_grep(
         cancellation,
     )?;
     let patterns: Vec<&str> = request.patterns.iter().map(String::as_str).collect();
-    let guard = engine
-        .picker
-        .read()
-        .map_err(|error| FffError::Runtime(error.to_string()))?;
-    let picker = guard
-        .as_ref()
-        .ok_or_else(|| FffError::Runtime("FFF picker is unavailable".to_owned()))?;
-    let started = Instant::now();
-    let result = picker.multi_grep(&patterns, &parsed.constraints, &options);
+    engine.with_picker(|picker| {
+        let started = Instant::now();
+        let result = picker.multi_grep(&patterns, &parsed.constraints, &options);
 
-    map_grep_result(
-        picker,
-        result,
-        "plain",
-        None,
-        false,
-        true,
-        time_budget_reached(started, request.timeout_seconds),
-    )
+        map_grep_result(
+            picker,
+            result,
+            "plain",
+            None,
+            false,
+            true,
+            time_budget_reached(started, request.timeout_seconds),
+        )
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -165,28 +160,23 @@ fn execute_grep(
         mode,
         cancellation,
     )?;
-    let guard = engine
-        .picker
-        .read()
-        .map_err(|error| FffError::Runtime(error.to_string()))?;
-    let picker = guard
-        .as_ref()
-        .ok_or_else(|| FffError::Runtime("FFF picker is unavailable".to_owned()))?;
-    let started = Instant::now();
-    let result = picker.grep(query, &options);
-    if let Some(error) = result.regex_fallback_error.as_ref() {
-        return Err(FffError::Pattern(error.clone()));
-    }
+    engine.with_picker(|picker| {
+        let started = Instant::now();
+        let result = picker.grep(query, &options);
+        if let Some(error) = result.regex_fallback_error.as_ref() {
+            return Err(FffError::Pattern(error.clone()));
+        }
 
-    map_grep_result(
-        picker,
-        result,
-        actual_mode,
-        fallback_from,
-        approximate,
-        true,
-        time_budget_reached(started, request.timeout_seconds),
-    )
+        map_grep_result(
+            picker,
+            result,
+            actual_mode,
+            fallback_from,
+            approximate,
+            true,
+            time_budget_reached(started, request.timeout_seconds),
+        )
+    })
 }
 
 #[allow(clippy::too_many_arguments)]

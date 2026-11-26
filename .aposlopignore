@@ -39,8 +39,10 @@ l9Izy
 # Directory and multi-target read metadata describe different output structures.
 X1mI4
 # AST search/preview retain separate request/result types over the shared read_operation.
-GFCV4
+2POrv
 # Observation, directory-tree, and edit results preserve distinct fixed PyO3 tuple layouts.
 kwrt4
 # Declarative AST/basic-search toolsets select different typed tools; per-step binding is already shared.
 BHBu9
+# AST search and basic glob/grep each pass a different native function and mapper to the shared run_native_translated helper.
+xkLa8

@@ -6,7 +6,7 @@ use crate::ast::rewrite::{apply, preview};
 use crate::ast::search::search;
 use crate::ast::types::{
     ApplyResult, Limits, NativeAstCancellation, NativeAstRewriteComputation, PreviewResult,
-    RewriteRequest, ScanOptions, SearchRequest, SearchResult,
+    RewriteRequest, ScanOptions, SearchRequest, SearchResult, SourceScope,
 };
 use crate::python_boundary::{python_errors, register_exports};
 use crate::workspace::NativeWorkspace;
@@ -97,14 +97,10 @@ impl NativeAstSearchRequest {
         Self {
             inner: SearchRequest {
                 pattern,
-                scan: scan.inner.clone(),
-                language,
-                strictness,
+                scope: source_scope(&scan, language, strictness, &limits, &cancellation),
                 offset: options.0,
                 limit: options.1,
                 include_captures: options.2,
-                limits: limits.inner,
-                cancellation: cancellation.token(),
             },
         }
     }
@@ -129,13 +125,25 @@ impl NativeAstRewriteRequest {
         Self {
             inner: RewriteRequest {
                 operations,
-                scan: scan.inner.clone(),
-                language,
-                strictness,
-                limits: limits.inner,
-                cancellation: cancellation.token(),
+                scope: source_scope(&scan, language, strictness, &limits, &cancellation),
             },
         }
+    }
+}
+
+fn source_scope(
+    scan: &NativeAstScanOptions,
+    language: Option<String>,
+    strictness: String,
+    limits: &NativeAstLimits,
+    cancellation: &NativeAstCancellation,
+) -> SourceScope {
+    SourceScope {
+        scan: scan.inner.clone(),
+        language,
+        strictness,
+        limits: limits.inner,
+        cancellation: cancellation.token(),
     }
 }
 
