@@ -74,6 +74,6 @@ class FffCapability[Deps](WorkspaceCapability[Deps]):
             instructions.append('Use multi_grep for literal OR searches across naming variants.')
         instructions.append(
             'FFF searches a warm indexed subset and may exclude ignored, binary, or oversized files; empty FFF results '
-            'do not prove absence. When available, use AST tools for syntax structure and LSP for symbol identity.'
+            'do not prove absence.'
         )
         return ' '.join(instructions)

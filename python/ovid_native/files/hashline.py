@@ -2,7 +2,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, cast
 
-from lark import Lark, Token, Tree, UnexpectedInput
+from lark import Lark, Token, Tree, UnexpectedCharacters, UnexpectedToken
 
 from ovid_native import _native
 from ovid_native.workspace.errors import WorkspacePatchError
@@ -38,6 +38,21 @@ JSON_STRING: /"(?:\\.|[^"\\])*"/
 _WS: /[ \t]+/
 _NL: /\r?\n/
 """
+HASHLINE_EXAMPLES: tuple[str, ...] = (
+    '*** Begin Patch\n'
+    '[src/app.py#1A2B]\n'
+    'PUT 12:3F.=13:A0:\n'
+    '+    return compute(value)\n'
+    'PUT >20:9C:\n'
+    "+    log.debug('done')\n"
+    '*** End Patch\n',
+    '*** Begin Patch\n'
+    '[src/util.py#3C4D]\n'
+    'CUT 5:1E.=8:B2 @helper\n'
+    'PUT <30:7F @helper\n'
+    'MV src/helpers.py\n'
+    '*** End Patch\n',
+)
 _PARSER = Lark(HASHLINE_GRAMMAR, parser='lalr', lexer='contextual')
 _MAX_INPUT_BYTES = 1024 * 1024
 _MAX_OPERATIONS = 1024
@@ -58,8 +73,25 @@ def parse_hashline(value: str) -> list[_native.NativeHashlineSection]:
 
     try:
         document = _PARSER.parse(value)
-    except UnexpectedInput as error:
-        raise WorkspacePatchError(f'Malformed Hashline input at line {error.line}, column {error.column}') from error
+    except (UnexpectedToken, UnexpectedCharacters) as error:
+        names = error.expected if isinstance(error, UnexpectedToken) else error.allowed
+        labels = {
+            'HEADER': '[path#TAG]',
+            'LINE_HASH': 'LINE:hh',
+            'REGISTER': '@name',
+            'BODY': '+body',
+            'DEST': 'destination',
+            'JSON_STRING': 'destination',
+            '_WS': 'space',
+            '_NL': 'newline',
+            '$END': 'end of input',
+        }
+        expected = ', '.join(sorted({labels.get(name) or _PARSER.get_terminal(name).pattern.value for name in names}))
+        excerpt = value.split('\n')[error.line - 1].rstrip('\r')[:120]
+        raise WorkspacePatchError(
+            f'Malformed Hashline input at line {error.line}, column {error.column}: expected one of {expected}. '
+            f'Line {error.line}: {excerpt}'
+        ) from error
 
     sections = [_section(cast(Tree[Any], child)) for child in document.children]
     operation_count = sum(len(section[2]) for section in sections)

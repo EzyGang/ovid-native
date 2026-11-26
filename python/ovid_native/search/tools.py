@@ -30,15 +30,14 @@ GLOB_DESCRIPTION = (
     'does not prove absence.'
 )
 GREP_DESCRIPTION = (
-    'Search workspace file contents using embedded ripgrep. Use regex for text and configuration searches; use AST '
-    'tools when syntax shape matters and LSP when symbol identity matters. Results are grouped and paginated by file '
-    'so one hot file cannot consume the response. Partial large-file coverage, limits, and timeouts are reported.'
+    'Search workspace file contents using embedded ripgrep. Use regex for text and configuration searches. Results '
+    'are grouped and paginated by file so one hot file cannot consume the response. Partial large-file coverage, '
+    'limits, and timeouts are reported.'
 )
 SEARCH_TOOL_INSTRUCTIONS = (
     'Use glob to discover workspace paths and grep to search file content. Narrow broad grep searches with paths or '
     'glob results. Grep pages by matching files and limits matches within each file; use the returned next offset to '
-    'continue. A timeout, scan limit, or partial large-file coverage does not prove absence. Use AST tools for '
-    'syntax-shaped searches and LSP for symbol identity.'
+    'continue. A timeout, scan limit, or partial large-file coverage does not prove absence.'
 )
 
 
