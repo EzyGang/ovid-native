@@ -9,15 +9,17 @@ pub(crate) struct CommandRequest {
     pub env: Vec<(String, String)>,
     pub timeout: Duration,
     pub max_output_bytes: usize,
+    pub max_head_bytes: usize,
     pub cancellation: CommandCancellation,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CommandResult {
-    pub output: String,
+    pub head: String,
+    pub tail: String,
+    pub omitted_bytes: u64,
     pub exit_code: Option<i32>,
     pub timed_out: bool,
-    pub truncated: bool,
     pub wall_time_ms: u64,
 }
 
@@ -39,6 +41,40 @@ impl CommandCancellation {
 
     pub(crate) fn is_cancelled(&self) -> bool {
         self.inner.is_cancelled()
+    }
+}
+
+impl CommandRequest {
+    pub(crate) fn validate(&self) -> Result<(), CommandError> {
+        if self.command.contains('\0') {
+            return Err(CommandError::Configuration(
+                "command cannot contain NUL bytes".to_owned(),
+            ));
+        }
+        if self.timeout < Duration::from_secs(1) || self.timeout > Duration::from_secs(3_600) {
+            return Err(CommandError::Configuration(
+                "command timeout must be between 1 and 3600 seconds".to_owned(),
+            ));
+        }
+        if self.max_output_bytes == 0 {
+            return Err(CommandError::Configuration(
+                "command output limit must be positive".to_owned(),
+            ));
+        }
+        if self.max_head_bytes > self.max_output_bytes {
+            return Err(CommandError::Configuration(
+                "command head limit cannot exceed the output limit".to_owned(),
+            ));
+        }
+        for (name, value) in &self.env {
+            if name.is_empty() || name.contains('=') || name.contains('\0') || value.contains('\0')
+            {
+                return Err(CommandError::Configuration(
+                    "command environment contains an invalid entry".to_owned(),
+                ));
+            }
+        }
+        Ok(())
     }
 }
 

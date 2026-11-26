@@ -1,6 +1,6 @@
 from typing import Literal
 
-type NativeCommandResult = tuple[str, int | None, bool, bool, int]
+type NativeCommandResult = tuple[str, str, int, int | None, bool, int]
 type NativeWorkspaceObservationReceipt = tuple[str, str, str, int, list[tuple[int, int]], bool]
 type NativeWorkspaceRenderedLine = tuple[int, str, str]
 type NativeWorkspaceTextSerialization = tuple[bool, Literal['lf', 'crlf', 'cr'], bool]
@@ -220,6 +220,7 @@ class NativeCommandRequest:
         env: list[tuple[str, str]],
         timeout_seconds: float,
         max_output_bytes: int,
+        max_head_bytes: int,
         cancellation: NativeCommandCancellation,
     ) -> NativeCommandRequest: ...
 
