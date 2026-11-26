@@ -191,8 +191,8 @@ def test_view_backed_ast_uses_configured_retention_limits(tmp_path: Path, mocker
         assert second.proposal_id
 
         clock = mocker.patch(
-            'ovid_native.workspace.views.monotonic',
-            side_effect=(0.0, 0.0, 2.0, 2.0, 3.0, 4.0, 4.0, 6.0, 6.0),
+            'ovid_native.ast.proposals.monotonic',
+            side_effect=(0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 2.5, 4.0, 4.0, 4.0, 6.0),
         )
         expiring = NativeViewAstProvider(
             views,
@@ -208,7 +208,7 @@ def test_view_backed_ast_uses_configured_retention_limits(tmp_path: Path, mocker
         expired_preview = await expiring.preview_rewrite(request)
         with pytest.raises(AstProposalExpiredError):
             await expiring.apply_rewrite(AstRewriteApplyRequest(proposal_id=expired_preview.proposal_id))
-        assert clock.call_count == 9
+        assert clock.call_count == 11
 
         await backing.close()
 

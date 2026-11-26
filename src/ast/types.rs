@@ -48,26 +48,27 @@ pub struct ScanOptions {
 }
 
 #[derive(Clone)]
-pub struct SearchRequest {
-    pub pattern: String,
+pub struct SourceScope {
     pub scan: ScanOptions,
     pub language: Option<String>,
     pub strictness: String,
-    pub offset: usize,
-    pub limit: usize,
-    pub include_captures: bool,
     pub limits: Limits,
     pub cancellation: Cancellation,
 }
 
 #[derive(Clone)]
+pub struct SearchRequest {
+    pub pattern: String,
+    pub scope: SourceScope,
+    pub offset: usize,
+    pub limit: usize,
+    pub include_captures: bool,
+}
+
+#[derive(Clone)]
 pub struct RewriteRequest {
     pub operations: Vec<(String, String)>,
-    pub scan: ScanOptions,
-    pub language: Option<String>,
-    pub strictness: String,
-    pub limits: Limits,
-    pub cancellation: Cancellation,
+    pub scope: SourceScope,
 }
 
 #[derive(Clone)]

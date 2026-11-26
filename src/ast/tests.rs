@@ -8,42 +8,41 @@ use crate::ast::rewrite::{apply, preview};
 use crate::ast::search::search;
 use crate::ast::types::{
     Cancellation, Limits, NativeAstCancellation, RewriteRequest, ScanOptions, SearchRequest,
+    SourceScope,
 };
-
-fn limits() -> Limits {
-    Limits {
-        max_matches: 100,
-        max_files: 100,
-        max_file_bytes: 100_000,
-        max_replacements: 100,
-        max_changed_files: 100,
-    }
-}
 
 fn cancellation() -> Cancellation {
     NativeAstCancellation::new().token()
 }
 
-fn scan(paths: &[&str]) -> ScanOptions {
-    ScanOptions {
-        paths: paths.iter().map(|path| (*path).to_owned()).collect(),
-        include_hidden: false,
-        respect_gitignore: true,
-        include_node_modules: false,
+fn scope(paths: &[&str], language: Option<&str>) -> SourceScope {
+    SourceScope {
+        scan: ScanOptions {
+            paths: paths.iter().map(|path| (*path).to_owned()).collect(),
+            include_hidden: false,
+            respect_gitignore: true,
+            include_node_modules: false,
+        },
+        language: language.map(str::to_owned),
+        strictness: "smart".to_owned(),
+        limits: Limits {
+            max_matches: 100,
+            max_files: 100,
+            max_file_bytes: 100_000,
+            max_replacements: 100,
+            max_changed_files: 100,
+        },
+        cancellation: cancellation(),
     }
 }
 
 fn search_request(pattern: &str, paths: &[&str]) -> SearchRequest {
     SearchRequest {
         pattern: pattern.to_owned(),
-        scan: scan(paths),
-        language: None,
-        strictness: "smart".to_owned(),
+        scope: scope(paths, None),
         offset: 0,
         limit: 50,
         include_captures: true,
-        limits: limits(),
-        cancellation: cancellation(),
     }
 }
 
@@ -115,7 +114,7 @@ fn search_reports_unsupported_parse_and_file_limits() {
 
     fs::write(root.path().join("other.py"), "print(1)\n").expect("second file");
     let mut request = search_request("print($A)", &["."]);
-    request.limits.max_files = 1;
+    request.scope.limits.max_files = 1;
     assert!(matches!(
         search(&canonical(&root), request),
         Err(AstError::Limit(_))
@@ -170,11 +169,7 @@ fn preview_deduplicates_edits_and_applies_in_reverse_order() {
             ("print($A)".to_owned(), "log($A)".to_owned()),
             ("print($A)".to_owned(), "log($A)".to_owned()),
         ],
-        scan: scan(&["sample.py"]),
-        language: Some("python".to_owned()),
-        strictness: "smart".to_owned(),
-        limits: limits(),
-        cancellation: cancellation(),
+        scope: scope(&["sample.py"], Some("python")),
     };
     let result = preview(&canonical(&root), request).expect("preview");
     assert_eq!(result.3, 2);
@@ -201,18 +196,14 @@ fn preview_rejects_divergent_overlap_and_limits() {
             ("print($A)".to_owned(), "log($A)".to_owned()),
             ("$F($A)".to_owned(), "trace($A)".to_owned()),
         ],
-        scan: scan(&["sample.py"]),
-        language: Some("python".to_owned()),
-        strictness: "smart".to_owned(),
-        limits: limits(),
-        cancellation: cancellation(),
+        scope: scope(&["sample.py"], Some("python")),
     };
     assert!(matches!(
         preview(&canonical(&root), request.clone()),
         Err(AstError::Pattern(_))
     ));
     request.operations.pop();
-    request.limits.max_replacements = 0;
+    request.scope.limits.max_replacements = 0;
     assert!(matches!(
         preview(&canonical(&root), request),
         Err(AstError::Limit(_))
@@ -226,11 +217,7 @@ fn apply_rejects_stale_content_before_writing() {
     fs::write(root.path().join("two.py"), "print(2)\n").expect("second source");
     let request = RewriteRequest {
         operations: vec![("print($A)".to_owned(), "log($A)".to_owned())],
-        scan: scan(&["."]),
-        language: Some("python".to_owned()),
-        strictness: "smart".to_owned(),
-        limits: limits(),
-        cancellation: cancellation(),
+        scope: scope(&["."], Some("python")),
     };
     let result = preview(&canonical(&root), request).expect("preview");
     fs::write(root.path().join("two.py"), "print(3)\n").expect("stale source");
@@ -250,7 +237,7 @@ fn cancellation_stops_search_before_work() {
     fs::write(root.path().join("sample.py"), "print(1)\n").expect("source file");
     let cancellation = NativeAstCancellation::new();
     let mut request = search_request("print($A)", &["sample.py"]);
-    request.cancellation = cancellation.token();
+    request.scope.cancellation = cancellation.token();
     cancellation.cancel();
 
     assert!(matches!(

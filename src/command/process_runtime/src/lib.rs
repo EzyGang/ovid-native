@@ -1,3 +1,34 @@
+use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
+
+/// Returns every process below `roots`, including the roots, with each process after its children.
+///
+/// Roots are traversed in iteration order. A process in `visited` is skipped, and each process appears once.
+pub fn post_order<T, I>(children: &HashMap<T, Vec<T>>, roots: I, mut visited: HashSet<T>) -> Vec<T>
+where
+    T: Copy + Eq + Hash,
+    I: IntoIterator<Item = T>,
+{
+    let mut order = Vec::new();
+    for root in roots {
+        let mut stack = vec![(root, false)];
+        while let Some((pid, expanded)) = stack.pop() {
+            if expanded {
+                order.push(pid);
+                continue;
+            }
+            if !visited.insert(pid) {
+                continue;
+            }
+            stack.push((pid, true));
+            if let Some(process_children) = children.get(&pid) {
+                stack.extend(process_children.iter().copied().map(|child| (child, false)));
+            }
+        }
+    }
+    order
+}
+
 #[cfg(windows)]
 mod windows {
     use std::collections::{HashMap, HashSet};
@@ -34,31 +65,11 @@ mod windows {
                 grouped
             },
         );
-        let mut visited = HashSet::from([root]);
-        let mut order = Vec::new();
-        let mut stack = children
-            .get(&root)
+        let roots = children.get(&root).into_iter().flatten().rev().copied();
+        crate::post_order(&children, roots, HashSet::from([root]))
             .into_iter()
-            .flatten()
-            .copied()
-            .map(|pid| (pid, false))
-            .collect::<Vec<_>>();
-        while let Some((pid, expanded)) = stack.pop() {
-            if expanded {
-                if let Some(identity) = identity(pid) {
-                    order.push(identity);
-                }
-                continue;
-            }
-            if !visited.insert(pid) {
-                continue;
-            }
-            stack.push((pid, true));
-            if let Some(process_children) = children.get(&pid) {
-                stack.extend(process_children.iter().copied().map(|child| (child, false)));
-            }
-        }
-        order
+            .filter_map(identity)
+            .collect()
     }
 
     pub fn is_running(identity: ProcessIdentity) -> bool {

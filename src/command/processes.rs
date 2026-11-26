@@ -62,6 +62,7 @@ mod platform {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
+    use ovid_command_process::post_order;
     use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
     use tokio::time;
 
@@ -168,25 +169,7 @@ mod platform {
                 grouped
             },
         );
-        let mut visited = HashSet::new();
-        let mut order = Vec::new();
-        for root in roots {
-            let mut stack = vec![(*root, false)];
-            while let Some((pid, expanded)) = stack.pop() {
-                if expanded {
-                    order.push(pid);
-                    continue;
-                }
-                if !visited.insert(pid) {
-                    continue;
-                }
-                stack.push((pid, true));
-                if let Some(process_children) = children.get(&pid) {
-                    stack.extend(process_children.iter().copied().map(|child| (child, false)));
-                }
-            }
-        }
-        order
+        post_order(&children, roots.iter().copied(), HashSet::new())
     }
 }
 

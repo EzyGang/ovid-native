@@ -1,33 +1,61 @@
-use ast_grep_core::{AstGrep, tree_sitter::StrDoc};
+use std::path::Path;
+
+use ast_grep_core::{AstGrep, MatchStrictness, tree_sitter::StrDoc};
 use ast_grep_language::{LanguageExt, SupportLang};
 
 use crate::ast::{
     AstError,
-    language::{canonical_name, infer_language},
-    types::{Issue, ScanOptions},
+    language::{canonical_name, infer_language, resolve_language, strictness},
+    types::{Issue, ScanOptions, SourceScope},
 };
 use crate::workspace::{
     MetadataLevel, ReadExtent, ScanFileKind, ScanOrder, ScanRequest, WorkCompletion, WorkControl,
     Workspace, WorkspaceEntry, read_content,
 };
 
-pub(crate) fn classify_files(
-    selected: Vec<WorkspaceEntry>,
-    explicit: Option<SupportLang>,
-) -> (Vec<(WorkspaceEntry, SupportLang)>, usize) {
-    let mut files = Vec::new();
-    let mut unsupported = 0;
-    for candidate in selected {
-        match explicit.or_else(|| infer_language(&candidate.path)) {
-            Some(language) => files.push((candidate, language)),
-            None => unsupported += 1,
-        }
-    }
-    (files, unsupported)
+pub(crate) struct Selection<'a> {
+    pub files: Vec<(WorkspaceEntry, SupportLang)>,
+    pub unsupported_files: usize,
+    pub strictness: MatchStrictness,
+    pub reader: TreeReader<'a>,
 }
 
-pub(crate) fn discover_files(
-    root: &std::path::Path,
+pub(crate) struct TreeReader<'a> {
+    max_bytes: usize,
+    cancellation: &'a crate::workspace::Cancellation,
+    pub issues: Vec<Issue>,
+    pub files_searched: usize,
+}
+
+pub(crate) fn select<'a>(root: &Path, scope: &'a SourceScope) -> Result<Selection<'a>, AstError> {
+    let explicit = scope
+        .language
+        .as_deref()
+        .map(resolve_language)
+        .transpose()?;
+    let strictness = strictness(&scope.strictness)?;
+    let selected = discover_files(
+        root,
+        &scope.scan,
+        scope.limits.max_files,
+        &scope.cancellation,
+    )?;
+    let (files, unsupported_files) = classify_files(selected, explicit);
+    Ok(Selection {
+        files,
+        unsupported_files,
+        strictness,
+        reader: TreeReader {
+            max_bytes: scope.limits.max_file_bytes,
+            cancellation: &scope.cancellation,
+            issues: Vec::new(),
+            files_searched: 0,
+        },
+    })
+}
+
+fn discover_files(
+    root: &Path,
     options: &ScanOptions,
     max_files: usize,
     cancellation: &crate::workspace::Cancellation,
@@ -56,36 +84,52 @@ pub(crate) fn discover_files(
     Ok(result.entries)
 }
 
-pub(crate) fn read_tree(
-    candidate: &WorkspaceEntry,
-    language: SupportLang,
-    max_bytes: usize,
-    cancellation: &crate::workspace::Cancellation,
-    issues: &mut Vec<Issue>,
-) -> Result<Option<AstGrep<StrDoc<SupportLang>>>, AstError> {
-    if cancellation.is_cancelled() {
-        return Err(AstError::Cancelled);
+fn classify_files(
+    selected: Vec<WorkspaceEntry>,
+    explicit: Option<SupportLang>,
+) -> (Vec<(WorkspaceEntry, SupportLang)>, usize) {
+    let mut files = Vec::new();
+    let mut unsupported = 0;
+    for candidate in selected {
+        match explicit.or_else(|| infer_language(&candidate.path)) {
+            Some(language) => files.push((candidate, language)),
+            None => unsupported += 1,
+        }
     }
-    let source = match read_source(candidate, max_bytes, cancellation) {
-        Ok(source) => source,
-        Err(issue) => {
-            if cancellation.is_cancelled() {
-                return Err(AstError::Cancelled);
+    (files, unsupported)
+}
+
+impl TreeReader<'_> {
+    pub(crate) fn read(
+        &mut self,
+        candidate: &WorkspaceEntry,
+        language: SupportLang,
+    ) -> Result<Option<AstGrep<StrDoc<SupportLang>>>, AstError> {
+        if self.cancellation.is_cancelled() {
+            return Err(AstError::Cancelled);
+        }
+        let source = match read_source(candidate, self.max_bytes, self.cancellation) {
+            Ok(source) => source,
+            Err(issue) => {
+                if self.cancellation.is_cancelled() {
+                    return Err(AstError::Cancelled);
+                }
+                self.issues.push(issue);
+                return Ok(None);
             }
-            issues.push(issue);
+        };
+        let tree = language.ast_grep(source);
+        if tree
+            .root()
+            .dfs()
+            .any(|node| node.is_error() || node.is_missing())
+        {
+            self.issues.push(parse_issue(candidate, language));
             return Ok(None);
         }
-    };
-    let tree = language.ast_grep(source);
-    if tree
-        .root()
-        .dfs()
-        .any(|node| node.is_error() || node.is_missing())
-    {
-        issues.push(parse_issue(candidate, language));
-        return Ok(None);
+        self.files_searched += 1;
+        Ok(Some(tree))
     }
-    Ok(Some(tree))
 }
 
 pub(crate) fn read_source(

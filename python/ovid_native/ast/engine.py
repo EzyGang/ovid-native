@@ -1,13 +1,12 @@
 import asyncio
 import secrets
-import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Self
 
 from ovid_native import _native
-from ovid_native._native_execution import NativeErrorTranslator, run_native_translated
+from ovid_native._native_execution import NativeErrorTranslator, create_native_workspace, run_native_translated
 from ovid_native.ast import _mapping
 from ovid_native.ast.errors import (
     AstConfigurationError,
@@ -15,8 +14,6 @@ from ovid_native.ast.errors import (
     AstLimitError,
     AstPathError,
     AstPatternError,
-    AstProposalExpiredError,
-    AstProposalNotFoundError,
     AstProposalStaleError,
     AstWriteError,
 )
@@ -31,6 +28,7 @@ from ovid_native.ast.models import (
     AstSearchRequest,
     AstSearchResult,
 )
+from ovid_native.ast.proposals import AstProposalStore
 from ovid_native.runtime import ensure_native_compatibility
 from ovid_native.workspace.errors import WorkspaceClosedError
 
@@ -40,7 +38,6 @@ class _Proposal:
     computation: _native.NativeAstRewriteComputation
     session_id: str
     revision: int
-    expires_monotonic: float
 
 
 _ERROR_TRANSLATOR = NativeErrorTranslator(
@@ -58,11 +55,7 @@ _ERROR_TRANSLATOR = NativeErrorTranslator(
 
 class AstEngine:
     def __init__(self, *, root: Path, limits: AstLimits | None = None) -> None:
-        ensure_native_compatibility()
-        try:
-            workspace = _native.workspace_create(str(root))
-        except ValueError as error:
-            raise AstConfigurationError(str(error)) from error
+        workspace = create_native_workspace(root, error=AstConfigurationError)
 
         self._initialize(workspace, session_id=secrets.token_urlsafe(24), limits=limits)
 
@@ -88,8 +81,7 @@ class AstEngine:
         self._workspace = workspace
         self._session_id = session_id
         self._limits = limits if limits is not None else AstLimits()
-        self._proposals: dict[str, _Proposal] = {}
-        self._proposal_lock = asyncio.Lock()
+        self._proposals: AstProposalStore[_Proposal] = AstProposalStore(self._limits)
         self._workspace_write_lock = asyncio.Lock()
 
     async def search(self, request: AstSearchRequest) -> AstSearchResult:
@@ -149,7 +141,7 @@ class AstEngine:
         self._ensure_open()
         async with self._workspace_write_lock:
             cancellation = _native.NativeAstCancellation()
-            proposal = await self._take(request.proposal_id)
+            proposal = await self._proposals.take(request.proposal_id)
             if proposal.session_id != self._session_id or proposal.revision != _native.workspace_revision(
                 self._workspace
             ):
@@ -167,18 +159,11 @@ class AstEngine:
         )
 
     async def reject_rewrite(self, proposal_id: str) -> bool:
-        async with self._proposal_lock:
-            now = time.monotonic()
-            proposal = self._proposals.pop(proposal_id, None)
-            self._purge_expired(now)
-            return proposal is not None and proposal.expires_monotonic > now
+        return await self._proposals.discard(proposal_id)
 
     async def proposal_files(self, proposal_id: str) -> tuple[tuple[str, str, str, int], ...]:
-        async with self._proposal_lock:
-            proposal = self._proposals.get(proposal_id)
-            if proposal is None:
-                raise AstProposalNotFoundError(f'AST rewrite proposal not found: {proposal_id}')
-            return tuple(proposal.computation.files())
+        proposal = await self._proposals.get(proposal_id)
+        return tuple(proposal.computation.files())
 
     async def _store(
         self,
@@ -190,40 +175,13 @@ class AstEngine:
         if replacements == 0:
             return ''
 
-        now = time.monotonic()
         proposal_id = secrets.token_urlsafe(24)
-        proposal = _Proposal(
-            computation=computation,
-            session_id=self._session_id,
-            revision=revision,
-            expires_monotonic=now + self._limits.proposal_ttl_seconds,
+        await self._proposals.put(
+            proposal_id,
+            _Proposal(computation=computation, session_id=self._session_id, revision=revision),
         )
-        async with self._proposal_lock:
-            self._purge_expired(now)
-            while len(self._proposals) >= self._limits.max_pending_proposals:
-                del self._proposals[next(iter(self._proposals))]
-            self._proposals[proposal_id] = proposal
 
         return proposal_id
-
-    async def _take(self, proposal_id: str) -> _Proposal:
-        async with self._proposal_lock:
-            now = time.monotonic()
-            proposal = self._proposals.pop(proposal_id, None)
-            self._purge_expired(now)
-
-        if proposal is None:
-            raise AstProposalNotFoundError(f'AST rewrite proposal not found: {proposal_id}')
-
-        if proposal.expires_monotonic <= now:
-            raise AstProposalExpiredError(f'AST rewrite proposal expired: {proposal_id}')
-
-        return proposal
-
-    def _purge_expired(self, now: float) -> None:
-        expired = [key for key, proposal in self._proposals.items() if proposal.expires_monotonic <= now]
-        for key in expired:
-            del self._proposals[key]
 
     def _ensure_open(self) -> None:
         if _native.workspace_is_closed(self._workspace):

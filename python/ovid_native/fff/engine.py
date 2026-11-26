@@ -4,7 +4,7 @@ from types import TracebackType
 from typing import Self
 
 from ovid_native import _native
-from ovid_native._native_execution import NativeErrorTranslator, run_native
+from ovid_native._native_execution import NativeErrorTranslator, create_native_workspace, run_native
 from ovid_native.fff import _mapping
 from ovid_native.fff.errors import (
     FffCancelledError,
@@ -29,7 +29,6 @@ from ovid_native.fff.models import (
     FffLimits,
     FffMultiGrepRequest,
 )
-from ovid_native.runtime import ensure_native_compatibility
 from ovid_native.workspace.errors import WorkspaceClosedError
 
 
@@ -57,11 +56,7 @@ class FffEngine:
         config: FffConfig = FffConfig(),
         limits: FffLimits = FffLimits(),
     ) -> None:
-        ensure_native_compatibility()
-        try:
-            workspace = _native.workspace_create(str(root))
-        except ValueError as error:
-            raise FffConfigurationError(str(error)) from error
+        workspace = create_native_workspace(root, error=FffConfigurationError)
 
         self._initialize(workspace, config=config, limits=limits)
 
@@ -146,10 +141,7 @@ class FffEngine:
             request.offset,
             request.limit,
         )
-        value = await run_native(lambda: self._call(lambda: _native.fff_find(self._native, native_request)))
-        result = _mapping.find_result(value)
-        self._indexed_revision = _native.workspace_revision(self._workspace)
-        return result
+        return await self._search(lambda: _native.fff_find(self._native, native_request), _mapping.find_result)
 
     async def grep(self, request: FffGrepRequest) -> FffGrepResult:
         await self._refresh_if_stale()
@@ -167,13 +159,11 @@ class FffEngine:
                 request.classify_definitions,
             ),
         )
-        value = await run_native(
-            lambda: self._call(lambda: _native.fff_grep(self._native, native_request, cancellation)),
+        return await self._search(
+            lambda: _native.fff_grep(self._native, native_request, cancellation),
+            _mapping.grep_result,
             cancellation=cancellation,
         )
-        result = _mapping.grep_result(value)
-        self._indexed_revision = _native.workspace_revision(self._workspace)
-        return result
 
     async def multi_grep(self, request: FffMultiGrepRequest) -> FffGrepResult:
         await self._refresh_if_stale()
@@ -191,13 +181,11 @@ class FffEngine:
                 request.classify_definitions,
             ),
         )
-        value = await run_native(
-            lambda: self._call(lambda: _native.fff_multi_grep(self._native, native_request, cancellation)),
+        return await self._search(
+            lambda: _native.fff_multi_grep(self._native, native_request, cancellation),
+            _mapping.grep_result,
             cancellation=cancellation,
         )
-        result = _mapping.grep_result(value)
-        self._indexed_revision = _native.workspace_revision(self._workspace)
-        return result
 
     async def __aenter__(self) -> Self:
         await self.start()
@@ -214,6 +202,18 @@ class FffEngine:
     @staticmethod
     def _constraints(value: FffConstraints) -> tuple[list[str], list[str], str | None]:
         return list(value.include), list(value.exclude), value.git_status
+
+    async def _search[Native, Result](
+        self,
+        operation: Callable[[], Native],
+        mapping: Callable[[Native], Result],
+        *,
+        cancellation: _native.NativeFffCancellation | None = None,
+    ) -> Result:
+        value = await run_native(lambda: self._call(operation), cancellation=cancellation)
+        result = mapping(value)
+        self._indexed_revision = _native.workspace_revision(self._workspace)
+        return result
 
     async def _refresh_if_stale(self) -> None:
         self._ensure_open()

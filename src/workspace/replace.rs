@@ -6,7 +6,7 @@ use crate::workspace::path::normalize_relative;
 use crate::workspace::text_similarity::similarity;
 use crate::workspace::workflows::{edit_result, load_current};
 use crate::workspace::{
-    EditResult, FileChange, LineRange, MutationContext, Workspace, WorkspaceError, WorkspacePolicy,
+    EditResult, LineRange, MutationContext, Workspace, WorkspaceError, WorkspacePolicy,
     atomic_replace_path, sha256,
 };
 
@@ -75,31 +75,16 @@ impl Workspace {
             &before,
             &current.serialize_with_current(&replacement.source),
         )?;
-        let (file_generation, revision) = self.mark_file_changed(&path)?;
         let after = sha256(replacement.source.as_bytes());
         let changed_lines =
             changed_line_range(&current.source, selected, &new, replacement.total_lines());
-        let post = self.record_post_edit(
-            &path,
-            &replacement,
-            file_generation,
-            changed_lines,
-            &context.policy,
-        )?;
-        let observation = post.as_ref().map(|source| source.observation.clone());
+        let (change, post) = self
+            .record_edit(&path, &replacement, changed_lines, &context.policy)?
+            .into_change(path, "update", None, Some(before), after);
 
         Ok(edit_result(
             context,
-            vec![FileChange {
-                path: path.to_owned(),
-                operation: "update".to_owned(),
-                destination: None,
-                before_sha256: Some(before),
-                after_sha256: Some(after),
-                observation,
-                file_generation,
-                revision,
-            }],
+            vec![change],
             post.into_iter().collect(),
             Some(strategy),
             Some(confidence),
