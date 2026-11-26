@@ -3,15 +3,9 @@ import difflib
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
-from time import monotonic
 
 from ovid_native.ast.engine import AstEngine
-from ovid_native.ast.errors import (
-    AstProposalExpiredError,
-    AstProposalNotFoundError,
-    AstProposalStaleError,
-    AstWriteError,
-)
+from ovid_native.ast.errors import AstProposalStaleError, AstWriteError
 from ovid_native.ast.models import (
     AstLimits,
     AstRewriteApplyRequest,
@@ -21,6 +15,7 @@ from ovid_native.ast.models import (
     AstSearchRequest,
     AstSearchResult,
 )
+from ovid_native.ast.proposals import AstProposalStore
 from ovid_native.fff.engine import FffEngine
 from ovid_native.fff.models import (
     FffFindRequest,
@@ -64,7 +59,6 @@ class _ViewAstProposal:
     preview: AstRewritePreview
     files: tuple[tuple[str, str, str, int], ...]
     revision: str
-    expires_monotonic: float
 
 
 class NativeViewAstProvider:
@@ -78,8 +72,7 @@ class NativeViewAstProvider:
         self._provider = provider
         self._files = files
         self._limits = limits if limits is not None else AstLimits()
-        self._proposals: dict[str, _ViewAstProposal] = {}
-        self._proposal_lock = asyncio.Lock()
+        self._proposals: AstProposalStore[_ViewAstProposal] = AstProposalStore(self._limits)
         self._edit_mode: EditModeState | None = None
 
     def bind_edit_mode(self, state: EditModeState) -> None:
@@ -99,18 +92,14 @@ class NativeViewAstProvider:
                 return preview
             files = await engine.proposal_files(preview.proposal_id)
             await engine.reject_rewrite(preview.proposal_id)
-        await self._store(
-            _ViewAstProposal(
-                preview=preview,
-                files=files,
-                revision=view.revision,
-                expires_monotonic=monotonic() + self._limits.proposal_ttl_seconds,
-            )
+        await self._proposals.put(
+            preview.proposal_id,
+            _ViewAstProposal(preview=preview, files=files, revision=view.revision),
         )
         return preview
 
     async def apply_rewrite(self, request: AstRewriteApplyRequest) -> AstRewriteApplyResult:
-        proposal = await self._take(request.proposal_id)
+        proposal = await self._proposals.take(request.proposal_id)
 
         async with self._provider.acquire_view(WorkspaceViewPurpose.AST) as view:
             _require_read_only(view)
@@ -146,23 +135,6 @@ class NativeViewAstProvider:
 
         return patches
 
-    async def _store(self, proposal: _ViewAstProposal) -> None:
-        async with self._proposal_lock:
-            self._purge_expired()
-            while len(self._proposals) >= self._limits.max_pending_proposals:
-                del self._proposals[next(iter(self._proposals))]
-            self._proposals[proposal.preview.proposal_id] = proposal
-
-    async def _take(self, proposal_id: str) -> _ViewAstProposal:
-        async with self._proposal_lock:
-            proposal = self._proposals.pop(proposal_id, None)
-            self._purge_expired()
-        if proposal is None:
-            raise AstProposalNotFoundError(f'AST rewrite proposal not found: {proposal_id}')
-        if proposal.expires_monotonic <= monotonic():
-            raise AstProposalExpiredError(f'AST rewrite proposal expired: {proposal_id}')
-        return proposal
-
     def _mutation(self) -> WorkspaceMutation:
         if self._edit_mode is None:
             raise AstWriteError('view-backed AST provider is not bound to an edit mode')
@@ -170,14 +142,6 @@ class NativeViewAstProvider:
         if mutation.mode != EditMode.APPLY_PATCH:
             raise AstWriteError('view-backed AST rewrites require apply_patch edit mode')
         return mutation
-
-    def _purge_expired(self) -> None:
-        now = monotonic()
-        expired = [
-            proposal_id for proposal_id, proposal in self._proposals.items() if proposal.expires_monotonic <= now
-        ]
-        for proposal_id in expired:
-            del self._proposals[proposal_id]
 
 
 class NativeViewFffProvider:

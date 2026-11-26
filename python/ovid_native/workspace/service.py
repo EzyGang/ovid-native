@@ -6,9 +6,9 @@ from pathlib import Path
 from ovid_core.services import AgentServiceBinding
 
 from ovid_native import _native
+from ovid_native._native_execution import create_native_workspace
 from ovid_native.ast.models import AstLimits
 from ovid_native.files.edit_modes import EditMode, EditModeId, EditModeProvider, EditModeState
-from ovid_native.runtime import ensure_native_compatibility
 from ovid_native.workspace._services import NativeWorkspaceServices, WorkspaceProviderOverrides
 from ovid_native.workspace.errors import (
     WorkspaceClosedError,
@@ -75,11 +75,7 @@ class NativeWorkspaceSession:
         )
         providers = _validate_edit_mode_providers(edit_mode_providers, self._operations)
 
-        ensure_native_compatibility()
-        try:
-            self._native = _native.workspace_create(str(root))
-        except ValueError as error:
-            raise WorkspaceConfigurationError(str(error)) from error
+        self._native = create_native_workspace(root, error=WorkspaceConfigurationError)
 
         self._id = WorkspaceSessionId(secrets.token_urlsafe(24))
         self._change_events = NativeWorkspaceChangeEvents(session_id=self._id)

@@ -144,18 +144,11 @@ impl ObservationLedger {
             }
         };
         let key = (path.to_owned(), digest);
-        let entry = self.entries.get_mut(&key).ok_or_else(|| {
+        self.use_entry(&key).ok_or_else(|| {
             WorkspaceError::ObservationNotFound(format!(
                 "workspace observation was evicted: {path}#{normalized_tag}"
             ))
-        })?;
-
-        self.clock = self.clock.saturating_add(1);
-        entry.last_used = self.clock;
-        Ok(Authorization::new(
-            entry.receipt.clone(),
-            entry.line_digests.clone(),
-        ))
+        })
     }
 
     pub(crate) fn current(
@@ -176,27 +169,28 @@ impl ObservationLedger {
         }
 
         let key = (path.to_owned(), digest.to_owned());
-        let path_was_observed = self
-            .entries
-            .keys()
-            .any(|(entry_path, _)| entry_path == path);
-        let entry = match self.entries.get_mut(&key) {
-            Some(entry) => entry,
-            None if path_was_observed => {
-                return Err(WorkspaceError::ObservedLineChanged(format!(
+        match self.use_entry(&key) {
+            Some(authorization) => Ok(authorization),
+            None if self
+                .entries
+                .keys()
+                .any(|(entry_path, _)| entry_path == path) =>
+            {
+                Err(WorkspaceError::ObservedLineChanged(format!(
                     "workspace file changed after it was observed: {path}"
-                )));
+                )))
             }
-            None => {
-                return Err(WorkspaceError::ObservationNotFound(format!(
-                    "workspace file must be read before mutation: {path}"
-                )));
-            }
-        };
+            None => Err(WorkspaceError::ObservationNotFound(format!(
+                "workspace file must be read before mutation: {path}"
+            ))),
+        }
+    }
 
+    fn use_entry(&mut self, key: &(String, String)) -> Option<Authorization> {
+        let entry = self.entries.get_mut(key)?;
         self.clock = self.clock.saturating_add(1);
         entry.last_used = self.clock;
-        Ok(Authorization::new(
+        Some(Authorization::new(
             entry.receipt.clone(),
             entry.line_digests.clone(),
         ))

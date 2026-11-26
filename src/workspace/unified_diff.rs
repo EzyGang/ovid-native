@@ -16,12 +16,7 @@ pub(super) fn apply_unified_diff(
     let mut matches = Vec::with_capacity(hunks.len());
     let mut required = HashSet::new();
     for hunk in &hunks {
-        let old = hunk
-            .lines
-            .iter()
-            .filter(|line| line.kind != '+')
-            .map(|line| line.text.as_str())
-            .collect::<Vec<_>>();
+        let old = hunk.lines_except('+').collect::<Vec<_>>();
         let positions = exact_positions(&source_lines, &old);
         let start = match positions.as_slice() {
             [position] => *position,
@@ -55,10 +50,8 @@ pub(super) fn apply_unified_diff(
     let mut result = source_lines;
     for (start, old_length, hunk) in matches.into_iter().rev() {
         let replacement = hunk
-            .lines
-            .iter()
-            .filter(|line| line.kind != '-')
-            .map(|line| line.text.clone())
+            .lines_except('-')
+            .map(str::to_owned)
             .collect::<Vec<_>>();
         result.splice(start..start + old_length, replacement);
     }
@@ -82,6 +75,15 @@ struct HunkLine {
 #[derive(Debug)]
 struct Hunk {
     lines: Vec<HunkLine>,
+}
+
+impl Hunk {
+    fn lines_except(&self, excluded: char) -> impl Iterator<Item = &str> {
+        self.lines
+            .iter()
+            .filter(move |line| line.kind != excluded)
+            .map(|line| line.text.as_str())
+    }
 }
 
 fn parse_hunks(diff: &str) -> Result<Vec<Hunk>, WorkspaceError> {

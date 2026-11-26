@@ -114,7 +114,7 @@ def test_proposal_rejection_expiration_and_capacity(tmp_path: Path, mocker: Mock
     assert asyncio.run(engine.reject_rewrite(second.proposal_id)) is True
     assert asyncio.run(engine.reject_rewrite(second.proposal_id)) is False
 
-    clock = mocker.patch('ovid_native.ast.engine.time.monotonic', return_value=10.0)
+    clock = mocker.patch('ovid_native.ast.proposals.monotonic', return_value=10.0)
     expiry_engine = AstEngine(root=tmp_path, limits=AstLimits(max_pending_proposals=2, proposal_ttl_seconds=1))
     expired = asyncio.run(expiry_engine.preview_rewrite(preview_request('sample.py')))
     asyncio.run(expiry_engine.preview_rewrite(preview_request('sample.py')))

@@ -4,9 +4,8 @@ use ast_grep_core::Pattern;
 
 use crate::ast::{
     AstError,
-    language::{resolve_language, strictness},
     matches::build_match,
-    source::{classify_files, discover_files, read_tree},
+    source::{Selection, select},
     types::{Issue, SearchRequest, SearchResult},
 };
 
@@ -21,19 +20,12 @@ pub fn search(root: &std::path::Path, request: SearchRequest) -> Result<SearchRe
             "search limit must be positive".to_owned(),
         ));
     }
-    let explicit = request
-        .language
-        .as_deref()
-        .map(resolve_language)
-        .transpose()?;
-    let strictness = strictness(&request.strictness)?;
-    let selected = discover_files(
-        root,
-        &request.scan,
-        request.limits.max_files,
-        &request.cancellation,
-    )?;
-    let (files, unsupported_files) = classify_files(selected, explicit);
+    let Selection {
+        files,
+        unsupported_files,
+        strictness,
+        mut reader,
+    } = select(root, &request.scope)?;
     let mut patterns = HashMap::new();
     for (_, language) in &files {
         patterns.entry(*language).or_insert_with(|| {
@@ -51,34 +43,26 @@ pub fn search(root: &std::path::Path, request: SearchRequest) -> Result<SearchRe
         .collect::<Result<HashMap<_, _>, _>>()?;
 
     let mut matches = Vec::new();
-    let mut issues = Vec::new();
     let mut total_matches = 0;
-    let mut files_searched = 0;
     let mut files_with_matches = 0;
     let mut limit_reached = false;
 
     'files: for (candidate, language) in files {
-        let Some(tree) = read_tree(
-            &candidate,
-            language,
-            request.limits.max_file_bytes,
-            &request.cancellation,
-            &mut issues,
-        )?
-        else {
+        let Some(tree) = reader.read(&candidate, language)? else {
             continue;
         };
         let source = tree.source();
-        files_searched += 1;
         let before_file = total_matches;
         let pattern = &patterns[&language];
         for matched in tree.root().find_all(pattern) {
-            if request.cancellation.is_cancelled() {
+            if request.scope.cancellation.is_cancelled() {
                 return Err(AstError::Cancelled);
             }
-            if total_matches == request.limits.max_matches {
+            if total_matches == request.scope.limits.max_matches {
                 limit_reached = true;
-                issues.push(limit_issue(request.limits.max_matches));
+                reader
+                    .issues
+                    .push(limit_issue(request.scope.limits.max_matches));
                 if total_matches > before_file {
                     files_with_matches += 1;
                 }
@@ -103,11 +87,11 @@ pub fn search(root: &std::path::Path, request: SearchRequest) -> Result<SearchRe
     Ok((
         matches,
         total_matches,
-        files_searched,
+        reader.files_searched,
         files_with_matches,
         unsupported_files,
         truncated,
-        issues,
+        reader.issues,
     ))
 }
 

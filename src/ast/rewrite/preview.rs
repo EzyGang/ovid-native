@@ -5,8 +5,8 @@ use std::path::Path;
 use ast_grep_core::Pattern;
 use ast_grep_language::SupportLang;
 
-use crate::ast::language::{canonical_name, resolve_language, strictness};
-use crate::ast::source::{classify_files, discover_files, read_tree};
+use crate::ast::language::canonical_name;
+use crate::ast::source::{Selection, select};
 use crate::ast::types::{
     FileChange, FileComputation, PreviewResult, RewriteComputation, RewriteRequest,
 };
@@ -21,43 +21,26 @@ struct Edit {
 
 pub fn preview(root: &Path, request: RewriteRequest) -> Result<PreviewResult, AstError> {
     validate_operations(&request.operations)?;
-    let explicit = request
-        .language
-        .as_deref()
-        .map(resolve_language)
-        .transpose()?;
-    let strictness = strictness(&request.strictness)?;
-    let selected = discover_files(
-        root,
-        &request.scan,
-        request.limits.max_files,
-        &request.cancellation,
-    )?;
-    let (files, _) = classify_files(selected, explicit);
+    let Selection {
+        files,
+        strictness,
+        mut reader,
+        ..
+    } = select(root, &request.scope)?;
     let patterns = compile_patterns(&files, &request.operations, strictness)?;
     let mut computation_files = Vec::new();
     let mut changes = Vec::new();
-    let mut issues = Vec::new();
-    let mut files_searched = 0;
     let mut total_replacements = 0;
 
     for (candidate, language) in files {
-        let Some(tree) = read_tree(
-            &candidate,
-            language,
-            request.limits.max_file_bytes,
-            &request.cancellation,
-            &mut issues,
-        )?
-        else {
+        let Some(tree) = reader.read(&candidate, language)? else {
             continue;
         };
         let source = tree.source();
-        files_searched += 1;
         let mut edits = Vec::new();
         for (sequence, (pattern, replacement)) in patterns[&language].iter().enumerate() {
             for matched in tree.root().find_all(pattern) {
-                if request.cancellation.is_cancelled() {
+                if request.scope.cancellation.is_cancelled() {
                     return Err(AstError::Cancelled);
                 }
                 let edit = matched.replace_by(replacement.as_str());
@@ -76,16 +59,16 @@ pub fn preview(root: &Path, request: RewriteRequest) -> Result<PreviewResult, As
             continue;
         }
         total_replacements += edits.len();
-        if total_replacements > request.limits.max_replacements {
+        if total_replacements > request.scope.limits.max_replacements {
             return Err(AstError::Limit(format!(
                 "rewrite exceeds the {} replacement limit",
-                request.limits.max_replacements
+                request.scope.limits.max_replacements
             )));
         }
-        if computation_files.len() == request.limits.max_changed_files {
+        if computation_files.len() == request.scope.limits.max_changed_files {
             return Err(AstError::Limit(format!(
                 "rewrite exceeds the {} changed-file limit",
-                request.limits.max_changed_files
+                request.scope.limits.max_changed_files
             )));
         }
         let updated = apply_edits(source, &edits);
@@ -120,8 +103,8 @@ pub fn preview(root: &Path, request: RewriteRequest) -> Result<PreviewResult, As
         changes,
         files,
         total_replacements,
-        files_searched,
-        issues,
+        reader.files_searched,
+        reader.issues,
     ))
 }
 
