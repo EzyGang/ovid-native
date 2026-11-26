@@ -30,8 +30,7 @@ from ovid_native.workspace.observations import WorkspaceObservationService, Work
 
 FIND_DESCRIPTION = (
     'Find indexed files or directories by approximate path. FFF tolerates typos and ranks likely paths. Use short '
-    'one- or two-term queries. When available, use glob for exact path patterns. FFF searches its indexed universe, '
-    'so an empty result does not prove absence.'
+    'one- or two-term queries. FFF searches its indexed universe, so an empty result does not prove absence.'
 )
 GREP_DESCRIPTION = (
     'Search indexed file content using plain, regex, fuzzy, or auto matching. Use fuzzy or auto when spelling or '

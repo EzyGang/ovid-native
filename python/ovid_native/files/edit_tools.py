@@ -7,7 +7,7 @@ from ovid_core.tools.models import ToolApproval, ToolEffect
 from pydantic import TypeAdapter
 
 from ovid_native import _native
-from ovid_native.files.hashline import HASHLINE_GRAMMAR
+from ovid_native.files.hashline import HASHLINE_EXAMPLES, HASHLINE_GRAMMAR
 from ovid_native.files.models import (
     ApplyPatchEditRequest,
     HashlineEditRequest,
@@ -28,16 +28,38 @@ _REPLACE_DESCRIPTION = (
 )
 _PATCH_DESCRIPTION = (
     'Apply structured patch hunks to one workspace path. Hunk rows use @@ headers and space, -, or + prefixes. '
-    'Existing source lines must have been rendered. The complete request is preflighted before commit.'
+    'Existing source lines must have been rendered. The complete request is preflighted before commit. Example: '
+    '{"path": "src/app.py", "edits": [{"operation": "update", "diff": "@@\\n def run():\\n-    return 1\\n+    '
+    'return 2"}]}'
 )
 _APPLY_PATCH_DESCRIPTION = (
     'Apply a multi-file patch envelope beginning with *** Begin Patch and ending with *** End Patch. Use Add File, '
-    'Update File, optional Move to, and Delete File headers. Existing source lines must have been rendered.'
+    'Update File, optional Move to, and Delete File headers. Existing source lines must have been rendered. Example:\n'
+    '*** Begin Patch\n*** Update File: src/app.py\n@@\n def run():\n-    return 1\n+    return 2\n'
+    '*** Add File: src/new.py\n+value = 1\n*** Delete File: src/old.py\n*** End Patch'
 )
 _HASHLINE_DESCRIPTION = (
-    'Edit exact rendered workspace lines with a Hashline patch. Copy the four-hex file tag and line-qualified two-hex '
-    'anchors exactly. Changed, shifted, unseen, missing, or ambiguous anchors require rereading or rerunning the '
-    'source-producing tool. The complete multi-file request is preflighted before the first commit.'
+    'Edit workspace files with a Hashline patch:\n'
+    '*** Begin Patch\n[path#TAG]\nstatements\n*** End Patch\n'
+    'Write one [path#TAG] header per file. TAG is the 4-hex tag from the latest render of that file. In the path, '
+    'write ] as \\] and \\ as \\\\. Anchors A and B are LINE:hh, copied from rendered LINE:hh|text rows. All line '
+    'numbers refer to the file before this request.\n'
+    'Statements:\n'
+    'PUT A.=B: replaces lines A to B inclusive.\n'
+    'PUT A*: replaces the syntax block that starts at A.\n'
+    'PUT <A: and PUT >A: insert before or after line A. PUT >A*: inserts after the block that starts at A.\n'
+    'PUT <^: and PUT >$: insert at the start or end of the file.\n'
+    'Body rows follow these statements and start with +. The text after + is the line. A lone + is a blank line.\n'
+    'CUT A.=B [@name] and CUT A* [@name] delete lines or a block and keep them in a register.\n'
+    'PUT LOC [@name], with no colon and no body, pastes a register at any PUT locator LOC, a range included.\n'
+    'Without @name, the anonymous register is used. It lasts for one request. Named registers persist between '
+    'requests in the same session. In one request, put each CUT before the paste that uses it.\n'
+    'REM deletes the file. MV dest moves the file to a new path. Use a JSON string when dest has spaces. Use one REM '
+    'or MV per file, after a complete render of the file.\n'
+    'Replaced ranges, replaced blocks, and cuts must not overlap. The complete request is checked before the first '
+    'write. Changed, unseen, or missing anchors fail, so reread the file. Use write to create a file. Anchors '
+    're-rendered in an edit result replace earlier anchors.\n'
+    f'Examples:\n{"".join(HASHLINE_EXAMPLES)}'
 )
 
 

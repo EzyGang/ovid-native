@@ -34,8 +34,7 @@ AST_GREP_DESCRIPTION = (
 )
 AST_EDIT_PREVIEW_DESCRIPTION = (
     'Preview syntax-aware rewrites. Patterns match AST structure and captured metavariables are substituted into '
-    'replacements. The tool writes nothing and returns a proposal ID for explicit application. Use ordinary edit for '
-    'isolated changes and LSP rename for symbol-aware renames.'
+    'replacements. The tool writes nothing and returns a proposal ID for explicit application.'
 )
 AST_EDIT_APPLY_DESCRIPTION = (
     'Apply one previously previewed AST rewrite. Requires the proposal ID returned by `ast_edit_preview`. Application '
@@ -45,8 +44,8 @@ AST_TOOL_INSTRUCTIONS = (
     'Use ast_grep when syntax shape matters more than text. Patterns must parse in the target language. $NAME captures '
     'one node, $_ matches one node without binding, and $$$ARGS captures zero or more nodes. Reusing the same '
     'metavariable requires the same syntax in every position. Use ast_edit_preview for repeated structural changes, '
-    'inspect its proposed changes, then use ast_edit_apply with the returned proposal ID. Use LSP for symbol identity '
-    'and ordinary edit for isolated changes. Parse issues are failures for those files, not evidence of no match.'
+    'inspect its proposed changes, then use ast_edit_apply with the returned proposal ID. Parse issues are failures '
+    'for those files, not evidence of no match.'
 )
 
 

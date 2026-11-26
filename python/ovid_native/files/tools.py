@@ -36,9 +36,8 @@ FILES_TOOL_INSTRUCTIONS = (
     'Use read for workspace text and directory entries, edit for existing-file changes, and write for explicit file '
     'creation or guarded whole-file replacement. Existing-file mutations reject source lines that were not rendered '
     'or that changed after rendering. The edit schema and source presentation can change between model steps; follow '
-    'the current definitions. In Hashline mode, exact source from read, grep, FFF grep, or AST grep is rendered as '
-    '`[path#4hex]` followed by `LINE:2hex|text` and may be edited directly. Path-only search results do not authorize '
-    'edits.'
+    'the current definitions. In Hashline mode, exact source rendered by a tool as `[path#4hex]` followed by '
+    '`LINE:2hex|text` may be edited directly. Path-only search results do not authorize edits.'
 )
 _READ_DESCRIPTION = (
     'Read bounded UTF-8 workspace files or hierarchical directory trees. Append :N, :N-M, :N+K, :N-, or '
