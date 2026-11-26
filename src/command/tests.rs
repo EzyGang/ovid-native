@@ -20,7 +20,7 @@ fn command_runs_in_workspace_with_environment_and_merged_output() {
     let result = execute(&workspace, request).expect("command should run");
 
     assert_eq!(
-        result.output,
+        result.tail,
         format!(
             "value|{}|error",
             dunce::simplified(workspace.root()).join("nested").display()
@@ -28,7 +28,8 @@ fn command_runs_in_workspace_with_environment_and_merged_output() {
     );
     assert_eq!(result.exit_code, Some(7));
     assert!(!result.timed_out);
-    assert!(!result.truncated);
+    assert!(result.head.is_empty());
+    assert_eq!(result.omitted_bytes, 0);
 }
 
 #[test]
@@ -45,7 +46,7 @@ fn command_uses_embedded_bash_parsing_without_external_programs() {
 
     let result = execute(&workspace, request).expect("embedded command should run");
 
-    assert_eq!(result.output, "one-two-recovered-5\n");
+    assert_eq!(result.tail, "one-two-recovered-5\n");
     assert_eq!(result.exit_code, Some(0));
 }
 
@@ -77,12 +78,19 @@ fn command_accepts_contained_absolute_cwd_and_bounds_output() {
     let mut request = request("printf 1234567890123");
     request.cwd = Some(temporary.path().display().to_string());
     request.max_output_bytes = 10;
+    let mut headed = request.clone();
+    headed.max_head_bytes = 4;
 
     let result = execute(&workspace, request).expect("command should run");
+    let headed = execute(&workspace, headed).expect("command with a head should run");
 
-    assert_eq!(result.output, "4567890123");
-    assert!(result.truncated);
+    assert!(result.head.is_empty());
+    assert_eq!(result.tail, "4567890123");
+    assert_eq!(result.omitted_bytes, 3);
     assert_eq!(result.exit_code, Some(0));
+    assert_eq!(headed.head, "1234");
+    assert_eq!(headed.tail, "890123");
+    assert_eq!(headed.omitted_bytes, 3);
 }
 
 #[test]
@@ -150,6 +158,13 @@ fn command_rejects_invalid_configuration_and_paths() {
         Err(CommandError::Configuration(_))
     ));
 
+    let mut oversized_head = request("true");
+    oversized_head.max_head_bytes = oversized_head.max_output_bytes + 1;
+    assert!(matches!(
+        execute(&workspace, oversized_head),
+        Err(CommandError::Configuration(_))
+    ));
+
     let mut escaped = request("true");
     escaped.cwd = Some(outside.path().display().to_string());
     assert!(matches!(
@@ -171,6 +186,7 @@ fn request(command: &str) -> CommandRequest {
         env: Vec::new(),
         timeout: Duration::from_secs(300),
         max_output_bytes: 65_536,
+        max_head_bytes: 0,
         cancellation: CommandCancellation::new(),
     }
 }

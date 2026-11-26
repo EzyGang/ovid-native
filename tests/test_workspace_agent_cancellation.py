@@ -47,7 +47,7 @@ class CommandTool(BaseTool[None, WorkspaceCommandRequest, ToolResult]):
     ) -> ToolResult:
         del context
         result = await self._provider.execute(arguments)
-        return ToolResult(content=result.output)
+        return ToolResult(content=f'{result.head}{result.tail}')
 
 
 async def cancel_run_during_tool(

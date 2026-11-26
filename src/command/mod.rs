@@ -1,11 +1,11 @@
+mod output;
 mod processes;
 mod python;
 #[cfg(test)]
 mod tests;
 mod types;
 
-use std::collections::VecDeque;
-use std::io::{PipeReader, PipeWriter, Read};
+use std::io::{PipeReader, PipeWriter};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -20,6 +20,7 @@ use brush_core::{
 };
 use tokio::time;
 
+use crate::command::output::{CapturedOutput, capture};
 use crate::command::processes::SpawnRegistry;
 use crate::workspace::Workspace;
 
@@ -32,7 +33,7 @@ pub(crate) fn execute(
     workspace: &Workspace,
     request: CommandRequest,
 ) -> Result<CommandResult, CommandError> {
-    validate(&request)?;
+    request.validate()?;
     workspace
         .ensure_open()
         .map_err(CommandError::from_workspace)?;
@@ -50,14 +51,15 @@ pub(crate) fn execute(
         .build()
         .map_err(|error| CommandError::Execution(error.to_string()))?;
     let started = std::time::Instant::now();
-    let (outcome, output, truncated) =
+    let (outcome, output) =
         runtime.block_on(execute_async(&request, &cwd, reader, writer, stderr))?;
 
     Ok(CommandResult {
-        output,
+        head: output.head,
+        tail: output.tail,
+        omitted_bytes: output.omitted_bytes,
         exit_code: outcome.result.as_ref().map(exit_code),
         timed_out: outcome.timed_out,
-        truncated,
         wall_time_ms: started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
     })
 }
@@ -79,41 +81,16 @@ async fn execute_async(
     reader: PipeReader,
     stdout: PipeWriter,
     stderr: PipeWriter,
-) -> Result<(CommandOutcome, String, bool), CommandError> {
+) -> Result<(CommandOutcome, CapturedOutput), CommandError> {
+    let head_limit = request.max_head_bytes;
     let output_limit = request.max_output_bytes;
-    let output_task = tokio::task::spawn_blocking(move || read_tail(reader, output_limit));
+    let output_task =
+        tokio::task::spawn_blocking(move || capture(reader, head_limit, output_limit));
     let outcome = run(request, cwd, stdout, stderr).await;
     let output = output_task
         .await
         .map_err(|error| CommandError::Output(error.to_string()))??;
-    let outcome = outcome?;
-    Ok((outcome, output.0, output.1))
-}
-
-fn validate(request: &CommandRequest) -> Result<(), CommandError> {
-    if request.command.contains('\0') {
-        return Err(CommandError::Configuration(
-            "command cannot contain NUL bytes".to_owned(),
-        ));
-    }
-    if request.timeout < Duration::from_secs(1) || request.timeout > Duration::from_secs(3_600) {
-        return Err(CommandError::Configuration(
-            "command timeout must be between 1 and 3600 seconds".to_owned(),
-        ));
-    }
-    if request.max_output_bytes == 0 {
-        return Err(CommandError::Configuration(
-            "command output limit must be positive".to_owned(),
-        ));
-    }
-    for (name, value) in &request.env {
-        if name.is_empty() || name.contains('=') || name.contains('\0') || value.contains('\0') {
-            return Err(CommandError::Configuration(
-                "command environment contains an invalid entry".to_owned(),
-            ));
-        }
-    }
-    Ok(())
+    Ok((outcome?, output))
 }
 
 fn resolve_cwd(root: &Path, requested: Option<&str>) -> Result<PathBuf, CommandError> {
@@ -250,36 +227,4 @@ const fn exit_code(result: &ExecutionResult) -> i32 {
         ExecutionExitCode::BrokenPipe => 141,
         ExecutionExitCode::Custom(code) => code as i32,
     }
-}
-
-fn read_tail(mut reader: PipeReader, limit: usize) -> Result<(String, bool), CommandError> {
-    let mut retained = VecDeque::with_capacity(limit);
-    let mut total = 0u64;
-    let mut chunk = [0u8; 65_536];
-    loop {
-        let read = reader
-            .read(&mut chunk)
-            .map_err(|error| CommandError::Output(error.to_string()))?;
-        if read == 0 {
-            break;
-        }
-        total = total.saturating_add(read.try_into().unwrap_or(u64::MAX));
-        let bytes = &chunk[..read];
-        if bytes.len() >= limit {
-            retained.clear();
-            retained.extend(&bytes[bytes.len() - limit..]);
-            continue;
-        }
-        let overflow = retained
-            .len()
-            .saturating_add(bytes.len())
-            .saturating_sub(limit);
-        retained.drain(..overflow);
-        retained.extend(bytes);
-    }
-    let bytes = retained.make_contiguous();
-    Ok((
-        String::from_utf8_lossy(bytes).into_owned(),
-        total > limit.try_into().unwrap_or(u64::MAX),
-    ))
 }

@@ -130,6 +130,7 @@ The file layer supports plain lines, hashline edits, and exact patches. It prese
 
 `NativeWorkspaceSession.command` runs foreground commands through an embedded Bash-compatible shell from the shared workspace root.
 Requests support a contained initial working directory, environment overrides, a 1–3600 second timeout, and bounded output.
+A result returns the first `max_head_bytes` as `head`, the last bytes as `tail`, and the dropped byte count as `omitted_bytes`.
 The command itself is trusted host execution and can access paths outside the workspace. It is not a sandbox.
 The embedding application owns the model-facing tool, non-interactive environment defaults, approval policy, and result presentation.
 

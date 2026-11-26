@@ -46,6 +46,7 @@ class CommandEngine:
                 list(request.env.items()),
                 request.timeout_seconds,
                 request.max_output_bytes,
+                request.max_head_bytes,
                 cancellation,
             )
             result = await run_native_translated(
@@ -54,11 +55,12 @@ class CommandEngine:
                 translator=_ERROR_TRANSLATOR,
             )
             return WorkspaceCommandResult(
-                output=result[0],
-                exit_code=result[1],
-                timed_out=result[2],
-                truncated=result[3],
-                wall_time_ms=result[4],
+                head=result[0],
+                tail=result[1],
+                omitted_bytes=result[2],
+                exit_code=result[3],
+                timed_out=result[4],
+                wall_time_ms=result[5],
             )
         finally:
             async with self._condition:

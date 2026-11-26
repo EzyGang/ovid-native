@@ -49,6 +49,7 @@ impl NativeCommandRequest {
         env: Vec<(String, String)>,
         timeout_seconds: f64,
         max_output_bytes: usize,
+        max_head_bytes: usize,
         cancellation: PyRef<'_, NativeCommandCancellation>,
     ) -> PyResult<Self> {
         if !timeout_seconds.is_finite() || !(1.0..=3_600.0).contains(&timeout_seconds) {
@@ -63,6 +64,7 @@ impl NativeCommandRequest {
                 env,
                 timeout: Duration::from_secs_f64(timeout_seconds),
                 max_output_bytes,
+                max_head_bytes,
                 cancellation: cancellation.inner.clone(),
             },
         })
@@ -74,7 +76,7 @@ fn command_execute(
     py: Python<'_>,
     workspace: PyRef<'_, NativeWorkspace>,
     request: PyRef<'_, NativeCommandRequest>,
-) -> PyResult<(String, Option<i32>, bool, bool, u64)> {
+) -> PyResult<(String, String, u64, Option<i32>, bool, u64)> {
     let workspace = workspace.inner.clone();
     let request = request.inner.clone();
     py.detach(move || execute(&workspace, request))
@@ -90,12 +92,13 @@ pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     add_exceptions(module)
 }
 
-fn result_tuple(result: CommandResult) -> (String, Option<i32>, bool, bool, u64) {
+fn result_tuple(result: CommandResult) -> (String, String, u64, Option<i32>, bool, u64) {
     (
-        result.output,
+        result.head,
+        result.tail,
+        result.omitted_bytes,
         result.exit_code,
         result.timed_out,
-        result.truncated,
         result.wall_time_ms,
     )
 }

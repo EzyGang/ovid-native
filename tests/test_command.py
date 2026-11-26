@@ -6,6 +6,7 @@ from pathlib import Path
 from threading import Event
 
 import pytest
+from pydantic import ValidationError
 from pytest_mock import MockerFixture
 
 from ovid_native import _native
@@ -45,13 +46,65 @@ def test_native_workspace_command_inherits_environment_and_maps_result(
         finally:
             await session.close()
 
-        assert result.output == f'parent|override|{nested.resolve()}'
+        assert result.head == ''
+        assert result.tail == f'parent|override|{nested.resolve()}'
         assert result.exit_code == 7
         assert not result.timed_out
-        assert not result.truncated
+        assert result.omitted_bytes == 0
         assert result.wall_time_ms >= 0
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize('max_head_bytes', (16_384, 0))
+def test_native_workspace_command_returns_head_tail_and_omitted_bytes(tmp_path: Path, max_head_bytes: int) -> None:
+    printed = bytes(97 + index % 26 for index in range(204_800)).decode()
+    script = 'import sys; sys.stdout.buffer.write(bytes(97 + index % 26 for index in range(204_800)))'
+
+    async def run() -> None:
+        session = NativeWorkspaceSession(root=tmp_path, enabled_operations=frozenset((WorkspaceOperation.COMMAND,)))
+        try:
+            result = await session.command.execute(
+                WorkspaceCommandRequest(
+                    command=f'{shlex.quote(sys.executable)} -c {shlex.quote(script)}',
+                    max_output_bytes=65_536,
+                    max_head_bytes=max_head_bytes,
+                )
+            )
+        finally:
+            await session.close()
+
+        assert result.head == printed[:max_head_bytes]
+        assert result.tail == printed[-(65_536 - max_head_bytes) :]
+        assert result.omitted_bytes == 204_800 - 65_536
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('character', ('é', '€', '😀'))
+def test_native_workspace_command_never_splits_characters_at_cuts(tmp_path: Path, character: str) -> None:
+    printed = f'a{character}xxxxxxxx{character}b'
+
+    async def run() -> None:
+        session = NativeWorkspaceSession(root=tmp_path, enabled_operations=frozenset((WorkspaceOperation.COMMAND,)))
+        try:
+            result = await session.command.execute(
+                WorkspaceCommandRequest(command=f"printf '{printed}'", max_output_bytes=4, max_head_bytes=2)
+            )
+        finally:
+            await session.close()
+
+        assert (result.head, result.tail) == ('a', 'b')
+        assert result.omitted_bytes == len(printed.encode()) - 2
+
+    asyncio.run(run())
+
+
+def test_command_request_rejects_head_larger_than_output() -> None:
+    with pytest.raises(ValidationError, match='max_head_bytes cannot exceed max_output_bytes'):
+        WorkspaceCommandRequest(command='true', max_output_bytes=10, max_head_bytes=11)
+
+    assert WorkspaceCommandRequest(command='true', max_output_bytes=10, max_head_bytes=10).max_head_bytes == 10
 
 
 def test_native_workspace_command_times_out_and_cancels_without_late_side_effects(tmp_path: Path) -> None:
