@@ -33,6 +33,10 @@ def render_file_read(
     hashline = presentation.format == 'hashline' and result.observation is not None and result.editable
     header = f'[{result.path}#{result.observation.tag}]' if hashline else f'[{result.path}]'
     rows = [header, *_render_source_lines(result.lines, hashline)]
+    if not result.editable:
+        rows.append(
+            f'[Not editable: {result.total_bytes} bytes exceeds the {result.observation_limit}-byte edit limit]'
+        )
     visible_ranges = _line_ranges(tuple(line.line_number for line in result.lines))
     notices, truncation, unmatched = _file_read_notices(result, target)
     rows.extend(notices)

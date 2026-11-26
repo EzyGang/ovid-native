@@ -64,7 +64,7 @@ class AstGrepTool[Deps](WorkspaceSourceTool[Deps, WorkspaceAstProvider, AstSearc
     ) -> AstSearchToolResult:
         del context
         result = await self._provider.search(arguments)
-        return await self._present_result(result, _ast_source_groups)
+        return await self._present_result(result, _ast_source_groups, _ast_notices(result, arguments.offset))
 
 
 class AstSourceToolset[Deps](WorkspaceSourceToolset[Deps, WorkspaceAstProvider]):
@@ -103,6 +103,28 @@ class AstEditApplyTool[Deps](
 
     async def _content(self, arguments: AstRewriteApplyRequest) -> AstRewriteApplyToolContent:
         return AstRewriteApplyToolContent(result=await self._provider.apply_rewrite(arguments))
+
+
+def _ast_notices(result: AstSearchResult, offset: int) -> list[str]:
+    shown_end = offset + len(result.matches)
+    rows: list[str] = []
+    if not result.matches:
+        rows.append(
+            f'No matches at offset={offset} ({result.total_matches} in total).'
+            if result.total_matches
+            else f'No matches ({result.files_searched} files searched).'
+        )
+    elif result.total_matches > shown_end:
+        rows.append(
+            f'Matches {offset + 1}-{shown_end} of {result.total_matches} shown: continue with offset={shown_end}.'
+        )
+    if result.unsupported_files:
+        rows.append(f'Skipped files with no supported language: {result.unsupported_files}.')
+    rows.extend(
+        f'Issue: {issue.path}: {issue.message}.' if issue.path else f'Issue: {issue.message}.'
+        for issue in result.issues
+    )
+    return rows
 
 
 async def _ast_source_groups(

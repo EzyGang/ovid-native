@@ -14,7 +14,12 @@ from ovid_native.search.models import (
     GrepToolRequest,
     GrepToolResult,
 )
-from ovid_native.workspace._toolsets import WorkspaceResultTool, WorkspaceSourceTool, WorkspaceSourceToolset
+from ovid_native.workspace._toolsets import (
+    WorkspaceResultTool,
+    WorkspaceSourceTool,
+    WorkspaceSourceToolset,
+    file_page_notices,
+)
 from ovid_native.workspace.evidence import (
     EditableSourceGroup,
     WorkspaceSourcePresenter,
@@ -69,7 +74,7 @@ class GrepTool[Deps](WorkspaceSourceTool[Deps, WorkspaceSearchProvider, GrepTool
     ) -> GrepToolResult:
         del context
         result = await self._provider.grep(_grep_request(arguments))
-        return await self._present_result(result, _grep_source_groups)
+        return await self._present_result(result, _grep_source_groups, _grep_notices(result))
 
 
 class SearchSourceToolset[Deps](WorkspaceSourceToolset[Deps, WorkspaceSearchProvider]):
@@ -95,6 +100,38 @@ def _grep_request(arguments: GrepToolRequest) -> GrepRequest:
         large_file_mode=arguments.large_file_mode,
         timeout_seconds=arguments.timeout_seconds,
     )
+
+
+def _grep_notices(result: GrepResult) -> list[str]:
+    rows = [
+        f'{file.path}: {len(file.matches)} of {file.total_matches}{"" if file.total_matches_exact else "+"} '
+        'matches shown.'
+        for file in result.files
+        if file.matches_truncated
+    ]
+    rows.extend(
+        f'{file.path}: only the first {file.coverage.searched_bytes} of {file.coverage.total_bytes} bytes searched.'
+        for file in result.files
+        if not file.coverage.complete
+    )
+    if not result.files:
+        rows.append(
+            f'No matching files at this file_offset ({result.files_with_matches} in total).'
+            if result.files_with_matches
+            else f'No matches ({result.files_searched} files searched).'
+        )
+    if result.interpreted_as_literal:
+        rows.append('The pattern was searched as a literal string.')
+    skipped = (
+        (result.skipped_binary_files, 'binary'),
+        (result.skipped_encoding_files, 'not UTF-8'),
+        (result.skipped_large_files, 'too large'),
+    )
+    if any(count for count, _ in skipped):
+        rows.append(f'Skipped files: {", ".join(f"{count} {reason}" for count, reason in skipped if count)}.')
+    reasons = {'file_limit_reached': 'the scan file limit was reached', 'deadline_reached': 'the search timed out'}
+    rows.extend(file_page_notices(reasons.get(result.completion), result.next_file_offset))
+    return rows
 
 
 async def _grep_source_groups(

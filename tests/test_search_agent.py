@@ -75,7 +75,7 @@ def test_search_capability_runs_through_real_agent_factory(tmp_path: Path, mocke
         if not tool_returns:
             return ModelResponse(parts=[ToolCallPart('glob', {'patterns': ['*.txt'], 'order': 'path'})])
         if len(tool_returns) == 1:
-            paths = [match['path'] for match in tool_returns[0].content['content']['result']['matches']]
+            paths = [match['path'] for match in tool_returns[0].content['result']['matches']]
             assert paths == ['a.txt', 'b.txt', 'binary.txt', 'oversized.txt']
             return ModelResponse(
                 parts=[
@@ -92,7 +92,7 @@ def test_search_capability_runs_through_real_agent_factory(tmp_path: Path, mocke
                 ]
             )
         if len(tool_returns) == 2:
-            result = tool_returns[-1].content['content']['result']
+            result = tool_returns[-1].content['result']
             assert [file['path'] for file in result['files']] == ['a.txt', 'b.txt']
             assert all(len(file['matches']) == 1 for file in result['files'])
             assert result['next_file_offset'] == 2
@@ -113,7 +113,7 @@ def test_search_capability_runs_through_real_agent_factory(tmp_path: Path, mocke
             )
 
         if len(tool_returns) == 3:
-            result = tool_returns[-1].content['content']['result']
+            result = tool_returns[-1].content['result']
             assert result['files'][0]['path'] == 'oversized.txt'
             assert result['files'][0]['coverage']['complete'] is False
             assert result['skipped_binary_files'] == 1
@@ -126,11 +126,11 @@ def test_search_capability_runs_through_real_agent_factory(tmp_path: Path, mocke
                 ]
             )
         if len(tool_returns) == 4:
-            result = tool_returns[-1].content['content']['result']
+            result = tool_returns[-1].content['result']
             assert result['matches'][0]['path'] == 'sample.py'
             return ModelResponse(parts=[ToolCallPart('find_files', {'query': 'sample'})])
 
-        result = tool_returns[-1].content['content']['result']
+        result = tool_returns[-1].content['result']
         assert result['matches'][0]['path'] == 'sample.py'
         return ModelResponse(parts=[TextPart('searched')])
 
