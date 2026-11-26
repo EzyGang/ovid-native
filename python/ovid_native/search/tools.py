@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from ovid_core.tools.base import BaseTool, ToolExecutionContext
+from ovid_core.tools.models import ToolEffect
 
 from ovid_native.search.models import (
     GlobRequest,
@@ -46,6 +47,7 @@ class GlobTool[Deps](WorkspaceResultTool[Deps, WorkspaceSearchProvider, GlobRequ
     description = GLOB_DESCRIPTION
     args_type = GlobRequest
     result_type = GlobToolResult
+    effect = ToolEffect(kind='read', replay='safe')
     timeout_seconds = 5.0
     defer_loading = False
 

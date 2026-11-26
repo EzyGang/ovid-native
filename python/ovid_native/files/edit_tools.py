@@ -3,7 +3,7 @@ from collections.abc import Awaitable
 
 from ovid_core.models import BaseModel
 from ovid_core.tools.base import BaseTool, ToolExecutionContext, ToolGrammar, ToolPresentation
-from ovid_core.tools.models import ToolApproval
+from ovid_core.tools.models import ToolApproval, ToolEffect
 from pydantic import TypeAdapter
 
 from ovid_native import _native
@@ -45,6 +45,7 @@ class _WorkspaceEditTool[Deps, Args: BaseModel](BaseTool[Deps, Args, WorkspaceFi
     result_type = WorkspaceFilesToolResult
     presentation = ToolPresentation(wire_name='edit')
     approval = ToolApproval(required=True, reason='Modify workspace files')
+    effect = ToolEffect(kind='workspace_write', replay='unsafe')
     timeout_seconds = 30.0
 
     def __init__(

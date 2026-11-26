@@ -1,6 +1,6 @@
 from ovid_core.models import BaseModel
 from ovid_core.tools.base import BaseTool, ToolExecutionContext
-from ovid_core.tools.models import ToolApproval
+from ovid_core.tools.models import ToolApproval, ToolEffect
 
 from ovid_native.files.edit_modes import EditModeState
 from ovid_native.files.edit_tools import tool_edit_result
@@ -68,6 +68,7 @@ class ReadTool[Deps](_FilePresentationTool[Deps, WorkspaceReadRequest]):
     id = 'read'
     description = _READ_DESCRIPTION
     args_type = WorkspaceReadRequest
+    effect = ToolEffect(kind='read', replay='safe')
 
     async def execute(
         self,
@@ -126,6 +127,7 @@ class WriteTool[Deps](_FilePresentationTool[Deps, WorkspaceWriteRequest]):
     description = _WRITE_DESCRIPTION
     args_type = WorkspaceWriteRequest
     approval = ToolApproval(required=True, reason='Create or replace a workspace file')
+    effect = ToolEffect(kind='workspace_write', replay='unsafe')
 
     async def execute(
         self,

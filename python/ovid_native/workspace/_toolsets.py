@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 from ovid_core.models import BaseModel
 from ovid_core.runtime.context import RunContext
 from ovid_core.tools.base import BaseTool, BaseToolset, ToolExecutionContext
-from ovid_core.tools.models import ToolResult
+from ovid_core.tools.models import ToolEffect, ToolResult
 
 from ovid_native.workspace.evidence import EditableSourceGroup, WorkspaceSourcePresenter, capture_source_presentation
 from ovid_native.workspace.observations import WorkspaceObservationService
@@ -29,6 +29,8 @@ class WorkspaceResultTool[Deps, Provider, Args: BaseModel, Result: ToolResult](B
 
 
 class WorkspaceSourceTool[Deps, Provider, Args: BaseModel, Result: ToolResult](BaseTool[Deps, Args, Result]):
+    effect = ToolEffect(kind='read', replay='safe')
+
     def __init__(self, *, provider: Provider, presenter: WorkspaceSourcePresenter) -> None:
         self._provider = provider
         self._presenter = presenter
