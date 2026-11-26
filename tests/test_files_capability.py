@@ -74,6 +74,11 @@ def test_capability_binds_only_to_complete_workspace_and_requires_approval(tmp_p
         reason='Create or replace a workspace file',
     )
     assert len(bound.contributions.toolsets) == 1
+    descriptor = bound.contributions.toolsets[0].descriptor(source='native_files')
+    assert (descriptor.id, descriptor.approval) == (
+        'native_files_edit_mode',
+        ToolApproval(required=True, reason='Modify workspace files'),
+    )
     asyncio.run(workspace.close())
 
 

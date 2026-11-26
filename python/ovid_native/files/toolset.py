@@ -3,6 +3,7 @@ from typing import Any, cast
 
 from ovid_core.runtime.context import RunContext
 from ovid_core.tools.base import BaseTool, BaseToolset
+from ovid_core.tools.models import ToolApproval
 
 from ovid_native.files.edit_modes import EditMode, EditModeProvider, EditModeSelection, EditModeState
 from ovid_native.files.edit_tools import ApplyPatchEditTool, HashlineEditTool, PatchEditTool, ReplaceEditTool
@@ -13,6 +14,7 @@ from ovid_native.workspace.models import WorkspaceFilesProvider, WorkspaceSessio
 
 class EditModeToolset[Deps](WorkspaceStepToolset[Deps]):
     id = 'native_files_edit_mode'
+    approval = ToolApproval(required=True, reason='Modify workspace files')
 
     def __init__(
         self,
