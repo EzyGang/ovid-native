@@ -107,6 +107,64 @@ def test_exact_provider_match_requires_a_current_absolute_source_span(
     asyncio.run(run())
 
 
+def test_hashline_grep_content_reports_fallbacks_incomplete_indexes_and_pagination(
+    tmp_path: Path,
+    mocker: MockerFixture,
+) -> None:
+    async def run() -> None:
+        (tmp_path / 'source.txt').write_text('beta\n')
+        match = FffGrepMatch(
+            path='source.txt',
+            line_number=1,
+            column=1,
+            byte_offset=0,
+            line='beta',
+            match_ranges=(FffByteRange(start=0, end=4),),
+        )
+        page = _fff_result(match).model_copy(
+            update={'completion': 'index_incomplete', 'index_complete': False, 'next_file_offset': 3}
+        )
+        fallback = page.model_copy(
+            update={
+                'matches': (),
+                'actual_mode': 'fuzzy',
+                'fallback_from': 'plain',
+                'approximate': True,
+                'completion': 'time_budget_reached',
+                'index_complete': True,
+                'next_file_offset': None,
+            }
+        )
+        provider = mocker.Mock()
+        provider.grep = mocker.AsyncMock(side_effect=(page, fallback))
+        provider.close = mocker.AsyncMock()
+        workspace = NativeWorkspaceSession(root=tmp_path, fff_provider=provider, edit_mode=EditMode.HASHLINE)
+        toolset = FffSourceToolset[None](
+            provider=provider,
+            state=workspace.edit_mode,
+            observations=workspace.observations,
+            include_grep=True,
+            include_multi_grep=False,
+        )
+        grep = (await toolset.get_tools(cast('RunContext[None]', None)))[0]
+
+        paged = await grep.execute(context(), FffGrepRequest(query='beta'))
+        fell_back = await grep.execute(context(), FffGrepRequest(query='btea'))
+
+        assert cast(str, paged.content).split('\n\n')[-1].splitlines() == [
+            'Incomplete: the file index is still building, so some files were not searched.',
+            'More files may match: continue with file_offset=3.',
+        ]
+        assert fell_back.content == (
+            'No matches (1 files searched).\n'
+            'No plain matches, so fuzzy matching was used.\n'
+            'Incomplete: the search time budget was reached.'
+        )
+        await workspace.close()
+
+    asyncio.run(run())
+
+
 def _fff_result(match: FffGrepMatch) -> FffGrepResult:
     return FffGrepResult(
         matches=(match,),

@@ -110,9 +110,9 @@ def test_bound_edit_call_keeps_captured_mode_and_policy_generation(tmp_path: Pat
         )
     )
     assert source.read_text() == 'two\n'
-    assert first_result['metadata']['mode'] == 'apply_patch'
-    assert first_result['metadata']['mode_generation'] == 1
-    assert first_result['metadata']['policy_generation'] == 1
+    assert first_result.metadata['mode'] == 'apply_patch'
+    assert first_result.metadata['mode_generation'] == 1
+    assert first_result.metadata['policy_generation'] == 1
 
     second_step = asyncio.run(adapter.for_run_step(context))
     second_definitions = asyncio.run(second_step.get_tools(context))
@@ -126,9 +126,9 @@ def test_bound_edit_call_keeps_captured_mode_and_policy_generation(tmp_path: Pat
         )
     )
     assert source.read_text() == 'three\n'
-    assert second_result['metadata']['mode'] == 'replace'
-    assert second_result['metadata']['mode_generation'] == 2
-    assert second_result['metadata']['policy_generation'] == 2
+    assert second_result.metadata['mode'] == 'replace'
+    assert second_result.metadata['mode_generation'] == 2
+    assert second_result.metadata['policy_generation'] == 2
     asyncio.run(workspace.close())
 
 
@@ -183,19 +183,19 @@ def test_real_agent_recovers_from_native_read_errors(tmp_path: Path, mocker: Moc
         returns = [part for message in messages for part in message.parts if isinstance(part, ToolReturnPart)]
         if not returns:
             return ModelResponse(parts=[ToolCallPart('read', {'path': 'missing.txt'})])
-        result = returns[-1].content
+        result = returns[-1]
         if len(returns) == 1:
-            assert result['metadata']['status'] == 'error'
-            assert result['metadata']['error_type'] == 'WorkspacePathError'
-            assert 'cannot inspect missing.txt' in result['content']
+            assert result.metadata['status'] == 'error'
+            assert result.metadata['error_type'] == 'WorkspacePathError'
+            assert 'cannot inspect missing.txt' in result.content
             return ModelResponse(parts=[ToolCallPart('read', {'path': 'source.txt:1+x'})])
         if len(returns) == 2:
-            assert result['metadata']['status'] == 'error'
-            assert result['metadata']['error_type'] == 'WorkspaceReadError'
-            assert 'Invalid read selector' in result['content']
+            assert result.metadata['status'] == 'error'
+            assert result.metadata['error_type'] == 'WorkspaceReadError'
+            assert 'Invalid read selector' in result.content
             return ModelResponse(parts=[ToolCallPart('read', {'path': 'source.txt'})])
-        assert result['metadata']['status'] == 'ok'
-        assert '1:recovered' in result['content']
+        assert result.metadata['status'] == 'ok'
+        assert '1:recovered' in result.content
         return ModelResponse(parts=[TextPart('recovered after native read errors')])
 
     model_factory = mocker.Mock()

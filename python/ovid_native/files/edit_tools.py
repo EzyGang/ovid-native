@@ -143,16 +143,28 @@ def tool_edit_result(
     edit: WorkspaceEditResult,
     presentation: WorkspaceSourcePresentation,
 ) -> WorkspaceFilesToolResult:
-    content = '\n\n'.join(_render_post(source, presentation) for source in edit.post_edit_sources)
-    if not content:
-        content = ', '.join(f'{change.operation}: {change.path}' for change in edit.changes)
+    rendered = {source.path for source in edit.post_edit_sources}
+    sections = [_render_post(source, presentation) for source in edit.post_edit_sources]
+    unrendered = [
+        f'{change.operation}: {change.path} -> {change.destination}'
+        if change.destination
+        else f'{change.operation}: {change.path}'
+        for change in edit.changes
+        if (change.destination or change.path) not in rendered
+    ]
+    if unrendered:
+        sections.append(', '.join(unrendered))
+    if edit.matching_strategy == 'fuzzy' and edit.confidence is not None:
+        sections.append(f'[Fuzzy match applied with confidence {edit.confidence:.2f}. Check the edited lines]')
+    if not edit.commit_complete:
+        sections.append('[Commit incomplete: only the changes shown were written. Reread the files before you retry]')
     metadata = _EDIT_TOOL_METADATA_ADAPTER.validate_python(
         {
             **edit.model_dump(mode='json', exclude={'post_edit_sources'}),
             'source_presentation': presentation.model_dump(mode='json'),
         }
     )
-    return WorkspaceFilesToolResult(content=content, metadata=metadata)
+    return WorkspaceFilesToolResult(content='\n\n'.join(sections), metadata=metadata)
 
 
 def _render_post(source: WorkspacePostEditSource, presentation: WorkspaceSourcePresentation) -> str:

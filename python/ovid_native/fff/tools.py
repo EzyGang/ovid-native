@@ -17,7 +17,12 @@ from ovid_native.fff.models import (
     FffMultiGrepToolResult,
 )
 from ovid_native.files.edit_modes import EditModeState
-from ovid_native.workspace._toolsets import WorkspaceResultTool, WorkspaceSourceTool, WorkspaceSourceToolset
+from ovid_native.workspace._toolsets import (
+    WorkspaceResultTool,
+    WorkspaceSourceTool,
+    WorkspaceSourceToolset,
+    file_page_notices,
+)
 from ovid_native.workspace.evidence import (
     EditableSourceGroup,
     WorkspaceSourcePresenter,
@@ -66,7 +71,7 @@ class FffGrepTool[Deps](WorkspaceSourceTool[Deps, WorkspaceFffProvider, FffGrepR
     async def execute(self, context: ToolExecutionContext[Deps], arguments: FffGrepRequest) -> FffGrepToolResult:
         del context
         result = await self._provider.grep(arguments)
-        return await self._present_result(result, _fff_source_groups)
+        return await self._present_result(result, _fff_source_groups, _fff_notices(result))
 
 
 class FffMultiGrepTool[Deps](
@@ -86,7 +91,7 @@ class FffMultiGrepTool[Deps](
     ) -> FffMultiGrepToolResult:
         del context
         result = await self._provider.multi_grep(arguments)
-        return await self._present_result(result, _fff_source_groups)
+        return await self._present_result(result, _fff_source_groups, _fff_notices(result))
 
 
 class FffSourceToolset[Deps](WorkspaceSourceToolset[Deps, WorkspaceFffProvider]):
@@ -112,6 +117,20 @@ class FffSourceToolset[Deps](WorkspaceSourceToolset[Deps, WorkspaceFffProvider])
         if self._include_multi_grep:
             tools.append(FffMultiGrepTool(provider=self._provider, presenter=presenter))
         return tools
+
+
+def _fff_notices(result: FffGrepResult) -> list[str]:
+    rows: list[str] = []
+    if not result.matches:
+        rows.append(f'No matches ({result.files_searched} files searched).')
+    if result.fallback_from is not None:
+        rows.append(f'No {result.fallback_from} matches, so {result.actual_mode} matching was used.')
+    reasons = {
+        'time_budget_reached': 'the search time budget was reached',
+        'index_incomplete': 'the file index is still building, so some files were not searched',
+    }
+    rows.extend(file_page_notices(reasons.get(result.completion), result.next_file_offset))
+    return rows
 
 
 async def _fff_source_groups(

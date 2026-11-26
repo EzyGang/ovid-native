@@ -8,6 +8,7 @@ from ovid_core.tools.base import BaseTool, ToolExecutionContext
 from ovid_native.ast import (
     AstEditApplyTool,
     AstEditPreviewTool,
+    AstLimits,
     AstRewriteApplyRequest,
     AstRewriteApplyToolResult,
     AstRewriteOperation,
@@ -18,6 +19,7 @@ from ovid_native.ast import (
     AstSearchToolResult,
 )
 from ovid_native.ast.tools import AstSourceToolset
+from ovid_native.files.edit_modes import EditMode
 from ovid_native.workspace.service import NativeWorkspaceSession
 
 
@@ -82,4 +84,31 @@ def test_tools_execute_search_preview_and_apply(tmp_path: Path) -> None:
     applied = asyncio.run(apply_tool.execute(context(), AstRewriteApplyRequest(proposal_id=proposal_id)))
     assert applied.content['result']['files'][0]['path'] == 'sample.py'
     assert source.read_text() == 'log(1)\n'
+    asyncio.run(workspace.close())
+
+
+def test_hashline_ast_grep_content_reports_pagination_skips_issues_and_empty_results(tmp_path: Path) -> None:
+    (tmp_path / 'broken.py').write_text('def (\n')
+    (tmp_path / 'notes.txt').write_text('print(9)\n')
+    (tmp_path / 'sample.py').write_text('print(1)\nprint(2)\nprint(3)\n')
+    workspace = NativeWorkspaceSession(root=tmp_path, ast_limits=AstLimits(max_matches=2), edit_mode=EditMode.HASHLINE)
+    grep = source_grep(workspace)
+
+    first = asyncio.run(grep.execute(context(), AstSearchRequest(pattern='print($A)', limit=1)))
+    past_end = asyncio.run(grep.execute(context(), AstSearchRequest(pattern='print($A)', offset=5)))
+    missing = asyncio.run(
+        grep.execute(context(), AstSearchRequest(pattern='absent($A)', scan=AstScanOptions(paths=('sample.py',))))
+    )
+
+    issues = [
+        'Skipped files with no supported language: 1.',
+        'Issue: broken.py: source contains syntax-tree error nodes.',
+        'Issue: search stopped at the 2 match limit.',
+    ]
+    assert cast(str, first.content).split('\n\n')[-1].splitlines() == [
+        'Matches 1-1 of 2 shown: continue with offset=1.',
+        *issues,
+    ]
+    assert cast(str, past_end.content).splitlines() == ['No matches at offset=5 (2 in total).', *issues]
+    assert missing.content == 'No matches (1 files searched).'
     asyncio.run(workspace.close())

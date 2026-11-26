@@ -39,12 +39,15 @@ class WorkspaceSourceTool[Deps, Provider, Args: BaseModel, Result: ToolResult](B
         self,
         result: Data,
         observe: Callable[[Data, WorkspaceSourcePresenter], Awaitable[tuple[EditableSourceGroup, ...]]],
+        notices: Sequence[str],
     ) -> Result:
         metadata = {'result': result.model_dump(mode='json')}
         groups = await observe(result, self._presenter)
         if self._presenter.presentation.format == 'hashline':
-            content = '\n\n'.join(group.render(self._presenter.presentation) for group in groups)
-            return self.result_type(content=content, metadata=metadata)
+            sections = [group.render(self._presenter.presentation) for group in groups]
+            if notices:
+                sections.append('\n'.join(notices))
+            return self.result_type(content='\n\n'.join(sections), metadata=metadata)
         return self.result_type(content=metadata)
 
 
@@ -93,3 +96,10 @@ class BoundWorkspaceToolset[Deps](BaseToolset[Deps]):
     async def get_tools(self, context: RunContext[Deps]) -> Sequence[BaseTool[Deps, Any, Any]]:
         del context
         return self._tools
+
+
+def file_page_notices(incomplete_reason: str | None, next_file_offset: int | None) -> list[str]:
+    rows = [] if incomplete_reason is None else [f'Incomplete: {incomplete_reason}.']
+    if next_file_offset is not None:
+        rows.append(f'More files may match: continue with file_offset={next_file_offset}.')
+    return rows
