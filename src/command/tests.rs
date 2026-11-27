@@ -122,19 +122,22 @@ fn command_timeout_kills_the_process_group() {
 }
 
 #[test]
-fn command_cancellation_kills_the_process_group() {
+fn command_cancellation_stops_the_process_scope_within_50_ms() {
     let temporary = TempDir::new().expect("temporary directory should exist");
     let workspace = Workspace::new(temporary.path().to_str().expect("path should be UTF-8"))
         .expect("workspace should exist");
     let request = request(&sleeping_command());
     let cancellation = request.cancellation.clone();
     let worker = thread::spawn(move || execute(&workspace, request));
-    thread::sleep(Duration::from_millis(50));
+    thread::sleep(Duration::from_millis(500));
 
+    let cancelled = Instant::now();
     cancellation.cancel();
     let result = worker.join().expect("command worker should join");
+    let latency = cancelled.elapsed();
 
     assert!(matches!(result, Err(CommandError::Cancelled)), "{result:?}");
+    assert!(latency <= Duration::from_millis(50), "{latency:?}");
 }
 
 #[test]

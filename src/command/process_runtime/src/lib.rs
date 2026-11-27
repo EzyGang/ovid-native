@@ -1,181 +1,73 @@
-use std::collections::{HashMap, HashSet};
-use std::hash::Hash;
+use std::io;
+use std::process::Command;
+use std::sync::{Mutex, MutexGuard};
+use std::time::Duration;
 
-/// Returns every process below `roots`, including the roots, with each process after its children.
+use tokio::process::Child;
+
+#[cfg(unix)]
+mod unix;
+#[cfg(unix)]
+use unix as platform;
+#[cfg(windows)]
+mod windows;
+#[cfg(windows)]
+use windows as platform;
+
+/// Owns every process that one command starts.
 ///
-/// Roots are traversed in iteration order. A process in `visited` is skipped, and each process appears once.
-pub fn post_order<T, I>(children: &HashMap<T, Vec<T>>, roots: I, mut visited: HashSet<T>) -> Vec<T>
-where
-    T: Copy + Eq + Hash,
-    I: IntoIterator<Item = T>,
-{
-    let mut order = Vec::new();
-    for root in roots {
-        let mut stack = vec![(root, false)];
-        while let Some((pid, expanded)) = stack.pop() {
-            if expanded {
-                order.push(pid);
-                continue;
-            }
-            if !visited.insert(pid) {
-                continue;
-            }
-            stack.push((pid, true));
-            if let Some(process_children) = children.get(&pid) {
-                stack.extend(process_children.iter().copied().map(|child| (child, false)));
-            }
-        }
-    }
-    order
+/// On Windows, the scope is a Job Object. The scope closes the job when it drops, and the job then
+/// stops every process in it. On Unix, the scope is one process group that the command owns. The
+/// scope stops that group when it drops.
+///
+/// [`ProcessScope::spawn`] puts a child in the scope before the child runs its program. Each
+/// descendant of the child stays in the scope, with these exceptions:
+///
+/// - On Unix, a process that calls `setsid` or `setpgid` leaves the process group.
+/// - On Windows, a process that another service starts, for example through WMI or the Task
+///   Scheduler, is not in the job. The job does not allow breakaway.
+///
+/// The scope contains only external processes. A builtin that the shell runs is not a separate
+/// process, so the scope cannot stop it.
+#[derive(Default)]
+pub struct ProcessScope {
+    state: Mutex<ScopeState>,
 }
 
-#[cfg(windows)]
-mod windows {
-    use std::collections::{HashMap, HashSet};
-    use std::mem;
-
-    use windows_sys::Win32::Foundation::{CloseHandle, FILETIME, HANDLE, INVALID_HANDLE_VALUE};
-    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
-        TH32CS_SNAPPROCESS,
-    };
-    use windows_sys::Win32::System::Threading::{
-        GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
-        TerminateProcess,
-    };
-
-    #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-    pub struct ProcessIdentity {
-        pid: u32,
-        created: u64,
-    }
-
-    pub fn current_pid() -> u32 {
-        std::process::id()
-    }
-
-    pub fn descendants(root: u32) -> Vec<ProcessIdentity> {
-        let Some(entries) = process_entries() else {
-            return Vec::new();
-        };
-        let children = entries.into_iter().fold(
-            HashMap::<u32, Vec<u32>>::new(),
-            |mut grouped, (pid, parent)| {
-                grouped.entry(parent).or_default().push(pid);
-                grouped
-            },
-        );
-        let roots = children.get(&root).into_iter().flatten().rev().copied();
-        crate::post_order(&children, roots, HashSet::from([root]))
-            .into_iter()
-            .filter_map(identity)
-            .collect()
-    }
-
-    pub fn is_running(identity: ProcessIdentity) -> bool {
-        current_creation_time(identity.pid) == Some(identity.created)
-    }
-
-    pub fn terminate(identity: ProcessIdentity) -> bool {
-        let Some(handle) = ProcessHandle::open(identity.pid, PROCESS_REFERENCE_ACCESS) else {
-            return false;
-        };
-        if creation_time(handle.raw) != Some(identity.created) {
-            return false;
-        }
-        // SAFETY: The handle belongs to the same process identity and includes PROCESS_TERMINATE access.
-        unsafe { TerminateProcess(handle.raw, 1) != 0 }
-    }
-
-    const PROCESS_REFERENCE_ACCESS: u32 = PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE;
-
-    struct ProcessHandle {
-        raw: HANDLE,
-    }
-
-    impl ProcessHandle {
-        fn open(pid: u32, access: u32) -> Option<Self> {
-            // SAFETY: OpenProcess accepts a numeric process identifier. A null result is handled.
-            let raw = unsafe { OpenProcess(access, 0, pid) };
-            (!raw.is_null()).then_some(Self { raw })
-        }
-    }
-
-    impl Drop for ProcessHandle {
-        fn drop(&mut self) {
-            // SAFETY: This handle was returned by OpenProcess and is closed exactly once.
-            let _ = unsafe { CloseHandle(self.raw) };
-        }
-    }
-
-    fn process_entries() -> Option<Vec<(u32, u32)>> {
-        // SAFETY: The snapshot has no caller-owned pointer arguments. Invalid handles are rejected.
-        let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
-        if snapshot == INVALID_HANDLE_VALUE {
-            return None;
-        }
-        let snapshot = SnapshotHandle(snapshot);
-        let mut entry = PROCESSENTRY32W {
-            dwSize: mem::size_of::<PROCESSENTRY32W>().try_into().ok()?,
-            ..unsafe { mem::zeroed() }
-        };
-        // SAFETY: entry has the required size and remains writable for the enumeration call.
-        if unsafe { Process32FirstW(snapshot.0, &raw mut entry) } == 0 {
-            return None;
-        }
-        let mut entries = Vec::new();
-        loop {
-            entries.push((entry.th32ProcessID, entry.th32ParentProcessID));
-            // SAFETY: entry remains initialized with its required size for the next enumeration call.
-            if unsafe { Process32NextW(snapshot.0, &raw mut entry) } == 0 {
-                break;
-            }
-        }
-        Some(entries)
-    }
-
-    struct SnapshotHandle(HANDLE);
-
-    impl Drop for SnapshotHandle {
-        fn drop(&mut self) {
-            // SAFETY: This handle was returned by CreateToolhelp32Snapshot and is closed exactly once.
-            let _ = unsafe { CloseHandle(self.0) };
-        }
-    }
-
-    fn identity(pid: u32) -> Option<ProcessIdentity> {
-        Some(ProcessIdentity {
-            pid,
-            created: current_creation_time(pid)?,
-        })
-    }
-
-    fn current_creation_time(pid: u32) -> Option<u64> {
-        let handle = ProcessHandle::open(pid, PROCESS_QUERY_LIMITED_INFORMATION)?;
-        creation_time(handle.raw)
-    }
-
-    fn creation_time(handle: HANDLE) -> Option<u64> {
-        let mut created = FILETIME::default();
-        let mut exited = FILETIME::default();
-        let mut kernel = FILETIME::default();
-        let mut user = FILETIME::default();
-        // SAFETY: All pointers reference initialized FILETIME storage for the duration of this call.
-        let result = unsafe {
-            GetProcessTimes(
-                handle,
-                &raw mut created,
-                &raw mut exited,
-                &raw mut kernel,
-                &raw mut user,
-            )
-        };
-        if result == 0 {
-            return None;
-        }
-        Some((u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime))
-    }
+#[derive(Default)]
+struct ScopeState {
+    terminated: bool,
+    members: platform::Members,
 }
 
-#[cfg(windows)]
-pub use windows::{ProcessIdentity, current_pid, descendants, is_running, terminate};
+impl ProcessScope {
+    /// Starts `command` inside the scope and returns the child with its process group ID.
+    ///
+    /// The process group ID is `None` on Windows. The scope refuses to start a process after
+    /// [`ProcessScope::terminate`]. If the scope cannot contain the child, it stops the child and
+    /// returns the error.
+    pub fn spawn(&self, command: Command, kill_on_drop: bool) -> io::Result<(Child, Option<i32>)> {
+        let mut state = self.state()?;
+        if state.terminated {
+            return Err(io::Error::other("process scope is terminated"));
+        }
+        platform::spawn(&mut state.members, command, kill_on_drop)
+    }
+
+    /// Stops every process in the scope and refuses later spawns.
+    ///
+    /// On Unix, the scope sends `SIGTERM` to its process group, then `SIGKILL` if the group still
+    /// exists after `grace`. On Windows, the scope stops the job at once. This call blocks the
+    /// thread for at most `grace`.
+    pub fn terminate(&self, grace: Duration) -> io::Result<()> {
+        let mut state = self.state()?;
+        state.terminated = true;
+        platform::terminate(&mut state.members, grace)
+    }
+
+    fn state(&self) -> io::Result<MutexGuard<'_, ScopeState>> {
+        self.state
+            .lock()
+            .map_err(|_| io::Error::other("process scope state is poisoned"))
+    }
+}
