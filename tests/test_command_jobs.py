@@ -24,9 +24,12 @@ from ovid_native.workspace.operations import WorkspaceOperation
 from ovid_native.workspace.service import NativeWorkspaceSession
 
 
+# `http.server` binds through `HTTPServer.server_bind`, which calls `socket.getfqdn`. That reverse lookup can take
+# longer than the test deadline on macOS CI, so the server binds through `socketserver.TCPServer` directly.
 _SERVER = (
-    'import os, runpy, sys; print("pid", os.getpid(), flush=True); '
-    "sys.argv = ['http.server', '0', '--bind', '127.0.0.1']; runpy.run_module('http.server', run_name='__main__')"
+    'import http.server, os, socketserver; print("pid", os.getpid(), flush=True); '
+    'server = socketserver.TCPServer(("127.0.0.1", 0), http.server.SimpleHTTPRequestHandler); '
+    'print("port", server.server_address[1], flush=True); server.serve_forever()'
 )
 _SLEEPER = 'import os, time; print("pid", os.getpid(), flush=True); time.sleep(60)'
 
