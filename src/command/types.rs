@@ -46,11 +46,7 @@ impl CommandCancellation {
 
 impl CommandRequest {
     pub(crate) fn validate(&self) -> Result<(), CommandError> {
-        if self.command.contains('\0') {
-            return Err(CommandError::Configuration(
-                "command cannot contain NUL bytes".to_owned(),
-            ));
-        }
+        validate_input(&self.command, &self.env)?;
         if self.timeout < Duration::from_secs(1) || self.timeout > Duration::from_secs(3_600) {
             return Err(CommandError::Configuration(
                 "command timeout must be between 1 and 3600 seconds".to_owned(),
@@ -66,16 +62,25 @@ impl CommandRequest {
                 "command head limit cannot exceed the output limit".to_owned(),
             ));
         }
-        for (name, value) in &self.env {
-            if name.is_empty() || name.contains('=') || name.contains('\0') || value.contains('\0')
-            {
-                return Err(CommandError::Configuration(
-                    "command environment contains an invalid entry".to_owned(),
-                ));
-            }
-        }
         Ok(())
     }
+}
+
+/// Checks the command text and environment that every command and command job share.
+pub(crate) fn validate_input(command: &str, env: &[(String, String)]) -> Result<(), CommandError> {
+    if command.contains('\0') {
+        return Err(CommandError::Configuration(
+            "command cannot contain NUL bytes".to_owned(),
+        ));
+    }
+    for (name, value) in env {
+        if name.is_empty() || name.contains('=') || name.contains('\0') || value.contains('\0') {
+            return Err(CommandError::Configuration(
+                "command environment contains an invalid entry".to_owned(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -86,6 +91,8 @@ pub(crate) enum CommandError {
     Output(String),
     Cancelled,
     Closed,
+    JobLimit(String),
+    JobNotFound(u64),
 }
 
 impl CommandError {
@@ -95,6 +102,21 @@ impl CommandError {
             error => {
                 Self::Configuration(format!("workspace rejected command execution: {error:?}"))
             }
+        }
+    }
+}
+
+impl std::fmt::Display for CommandError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Configuration(message)
+            | Self::Path(message)
+            | Self::Execution(message)
+            | Self::Output(message)
+            | Self::JobLimit(message) => formatter.write_str(message),
+            Self::Cancelled => formatter.write_str("command execution cancelled"),
+            Self::Closed => formatter.write_str("workspace session is closed"),
+            Self::JobNotFound(id) => write!(formatter, "command job {id} does not exist"),
         }
     }
 }

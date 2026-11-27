@@ -7,6 +7,8 @@ use std::time::{Duration, Instant};
 use libc::c_int;
 use tokio::process::Child;
 
+use crate::{TerminalProcess, TerminalSize, unix_terminal};
+
 #[derive(Default)]
 pub(crate) struct Members {
     group: Option<i32>,
@@ -30,6 +32,22 @@ pub(crate) fn spawn(
     };
     members.group = Some(group);
     Ok((child, Some(group)))
+}
+
+pub(crate) fn spawn_terminal(
+    members: &mut Members,
+    command: Command,
+    size: TerminalSize,
+) -> io::Result<TerminalProcess> {
+    // A session leader cannot join an existing process group.
+    if members.group.is_some_and(group_exists) {
+        return Err(io::Error::other(
+            "a terminal process needs a scope without processes",
+        ));
+    }
+    let (process, group) = unix_terminal::spawn(command, size)?;
+    members.group = Some(group);
+    Ok(process)
 }
 
 pub(crate) fn terminate(members: &mut Members, grace: Duration) -> io::Result<()> {

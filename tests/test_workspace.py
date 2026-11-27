@@ -38,11 +38,14 @@ def test_session_identity_binding_and_shared_native_handle(tmp_path: Path) -> No
     assert str(tmp_path) not in first.id.root
     assert binding.ref == workspace_ref('project')
     assert binding.identity == first.id.root
-    assert binding.features == frozenset(('files', 'command', 'observations', 'change_events', 'search', 'ast', 'fff'))
+    assert binding.features == frozenset(
+        ('files', 'command', 'command_jobs', 'observations', 'change_events', 'search', 'ast', 'fff')
+    )
     assert first.operations == frozenset(
         (
             WorkspaceOperation.FILES,
             WorkspaceOperation.COMMAND,
+            WorkspaceOperation.COMMAND_JOBS,
             WorkspaceOperation.OBSERVATIONS,
             WorkspaceOperation.CHANGE_EVENTS,
             WorkspaceOperation.SEARCH,
@@ -70,9 +73,15 @@ def test_builder_overrides_one_provider_and_rejects_invalid_choices(tmp_path: Pa
     command.execute = mocker.AsyncMock()
     builder = WorkspaceSessionBuilder.native(root=tmp_path).with_command_provider(command).with_search_provider(search)
     session = builder.build()
+    jobs = mocker.Mock(spec=['start', 'poll', 'write', 'resize', 'signal', 'wait', 'list'])
+    jobs_session = WorkspaceSessionBuilder.native(root=tmp_path).with_command_jobs_provider(jobs).build()
 
     assert session.search is search
     assert session.command is command
+    assert session.command_jobs is not command
+    assert jobs_session.command_jobs is jobs
+    assert jobs_session.command is not jobs
+    asyncio.run(jobs_session.close())
     assert session.ast is not None
     assert session.fff is not None
 
@@ -82,6 +91,8 @@ def test_builder_overrides_one_provider_and_rejects_invalid_choices(tmp_path: Pa
         WorkspaceSessionBuilder.native(root=tmp_path).with_ast_provider(mocker.Mock(spec=[]))
     with pytest.raises(WorkspaceConfigurationError, match='missing required operations'):
         WorkspaceSessionBuilder.native(root=tmp_path).with_command_provider(mocker.Mock(spec=[]))
+    with pytest.raises(WorkspaceConfigurationError, match='missing required operations'):
+        WorkspaceSessionBuilder.native(root=tmp_path).with_command_jobs_provider(mocker.Mock(spec=[]))
     ast = mocker.Mock()
     ast.search = mocker.AsyncMock()
     ast.preview_rewrite = mocker.AsyncMock()

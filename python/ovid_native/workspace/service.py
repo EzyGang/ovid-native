@@ -17,6 +17,7 @@ from ovid_native.workspace.errors import (
 )
 from ovid_native.workspace.models import (
     WorkspaceAstProvider,
+    WorkspaceCommandJobsProvider,
     WorkspaceCommandProvider,
     WorkspaceFffProvider,
     WorkspaceFilesProvider,
@@ -56,6 +57,7 @@ class NativeWorkspaceSession:
         root: Path,
         files_provider: WorkspaceFilesProvider | None = None,
         command_provider: WorkspaceCommandProvider | None = None,
+        command_jobs_provider: WorkspaceCommandJobsProvider | None = None,
         search_provider: WorkspaceSearchProvider | None = None,
         ast_provider: WorkspaceAstProvider | None = None,
         ast_limits: AstLimits | None = None,
@@ -83,6 +85,7 @@ class NativeWorkspaceSession:
         overrides = WorkspaceProviderOverrides(
             files=files_provider,
             command=command_provider,
+            command_jobs=command_jobs_provider,
             search=search_provider,
             ast=ast_provider,
             fff=fff_provider,
@@ -129,6 +132,10 @@ class NativeWorkspaceSession:
     @property
     def command(self) -> WorkspaceCommandProvider:
         return self._require_service(WorkspaceOperation.COMMAND, self._services.command)
+
+    @property
+    def command_jobs(self) -> WorkspaceCommandJobsProvider:
+        return self._require_service(WorkspaceOperation.COMMAND_JOBS, self._services.command_jobs)
 
     @property
     def files(self) -> WorkspaceFilesProvider:

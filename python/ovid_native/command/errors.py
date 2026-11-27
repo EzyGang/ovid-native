@@ -20,3 +20,11 @@ class CommandCancelledError(CommandError):
 
 class CommandClosedError(CommandError):
     pass
+
+
+class CommandJobLimitError(CommandError):
+    pass
+
+
+class CommandJobNotFoundError(CommandError):
+    pass

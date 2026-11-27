@@ -2,23 +2,26 @@ use std::time::Duration;
 
 use pyo3::prelude::*;
 
+use crate::command::jobs::{NativeCommandJobRequest, NativeCommandJobs};
 use crate::command::{CommandCancellation, CommandError, CommandRequest, CommandResult, execute};
 use crate::python_boundary::{python_errors, register_exports};
 use crate::workspace::NativeWorkspace;
 
 python_errors! {
     CommandError;
-    NativeCommandConfigurationError: CommandError::Configuration(message) => message,
-    NativeCommandPathError: CommandError::Path(message) => message,
-    NativeCommandExecutionError: CommandError::Execution(message) | CommandError::Output(message) => message,
-    NativeCommandCancelledError: CommandError::Cancelled => "command execution cancelled",
-    NativeCommandClosedError: CommandError::Closed => "workspace session is closed",
+    NativeCommandConfigurationError: error @ CommandError::Configuration(_) => error.to_string(),
+    NativeCommandPathError: error @ CommandError::Path(_) => error.to_string(),
+    NativeCommandExecutionError: error @ (CommandError::Execution(_) | CommandError::Output(_)) => error.to_string(),
+    NativeCommandCancelledError: error @ CommandError::Cancelled => error.to_string(),
+    NativeCommandClosedError: error @ CommandError::Closed => error.to_string(),
+    NativeCommandJobLimitError: error @ CommandError::JobLimit(_) => error.to_string(),
+    NativeCommandJobNotFoundError: error @ CommandError::JobNotFound(_) => error.to_string(),
 }
 
 #[pyclass(frozen, skip_from_py_object)]
 #[derive(Clone)]
-struct NativeCommandCancellation {
-    inner: CommandCancellation,
+pub(super) struct NativeCommandCancellation {
+    pub(super) inner: CommandCancellation,
 }
 
 #[pymethods]
@@ -86,7 +89,12 @@ fn command_execute(
 
 pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     register_exports!(module,
-        classes [NativeCommandCancellation, NativeCommandRequest],
+        classes [
+            NativeCommandCancellation,
+            NativeCommandRequest,
+            NativeCommandJobRequest,
+            NativeCommandJobs,
+        ],
         functions [command_execute]
     );
     add_exceptions(module)

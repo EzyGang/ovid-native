@@ -11,6 +11,7 @@ from ovid_native.search.engine import SearchEngine
 from ovid_native.workspace.errors import WorkspaceConfigurationError
 from ovid_native.workspace.models import (
     WorkspaceAstProvider,
+    WorkspaceCommandJobsProvider,
     WorkspaceCommandProvider,
     WorkspaceFffProvider,
     WorkspaceFilesProvider,
@@ -33,6 +34,7 @@ from ovid_native.workspace.views import NativeViewAstProvider
 class WorkspaceProviderOverrides:
     files: WorkspaceFilesProvider | None
     command: WorkspaceCommandProvider | None
+    command_jobs: WorkspaceCommandJobsProvider | None
     search: WorkspaceSearchProvider | None
     ast: WorkspaceAstProvider | None
     fff: WorkspaceFffProvider | None
@@ -52,9 +54,7 @@ class NativeWorkspaceServices:
         edit_mode: EditModeState,
         observation_store: WorkspaceObservationStore | None,
     ) -> None:
-        self.command = overrides.command
-        if self.command is None and WorkspaceOperation.COMMAND in operations:
-            self.command = CommandEngine(workspace)
+        self._bind_commands(workspace=workspace, operations=operations, overrides=overrides)
 
         self.files = overrides.files
         if self.files is None and WorkspaceOperation.FILES in operations:
@@ -84,11 +84,27 @@ class NativeWorkspaceServices:
 
     async def close(self) -> None:
         try:
-            if isinstance(self.command, CommandEngine):
-                await self.command.close()
+            if self._command_engine is not None:
+                await self._command_engine.close()
         finally:
             if self.fff is not None:
                 await self.fff.close()
+
+    def _bind_commands(
+        self,
+        *,
+        workspace: _native.NativeWorkspace,
+        operations: frozenset[WorkspaceOperation],
+        overrides: WorkspaceProviderOverrides,
+    ) -> None:
+        native = {WorkspaceOperation.COMMAND, WorkspaceOperation.COMMAND_JOBS} & operations
+        self._command_engine = CommandEngine(workspace) if native else None
+        self.command: WorkspaceCommandProvider | None = overrides.command
+        if self.command is None and WorkspaceOperation.COMMAND in operations:
+            self.command = self._command_engine
+        self.command_jobs: WorkspaceCommandJobsProvider | None = overrides.command_jobs
+        if self.command_jobs is None and WorkspaceOperation.COMMAND_JOBS in operations:
+            self.command_jobs = self._command_engine
 
     def _bind_observations(
         self,

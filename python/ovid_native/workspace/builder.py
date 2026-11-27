@@ -8,6 +8,7 @@ from ovid_native.files.edit_modes import EditMode, EditModeId, EditModeProvider
 from ovid_native.workspace.errors import WorkspaceConfigurationError
 from ovid_native.workspace.models import (
     WorkspaceAstProvider,
+    WorkspaceCommandJobsProvider,
     WorkspaceCommandProvider,
     WorkspaceFffProvider,
     WorkspaceFilesProvider,
@@ -35,6 +36,7 @@ class WorkspaceSessionBuilder:
         self._ast_limits = AstLimits()
         self._files_provider: WorkspaceFilesProvider | None = None
         self._command_provider: WorkspaceCommandProvider | None = None
+        self._command_jobs_provider: WorkspaceCommandJobsProvider | None = None
         self._search_provider: WorkspaceSearchProvider | None = None
         self._ast_provider: WorkspaceAstProvider | None = None
         self._fff_provider: WorkspaceFffProvider | None = None
@@ -60,6 +62,11 @@ class WorkspaceSessionBuilder:
 
     def with_command_provider(self, provider: WorkspaceCommandProvider) -> Self:
         self._command_provider = self._provider(provider, operation='command', methods=('execute',))
+        return self
+
+    def with_command_jobs_provider(self, provider: WorkspaceCommandJobsProvider) -> Self:
+        methods = ('start', 'poll', 'write', 'resize', 'signal', 'wait', 'list')
+        self._command_jobs_provider = self._provider(provider, operation='command_jobs', methods=methods)
         return self
 
     def with_files_provider(self, provider: WorkspaceFilesProvider) -> Self:
@@ -151,6 +158,7 @@ class WorkspaceSessionBuilder:
             root=root,
             files_provider=self._files_provider,
             command_provider=self._command_provider,
+            command_jobs_provider=self._command_jobs_provider,
             search_provider=search,
             ast_provider=ast,
             fff_provider=fff,
