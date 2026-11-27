@@ -2,6 +2,8 @@ from typing import Literal, NotRequired, TypedDict
 
 from pydantic import JsonValue
 
+from ovid_native.workspace.rehydration import WorkspaceObservationToolMetadata
+
 
 type WorkspaceReadTruncationReason = Literal[
     'byte_limit',
@@ -28,7 +30,7 @@ class WorkspaceFileReadToolMetadata(TypedDict):
     editable: bool
     complete_presentation: bool
     truncated: bool
-    observation: NotRequired[str]
+    observations: list[WorkspaceObservationToolMetadata]
     truncation: NotRequired[WorkspaceReadTruncationMetadata]
     unmatched_ranges: NotRequired[list[list[int | None]]]
 
@@ -68,6 +70,7 @@ class WorkspaceMultiReadToolMetadata(TypedDict):
     failed_targets: int
     truncated: bool
     targets: list[WorkspaceReadTargetToolMetadata]
+    observations: list[WorkspaceObservationToolMetadata]
 
 
 class WorkspaceFileChangeToolMetadata(TypedDict):
@@ -97,6 +100,7 @@ class WorkspaceEditToolMetadata(TypedDict):
     matching_strategy: Literal['exact', 'fuzzy'] | None
     confidence: float | None
     source_presentation: WorkspaceSourcePresentationToolMetadata
+    observations: list[WorkspaceObservationToolMetadata]
 
 
 type WorkspaceFilesToolMetadata = (

@@ -1,6 +1,6 @@
 # Native Benchmarks
 
-This suite measures the public `SearchEngine`, `AstEngine`, and `FffEngine` APIs. Timings include Python validation, PyO3 conversion, native work, and result mapping. They exclude fixture generation, FFF initial indexing, proposal setup for apply measurements, provider calls, agent construction, and model loops.
+This suite measures the public `SearchEngine`, `AstEngine`, and `FffEngine` APIs and the workspace observation service. Timings include Python validation, PyO3 conversion, native work, and result mapping. They exclude fixture generation, FFF initial indexing, proposal setup for apply measurements, session setup for rehydration, provider calls, agent construction, and model loops.
 
 ## Commands
 
@@ -111,6 +111,12 @@ AST fixtures contain 2,000 fixed Python files. Ten percent match the search and 
 | `ast.search_captures.2k` | Capture extraction and Python mapping |
 | `ast.preview_sparse.2k` | Rewrite matching, edit construction, and hashing |
 | `ast.apply.100` | Applying 100 previously staged file changes |
+
+The workspace scenario uses the same 2,000-file AST fixture. Each sample opens a new session outside the timing. Only the `rehydrate` call is timed.
+
+| ID | Measures |
+| --- | --- |
+| `workspace.rehydrate.200` | Digest verification and ledger restore for 200 persisted receipts |
 
 ## Reading Results
 

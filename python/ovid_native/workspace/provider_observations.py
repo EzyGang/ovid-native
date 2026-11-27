@@ -1,8 +1,10 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
 from hashlib import sha256
 
 from ovid_native.files.models import ReadLineRange, WorkspaceFileReadRequest, WorkspaceReadFileResult
 from ovid_native.workspace.errors import (
+    WorkspaceError,
     WorkspaceObservationCollisionError,
     WorkspaceObservationNotFoundError,
     WorkspaceObservedLineChangedError,
@@ -19,6 +21,12 @@ from ovid_native.workspace.observations import (
     WorkspaceObservationReceipt,
     WorkspaceObservationRequest,
     WorkspaceRenderedLine,
+)
+from ovid_native.workspace.rehydration import (
+    WorkspaceRehydrationReport,
+    WorkspaceRehydrationRequest,
+    WorkspaceRehydrationStatus,
+    rehydrate_newest_first,
 )
 from ovid_native.workspace.source_validation import validate_complete_source, validate_serialized_spans, validate_spans
 
@@ -113,6 +121,27 @@ class ProviderWorkspaceObservationService:
                 )
 
         return WorkspaceLineValidationResult(observation=retained.receipt)
+
+    async def rehydrate(self, requests: Sequence[WorkspaceRehydrationRequest]) -> WorkspaceRehydrationReport:
+        return await rehydrate_newest_first(requests, self._restore)
+
+    async def _restore(self, request: WorkspaceRehydrationRequest) -> WorkspaceRehydrationStatus:
+        wanted = sorted(set(request.line_numbers))
+        ranges = _line_ranges(tuple(wanted))
+        try:
+            result = await self._read(request.path, ranges)
+            observation = result.observation
+            rendered = [line.line_number for line in result.lines]
+            if observation is None or observation.content_sha256 != request.content_sha256 or rendered != wanted:
+                return 'stale'
+            if len(self._entries) >= 256 and (result.path, observation.tag.upper()) not in self._entries:
+                return 'skipped'
+            complete = request.complete_presentation and len(wanted) == result.total_lines
+            receipt = observation.model_copy(update={'visible_ranges': ranges, 'complete_presentation': complete})
+            self._record(receipt, result.lines)
+        except WorkspaceError:
+            return 'stale'
+        return 'restored'
 
     async def _read(
         self,

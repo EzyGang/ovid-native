@@ -3,9 +3,13 @@ use std::collections::{HashMap, HashSet};
 use crate::workspace::WorkspaceError;
 use crate::workspace::content::NormalizedText;
 use crate::workspace::observation_types::{
-    Authorization, LineRange, ObservationReceipt, RenderedLine,
+    Authorization, ObservationReceipt, RenderedLine, ranges_from_lines,
 };
 use crate::workspace::write::sha256;
+
+mod rehydration;
+
+pub(crate) use rehydration::RehydrationStatus;
 
 #[derive(Debug)]
 struct ObservationEntry {
@@ -55,7 +59,7 @@ impl ObservationLedger {
             entry.receipt.complete_presentation |= complete_presentation;
             entry.receipt.generation = generation;
             entry.last_used = self.clock;
-            entry.retained_bytes = retained_size(entry);
+            entry.retained_bytes = retained_size(path, entry.line_digests.len());
             self.retained_bytes = self.retained_bytes.saturating_add(entry.retained_bytes);
         } else {
             let mut line_digests = HashMap::new();
@@ -78,7 +82,7 @@ impl ObservationLedger {
                 retained_bytes: 0,
                 last_used: self.clock,
             };
-            entry.retained_bytes = retained_size(&entry);
+            entry.retained_bytes = retained_size(path, entry.line_digests.len());
             self.retained_bytes = self.retained_bytes.saturating_add(entry.retained_bytes);
             self.entries.insert(key.clone(), entry);
         }
@@ -237,25 +241,8 @@ fn merge_rendered(entry: &mut ObservationEntry, text: &NormalizedText, rendered:
     }
 }
 
-fn retained_size(entry: &ObservationEntry) -> usize {
-    entry.receipt.path.len()
-        + entry.receipt.tag.len()
-        + entry.receipt.content_sha256.len()
-        + entry.line_digests.len() * (std::mem::size_of::<usize>() + 64)
-}
-
-fn ranges_from_lines(lines: impl Iterator<Item = usize>) -> Vec<LineRange> {
-    let mut lines = lines.collect::<Vec<_>>();
-    lines.sort_unstable();
-    let mut ranges: Vec<LineRange> = Vec::new();
-    for line in lines {
-        match ranges.last_mut() {
-            Some(range) if line <= range.end.saturating_add(1) => range.end = line,
-            _ => ranges.push(LineRange {
-                start: line,
-                end: line,
-            }),
-        }
-    }
-    ranges
+fn retained_size(path: &str, line_count: usize) -> usize {
+    let tag_bytes = 4;
+    let digest_bytes = 64;
+    path.len() + tag_bytes + digest_bytes + line_count * (size_of::<usize>() + digest_bytes)
 }

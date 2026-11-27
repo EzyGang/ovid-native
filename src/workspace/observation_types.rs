@@ -78,3 +78,19 @@ impl Authorization {
         Ok(())
     }
 }
+
+pub(super) fn ranges_from_lines(lines: impl Iterator<Item = usize>) -> Vec<LineRange> {
+    let mut lines = lines.collect::<Vec<_>>();
+    lines.sort_unstable();
+    let mut ranges: Vec<LineRange> = Vec::new();
+    for line in lines {
+        match ranges.last_mut() {
+            Some(range) if line <= range.end.saturating_add(1) => range.end = line,
+            _ => ranges.push(LineRange {
+                start: line,
+                end: line,
+            }),
+        }
+    }
+    ranges
+}

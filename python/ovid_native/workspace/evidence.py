@@ -12,6 +12,7 @@ from ovid_native.workspace.observations import (
     WorkspaceObservationService,
     WorkspaceRenderedLine,
 )
+from ovid_native.workspace.rehydration import WorkspaceObservationToolMetadata
 
 
 class WorkspaceSourcePresentation(BaseModel):
@@ -203,6 +204,19 @@ def source_line_ranges(lines: Collection[int]) -> tuple[WorkspaceLineRange, ...]
         else:
             ranges.append(WorkspaceLineRange(start=line, end=line))
     return tuple(ranges)
+
+
+def observation_metadata(
+    receipt: WorkspaceObservationReceipt,
+    line_numbers: Collection[int],
+) -> WorkspaceObservationToolMetadata:
+    return {
+        'path': receipt.path,
+        'tag': receipt.tag,
+        'content_sha256': receipt.content_sha256,
+        'visible_ranges': [[line_range.start, line_range.end] for line_range in source_line_ranges(line_numbers)],
+        'complete_presentation': receipt.complete_presentation,
+    }
 
 
 def _uneditable(evidence: WorkspaceEvidence, reason: str) -> EditableSourceGroup:

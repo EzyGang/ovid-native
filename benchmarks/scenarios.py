@@ -7,6 +7,7 @@ from time import perf_counter
 from benchmarks.ast_scenarios import ast_benchmark_cases
 from benchmarks.fff_scenarios import fff_benchmark_cases
 from benchmarks.search_scenarios import search_benchmark_cases
+from benchmarks.workspace_scenarios import workspace_benchmark_cases
 
 
 type Measure = Callable[[int], float]
@@ -48,6 +49,7 @@ def scenarios(fixture_root: Path, work_root: Path) -> ScenarioSuite:
         for case in (
             *search_benchmark_cases(fixture_root, async_measure),
             *ast_benchmark_cases(fixture_root, work_root, loop, async_measure),
+            *workspace_benchmark_cases(fixture_root, loop),
         )
     ]
     fff_cases, close = fff_benchmark_cases(fixture_root, loop, async_measure)
