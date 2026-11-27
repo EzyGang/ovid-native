@@ -26,7 +26,7 @@ fn workspace_scans_exact_directory_glob_and_multiple_selections() {
     fs::create_dir_all(root.path().join("src/nested")).expect("source directories");
     fs::write(root.path().join("src/a.rs"), "a").expect("a");
     fs::write(root.path().join("src/nested/b.rs"), "bb").expect("b");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     let control = WorkControl::new(Cancellation::new(), None);
 
     let result = workspace
@@ -56,7 +56,7 @@ fn workspace_prunes_unrelated_selection_subtrees() {
         )
         .expect("unrelated file");
     }
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
 
     for selection in [
         "selected/target.txt",
@@ -82,7 +82,7 @@ fn workspace_rejects_traversal_and_reports_limits() {
     let root = tempfile::tempdir().expect("workspace");
     fs::write(root.path().join("a.txt"), "a").expect("a");
     fs::write(root.path().join("b.txt"), "b").expect("b");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     let control = WorkControl::new(Cancellation::new(), None);
 
     for traversal in ["../outside", r"..\outside", r"C:\outside"] {
@@ -102,7 +102,7 @@ fn workspace_rejects_traversal_and_reports_limits() {
 #[test]
 fn workspace_reports_deadline_and_cancellation() {
     let root = tempfile::tempdir().expect("workspace");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     let deadline = WorkControl::new(Cancellation::new(), Some(Duration::ZERO));
     let result = workspace
         .scan(&scan_request(&["."]), &deadline)
@@ -139,7 +139,7 @@ fn workspace_streams_selected_lines_from_unobserved_files() {
     let root = tempfile::tempdir().expect("workspace");
     let path = root.path().join("large.txt");
     fs::write(&path, b"\xef\xbb\xbfone\r\ntwo\r\nthree\r\n").expect("source");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     workspace
         .set_policy(WorkspacePolicy {
             max_read_bytes: 5,
@@ -165,7 +165,7 @@ fn workspace_preflights_and_atomically_replaces_content() {
     let root = tempfile::tempdir().expect("workspace");
     let path = root.path().join("source.txt");
     fs::write(&path, "before").expect("source");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     preflight_write(workspace.root(), "source.txt", &sha256(b"before")).expect("preflight");
     fs::write(&path, "changed").expect("concurrent change");
     assert!(matches!(
@@ -214,7 +214,7 @@ fn workspace_preflights_and_atomically_replaces_content() {
 fn workspace_unordered_full_metadata_includes_directories() {
     let root = tempfile::tempdir().expect("workspace");
     fs::create_dir(root.path().join("src")).expect("directory");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     let mut request = scan_request(&["src"]);
     request.file_kind = ScanFileKind::FilesAndDirectories;
     request.metadata = MetadataLevel::Full;
@@ -242,7 +242,7 @@ fn workspace_prunes_directory_symlinks_and_rejects_external_file_symlinks() {
         root.path().join("linked-file.txt"),
     )
     .expect("file link");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     let control = WorkControl::new(Cancellation::new(), None);
 
     assert!(matches!(
@@ -267,7 +267,7 @@ fn workspace_resolves_only_explicit_internal_file_symlinks() {
         root.path().join("linked.txt"),
     )
     .expect("file link");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     let control = WorkControl::new(Cancellation::new(), None);
 
     let explicit = workspace

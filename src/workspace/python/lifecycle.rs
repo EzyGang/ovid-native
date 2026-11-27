@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use pyo3::prelude::*;
 
 use crate::python_boundary::register_exports;
@@ -8,11 +10,29 @@ use crate::workspace::{
 };
 
 type NativePolicy = (bool, f64, u64, u64, usize, usize, bool, u64);
+type NativeRecoveryReport = (String, Vec<String>, Vec<String>);
 
 #[pyfunction]
-fn workspace_create(root: String) -> PyResult<NativeWorkspace> {
-    Workspace::new(&root)
+#[pyo3(signature = (root, state_dir=None))]
+fn workspace_create(root: String, state_dir: Option<PathBuf>) -> PyResult<NativeWorkspace> {
+    Workspace::new(&root, state_dir)
         .map(NativeWorkspace::new)
+        .map_err(to_python_error)
+}
+
+#[pyfunction]
+fn workspace_recover(
+    py: Python<'_>,
+    workspace: PyRef<'_, NativeWorkspace>,
+) -> PyResult<Vec<NativeRecoveryReport>> {
+    let inner = workspace.inner.clone();
+    py.detach(move || inner.recover())
+        .map(|reports| {
+            reports
+                .into_iter()
+                .map(|report| (report.mutation_id, report.restored, report.conflicts))
+                .collect()
+        })
         .map_err(to_python_error)
 }
 
@@ -149,7 +169,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     register_exports!(module, classes [], functions [
         workspace_create, workspace_close, workspace_is_closed, workspace_revision,
         workspace_policy, workspace_set_policy, workspace_edit_mode, workspace_set_edit_mode,
-        workspace_capture_mutation, workspace_register_edit_mode,
+        workspace_capture_mutation, workspace_register_edit_mode, workspace_recover,
     ]);
     Ok(())
 }

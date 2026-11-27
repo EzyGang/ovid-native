@@ -74,7 +74,7 @@ fn put_end(hash: &str, register: &str) -> HashlineOperation {
 fn hashline_replaces_exact_observed_lines_and_returns_fresh_source() {
     let root = tempfile::tempdir().expect("workspace");
     fs::write(root.path().join("source.txt"), "one\ntwo\nthree\n").expect("source");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     let read = workspace.read_file("source.txt", &[]).expect("observation");
     let receipt = read.observation.expect("receipt");
     let operation = put_range(
@@ -111,7 +111,7 @@ fn hashline_rejects_unseen_and_changed_anchors_without_writing() {
     let root = tempfile::tempdir().expect("workspace");
     let path = root.path().join("source.txt");
     fs::write(&path, "one\ntwo\nthree\n").expect("source");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     let partial = workspace
         .read_file("source.txt", &[LineRange { start: 1, end: 1 }])
         .expect("partial observation");
@@ -156,7 +156,7 @@ fn hashline_resolves_cross_file_registers_in_authored_order() {
     let root = tempfile::tempdir().expect("workspace");
     fs::write(root.path().join("source.txt"), "a\nmove me").expect("source");
     fs::write(root.path().join("target.txt"), "target\n").expect("target");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     let source = workspace
         .read_file("source.txt", &[])
         .expect("source observation");
@@ -203,7 +203,7 @@ fn hashline_rejects_duplicate_normalized_paths_before_committing() {
     let root = tempfile::tempdir().expect("workspace");
     let path = root.path().join("source.txt");
     fs::write(&path, "one\n").expect("source");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     let read = workspace.read_file("source.txt", &[]).expect("observation");
     let receipt = read.observation.expect("receipt");
     let operation = put_range(
@@ -243,7 +243,7 @@ fn hashline_rejects_normalized_destination_conflicts_before_committing() {
     let target_path = root.path().join("target.txt");
     fs::write(&source_path, "source\n").expect("source");
     fs::write(&target_path, "target\n").expect("target");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     let source = workspace
         .read_file("source.txt", &[])
         .expect("source observation");
@@ -314,7 +314,7 @@ fn hashline_uses_normalized_observation_paths() {
     let root = tempfile::tempdir().expect("workspace");
     let path = root.path().join("source.txt");
     fs::write(&path, "one\n").expect("source");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     let read = workspace
         .read_file("./source.txt", &[])
         .expect("observation");
@@ -348,7 +348,7 @@ fn hashline_requires_complete_evidence_for_remove_and_commits_move_after_edit() 
     let move_path = root.path().join("move.txt");
     fs::write(&remove_path, "one\ntwo\n").expect("remove source");
     fs::write(&move_path, "before\n").expect("move source");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     let partial = workspace
         .read_file("remove.txt", &[LineRange { start: 1, end: 1 }])
         .expect("partial observation");

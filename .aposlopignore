@@ -19,7 +19,7 @@ aBRjQ
 # Replace/delete/move PyO3 exports preserve distinct argument schemas; workspace.write owns the shared lifecycle.
 7k1qU
 # Domain modules register different public exports through the shared register_exports macro.
-TGu3I
+p0_4C
 # File/directory entrypoints select different predicates; resolve_contained_type owns containment behavior.
 m3QGh
 # FFF and basic search limits describe different engine ceilings and defaults.

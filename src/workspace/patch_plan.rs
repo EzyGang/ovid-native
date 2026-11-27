@@ -1,5 +1,9 @@
-use std::{collections::HashSet, path::PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
+use crate::workspace::journal::JournalEntry;
 use crate::workspace::patch::{PatchOperation, PatchOperationKind};
 use crate::workspace::path::resolve_new_file;
 use crate::workspace::unified_diff::apply_unified_diff;
@@ -36,6 +40,50 @@ impl PreparedOperation {
             Self::Create { path, .. } | Self::Update { path, .. } | Self::Delete { path, .. } => {
                 path.clone()
             }
+        }
+    }
+
+    pub(super) fn journal_entry(&self) -> (JournalEntry, Option<&Path>) {
+        match self {
+            Self::Create { path, text } => (
+                JournalEntry::new(
+                    "create",
+                    path,
+                    None,
+                    None,
+                    Some(sha256(text.source.as_bytes())),
+                ),
+                None,
+            ),
+            Self::Update {
+                path,
+                target,
+                destination,
+                before,
+                text,
+                ..
+            } => (
+                JournalEntry::new(
+                    if destination.is_some() {
+                        "move"
+                    } else {
+                        "update"
+                    },
+                    path,
+                    destination.as_ref().map(|(name, _)| name.clone()),
+                    Some(before.clone()),
+                    Some(sha256(text.source.as_bytes())),
+                ),
+                Some(target),
+            ),
+            Self::Delete {
+                path,
+                target,
+                before,
+            } => (
+                JournalEntry::new("delete", path, None, Some(before.clone()), None),
+                Some(target),
+            ),
         }
     }
 }

@@ -53,7 +53,7 @@ fn tree_is_hierarchical_deterministic_and_limits_nested_children() {
 #[test]
 fn workspace_rejects_invalid_directory_child_limits() {
     let root = tempfile::tempdir().expect("workspace");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
 
     assert!(matches!(
         workspace.read_directory_tree(".", 1, 0),

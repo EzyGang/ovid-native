@@ -5,7 +5,7 @@ use crate::workspace::{RehydrationStatus, Workspace, WorkspaceError, WorkspacePo
 fn workspace_with(content: &str) -> (tempfile::TempDir, Workspace, String) {
     let root = tempfile::tempdir().expect("workspace");
     fs::write(root.path().join("source.txt"), content).expect("source");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     let digest = sha256(content.as_bytes());
     (root, workspace, digest)
 }

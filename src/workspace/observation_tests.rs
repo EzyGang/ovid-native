@@ -13,7 +13,7 @@ fn short_line_hash_matches_xxh32_reference_low_bytes() {
 fn source_evidence_validates_utf8_spans_and_complete_line_claims() {
     let root = tempfile::tempdir().expect("workspace");
     fs::write(root.path().join("source.txt"), "one\nβeta\n").expect("source");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     let claims = [(1, "one".to_owned()), (2, "βeta".to_owned())];
 
     workspace

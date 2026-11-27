@@ -124,6 +124,8 @@ Read text with stable line observations. Create, replace, delete, move, and patc
 
 The file layer supports plain lines, hashline edits, and exact patches. It preserves byte order marks, line endings, and final newlines when needed.
 
+Give `NativeWorkspaceSession` a `state_dir` to journal hashline and patch edits. Each edit writes its pre-images before the first file changes. Call `recover()` when the workspace opens. It returns the files of an interrupted edit to their pre-images and reports files that changed after the crash as conflicts.
+
 [Read the file guide](https://github.com/EzyGang/ovid-core/blob/main/docs/content/native/files.md)
 
 ### Workspace commands

@@ -6,11 +6,12 @@ from pathlib import Path
 from ovid_core.services import AgentServiceBinding
 
 from ovid_native import _native
-from ovid_native._native_execution import create_native_workspace
+from ovid_native._native_execution import create_native_workspace, run_native_translated
 from ovid_native.ast.models import AstLimits
 from ovid_native.files.edit_modes import EditMode, EditModeId, EditModeProvider, EditModeState
 from ovid_native.workspace._services import NativeWorkspaceServices, WorkspaceProviderOverrides
 from ovid_native.workspace.errors import (
+    _ERROR_TRANSLATOR,
     WorkspaceClosedError,
     WorkspaceConfigurationError,
     WorkspaceOperationUnavailableError,
@@ -20,6 +21,7 @@ from ovid_native.workspace.models import (
     WorkspaceCommandProvider,
     WorkspaceFffProvider,
     WorkspaceFilesProvider,
+    WorkspaceRecoveryReport,
     WorkspaceSearchProvider,
     WorkspaceSession,
     WorkspaceSessionId,
@@ -67,6 +69,7 @@ class NativeWorkspaceSession:
         policy: WorkspacePolicy | None = None,
         cleanup: Callable[[], None] | None = None,
         enabled_operations: frozenset[WorkspaceOperation] | None = None,
+        state_dir: Path | None = None,
     ) -> None:
         self._operations = (
             enabled_operations
@@ -75,7 +78,7 @@ class NativeWorkspaceSession:
         )
         providers = _validate_edit_mode_providers(edit_mode_providers, self._operations)
 
-        self._native = create_native_workspace(root, error=WorkspaceConfigurationError)
+        self._native = create_native_workspace(root, error=WorkspaceConfigurationError, state_dir=state_dir)
 
         self._id = WorkspaceSessionId(secrets.token_urlsafe(24))
         self._change_events = NativeWorkspaceChangeEvents(session_id=self._id)
@@ -158,6 +161,17 @@ class NativeWorkspaceSession:
     @property
     def view(self) -> WorkspaceViewProvider:
         return self._require_service(WorkspaceOperation.VIEW, self._services.view)
+
+    async def recover(self) -> tuple[WorkspaceRecoveryReport, ...]:
+        """Roll back the mutations that a lost process left in the state directory. Call it once at open."""
+        reports = await run_native_translated(
+            lambda: _native.workspace_recover(self._native),
+            translator=_ERROR_TRANSLATOR,
+        )
+        return tuple(
+            WorkspaceRecoveryReport(mutation_id=mutation_id, restored=tuple(restored), conflicts=tuple(conflicts))
+            for mutation_id, restored, conflicts in reports
+        )
 
     async def close(self) -> None:
         async with self._close_lock:

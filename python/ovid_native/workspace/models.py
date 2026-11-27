@@ -72,6 +72,14 @@ class WorkspacePathChange(BaseModel):
     revision: int = Field(ge=1)
 
 
+class WorkspaceRecoveryReport(BaseModel):
+    """Paths that recovery returned to their pre-images or left untouched as conflicts. It never holds file content."""
+
+    mutation_id: str
+    restored: tuple[str, ...]
+    conflicts: tuple[str, ...]
+
+
 class WorkspaceMutation(Protocol):
     @property
     def mode(self) -> str: ...
