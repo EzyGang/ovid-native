@@ -1,12 +1,12 @@
 use pyo3::prelude::*;
 
 use crate::python_boundary::register_exports;
-use crate::workspace::LineRange;
 use crate::workspace::python::NativeWorkspace;
 use crate::workspace::python::results::{
     NativeDirectoryRead, NativeDirectoryTreeRead, NativeFileRead, NativeObservationReceipt,
     NativeObservedSource, native_items,
 };
+use crate::workspace::{LineRange, RehydrationStatus};
 
 #[pyfunction]
 fn workspace_read_file(
@@ -93,10 +93,31 @@ fn workspace_observe_source_lines(
     })
 }
 
+#[pyfunction]
+fn workspace_rehydrate_observation(
+    py: Python<'_>,
+    workspace: PyRef<'_, NativeWorkspace>,
+    path: String,
+    content_sha256: String,
+    line_numbers: Vec<usize>,
+    complete_presentation: bool,
+) -> PyResult<&'static str> {
+    workspace.run(py, move |workspace| {
+        workspace
+            .rehydrate_observation(&path, &content_sha256, &line_numbers, complete_presentation)
+            .map(|status| match status {
+                RehydrationStatus::Restored => "restored",
+                RehydrationStatus::Stale => "stale",
+                RehydrationStatus::Skipped => "skipped",
+            })
+    })
+}
+
 pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     register_exports!(module, classes [], functions [
         workspace_read_file, workspace_list_directory, workspace_read_directory_tree,
         workspace_resolve_observation, workspace_validate_observed_lines, workspace_observe_source_lines,
+        workspace_rehydrate_observation,
     ]);
     Ok(())
 }

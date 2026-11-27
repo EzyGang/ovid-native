@@ -28,6 +28,8 @@ mod path;
 mod policy;
 pub(crate) mod python;
 mod read_ranges;
+#[cfg(test)]
+mod rehydration_tests;
 mod replace;
 mod scan;
 mod scan_entry;
@@ -59,7 +61,7 @@ pub(crate) use directory_tree::{WorkspaceDirectoryTreeLine, WorkspaceDirectoryTr
 pub(crate) use error::WorkspaceError;
 pub(crate) use hashline_types::{HashlineOperation, HashlineRegister, HashlineSection};
 pub(crate) use observation_types::{LineRange, ObservationReceipt, RenderedLine};
-pub(crate) use observations::ObservationLedger;
+pub(crate) use observations::{ObservationLedger, RehydrationStatus};
 pub(crate) use patch::{parse_apply_patch, parse_structured_patch};
 pub(crate) use policy::{EditModeSelection, PolicyGeneration, WorkspacePolicy};
 pub(crate) use python::NativeWorkspace;

@@ -15,7 +15,7 @@ from ovid_native.files.tool_metadata import (
     WorkspaceReadTruncationMetadata,
     WorkspaceReadTruncationReason,
 )
-from ovid_native.workspace.evidence import WorkspaceSourcePresentation
+from ovid_native.workspace.evidence import WorkspaceSourcePresentation, observation_metadata
 from ovid_native.workspace.observations import WorkspaceRenderedLine
 
 
@@ -37,7 +37,8 @@ def render_file_read(
         rows.append(
             f'[Not editable: {result.total_bytes} bytes exceeds the {result.observation_limit}-byte edit limit]'
         )
-    visible_ranges = _line_ranges(tuple(line.line_number for line in result.lines))
+    numbers = tuple(line.line_number for line in result.lines)
+    visible_ranges = _line_ranges(numbers)
     notices, truncation, unmatched = _file_read_notices(result, target)
     rows.extend(notices)
 
@@ -53,9 +54,8 @@ def render_file_read(
         'editable': result.editable,
         'complete_presentation': result.complete_presentation,
         'truncated': bool(truncation['reasons']),
+        'observations': [] if result.observation is None else [observation_metadata(result.observation, numbers)],
     }
-    if result.observation is not None:
-        metadata['observation'] = result.observation.tag
     if truncation['reasons']:
         metadata['truncation'] = truncation
     if unmatched:

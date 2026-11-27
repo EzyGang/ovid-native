@@ -168,6 +168,7 @@ def _read_tool_result(targets: tuple[RenderedReadTarget, ...]) -> WorkspaceFiles
         'failed_targets': len(targets) - successful,
         'truncated': any(target.metadata.get('truncated') is True for target in targets),
         'targets': [target.metadata for target in targets],
+        'observations': [observation for target in targets for observation in target.metadata.get('observations', [])],
     }
     sections = [target.content for target in targets]
     if successful < len(targets):

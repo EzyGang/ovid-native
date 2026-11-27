@@ -18,7 +18,7 @@ from ovid_native.files.models import (
     WorkspacePostEditSource,
 )
 from ovid_native.files.tool_metadata import WorkspaceEditToolMetadata
-from ovid_native.workspace.evidence import WorkspaceSourcePresentation
+from ovid_native.workspace.evidence import WorkspaceSourcePresentation, observation_metadata
 from ovid_native.workspace.models import WorkspaceFilesProvider
 
 
@@ -162,6 +162,10 @@ def tool_edit_result(
         {
             **edit.model_dump(mode='json', exclude={'post_edit_sources'}),
             'source_presentation': presentation.model_dump(mode='json'),
+            'observations': [
+                observation_metadata(source.observation, [line.line_number for line in source.lines])
+                for source in edit.post_edit_sources
+            ],
         }
     )
     return WorkspaceFilesToolResult(content='\n\n'.join(sections), metadata=metadata)

@@ -230,7 +230,7 @@ Do not publish different native APIs behind Cargo feature combinations for the s
 
 ## Benchmark rules
 
-Public benchmarks live in `benchmarks/`. Measure through `SearchEngine`, `AstEngine`, and `FffEngine` so results include validation, PyO3 conversion, native work, and result mapping.
+Public benchmarks live in `benchmarks/`. Measure through `SearchEngine`, `AstEngine`, `FffEngine`, and the workspace observation service so results include validation, PyO3 conversion, native work, and result mapping.
 
 - Use deterministic generated fixtures.
 - Do not benchmark the checkout, network services, provider calls, agent loops, or clock-dependent data.

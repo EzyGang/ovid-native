@@ -452,6 +452,13 @@ def workspace_observe_source_lines(
     spans: list[tuple[int, int, int, int]],
     complete_presentation: bool,
 ) -> NativeWorkspaceObservedSource: ...
+def workspace_rehydrate_observation(
+    workspace: NativeWorkspace,
+    path: str,
+    content_sha256: str,
+    line_numbers: list[int],
+    complete_presentation: bool,
+) -> Literal['restored', 'stale', 'skipped']: ...
 def workspace_create_file(
     workspace: NativeWorkspace,
     path: str,

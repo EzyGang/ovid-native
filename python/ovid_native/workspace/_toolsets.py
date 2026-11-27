@@ -7,7 +7,12 @@ from ovid_core.runtime.context import RunContext
 from ovid_core.tools.base import BaseTool, BaseToolset, ToolExecutionContext
 from ovid_core.tools.models import ToolEffect, ToolResult
 
-from ovid_native.workspace.evidence import EditableSourceGroup, WorkspaceSourcePresenter, capture_source_presentation
+from ovid_native.workspace.evidence import (
+    EditableSourceGroup,
+    WorkspaceSourcePresenter,
+    capture_source_presentation,
+    observation_metadata,
+)
 from ovid_native.workspace.observations import WorkspaceObservationService
 
 
@@ -41,14 +46,22 @@ class WorkspaceSourceTool[Deps, Provider, Args: BaseModel, Result: ToolResult](B
         observe: Callable[[Data, WorkspaceSourcePresenter], Awaitable[tuple[EditableSourceGroup, ...]]],
         notices: Sequence[str],
     ) -> Result:
-        metadata = {'result': result.model_dump(mode='json')}
+        structured = {'result': result.model_dump(mode='json')}
         groups = await observe(result, self._presenter)
+        observations = [
+            observation_metadata(group.observation, [line.line_number for line in group.lines])
+            for group in groups
+            if group.editable and group.observation is not None
+        ]
         if self._presenter.presentation.format == 'hashline':
             sections = [group.render(self._presenter.presentation) for group in groups]
             if notices:
                 sections.append('\n'.join(notices))
-            return self.result_type(content='\n\n'.join(sections), metadata=metadata)
-        return self.result_type(content=metadata)
+            return self.result_type(
+                content='\n\n'.join(sections),
+                metadata={**structured, 'observations': observations},
+            )
+        return self.result_type(content=structured, metadata={'observations': observations})
 
 
 class WorkspaceStepToolset[Deps](BaseToolset[Deps]):

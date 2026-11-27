@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Literal, Protocol
 
 from ovid_core.models import BaseModel
@@ -12,6 +12,12 @@ from ovid_native.workspace.events import WorkspaceChangeEvent as WorkspaceChange
 from ovid_native.workspace.events import WorkspaceChangeEvents as WorkspaceChangeEvents
 from ovid_native.workspace.events import WorkspaceChangeSubscription as WorkspaceChangeSubscription
 from ovid_native.workspace.models import WorkspaceFilesProvider, WorkspaceSessionId
+from ovid_native.workspace.rehydration import (
+    WorkspaceRehydrationReport,
+    WorkspaceRehydrationRequest,
+    WorkspaceRehydrationStatus,
+    rehydrate_newest_first,
+)
 
 
 class WorkspaceLineRange(BaseModel):
@@ -88,6 +94,8 @@ class WorkspaceObservationService(Protocol):
         spans: tuple[tuple[int, int, int, int], ...],
         complete_presentation: bool,
     ) -> ObservedWorkspaceFile: ...
+
+    async def rehydrate(self, requests: Sequence[WorkspaceRehydrationRequest]) -> WorkspaceRehydrationReport: ...
 
 
 class WorkspaceObservationStore(Protocol):
@@ -171,6 +179,20 @@ class NativeWorkspaceObservationService:
             )
         )
         return WorkspaceLineValidationResult(observation=self._receipt(native))
+
+    async def rehydrate(self, requests: Sequence[WorkspaceRehydrationRequest]) -> WorkspaceRehydrationReport:
+        return await rehydrate_newest_first(requests, self._restore)
+
+    async def _restore(self, request: WorkspaceRehydrationRequest) -> WorkspaceRehydrationStatus:
+        return await self._call(
+            lambda: _native.workspace_rehydrate_observation(
+                self._workspace,
+                request.path,
+                request.content_sha256,
+                list(request.line_numbers),
+                request.complete_presentation,
+            )
+        )
 
     def _receipt(self, native: _native.NativeWorkspaceObservationReceipt) -> WorkspaceObservationReceipt:
         path, tag, content_sha256, generation, ranges, complete = native

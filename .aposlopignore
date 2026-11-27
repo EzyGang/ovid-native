@@ -21,7 +21,7 @@ aBRjQ
 # Replace/delete/move PyO3 exports preserve distinct argument schemas; workspace.write owns the shared lifecycle.
 7k1qU
 # Domain modules register different public exports through the shared register_exports macro.
-NIf8e
+TGu3I
 # File/directory entrypoints select different predicates; resolve_contained_type owns containment behavior.
 m3QGh
 # FFF and basic search limits describe different engine ceilings and defaults.
@@ -34,8 +34,6 @@ CMvns
 mS3Ot
 # FFF/basic search register different export catalogues through the shared registration macro.
 l9Izy
-# Directory and multi-target read metadata describe different output structures.
-X1mI4
 # AST search/preview retain separate request/result types over the shared read_operation.
 2POrv
 # Observation, directory-tree, and edit results preserve distinct fixed PyO3 tuple layouts.
