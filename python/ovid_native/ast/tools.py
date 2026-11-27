@@ -55,7 +55,6 @@ class AstGrepTool[Deps](WorkspaceSourceTool[Deps, WorkspaceAstProvider, AstSearc
     args_type = AstSearchRequest
     result_type = AstSearchToolResult
     timeout_seconds = 30.0
-    defer_loading = True
 
     async def execute(
         self,
@@ -83,7 +82,6 @@ class AstEditPreviewTool[Deps](
     result_type = AstRewritePreviewToolResult
     effect = ToolEffect(kind='read', replay='safe')
     timeout_seconds = 30.0
-    defer_loading = True
 
     async def _content(self, arguments: AstRewritePreviewRequest) -> AstRewritePreviewToolContent:
         return AstRewritePreviewToolContent(preview=await self._provider.preview_rewrite(arguments))
@@ -99,7 +97,6 @@ class AstEditApplyTool[Deps](
     approval = ToolApproval(required=True, reason='Apply a staged structural rewrite to workspace files')
     effect = ToolEffect(kind='workspace_write', replay='unsafe')
     timeout_seconds = 30.0
-    defer_loading = True
 
     async def _content(self, arguments: AstRewriteApplyRequest) -> AstRewriteApplyToolContent:
         return AstRewriteApplyToolContent(result=await self._provider.apply_rewrite(arguments))

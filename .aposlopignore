@@ -10,10 +10,8 @@ QU6AB
 iKscE
 # Different FFF request types use the shared grep_operation implementation.
 DHUSG
-# Declarative AST/search capabilities select distinct instructions, tools, and permissions through WorkspaceCapability.
-3irtG
 # Typed AST/FFF query entrypoints select different evidence formatters; presentation is shared in WorkspaceSourceTool.
-tHIIF
+WB_Bd
 # Create/replace/move map different native arguments; write lifecycle and result handling are shared.
 aBRjQ
 # AstChange and FffIndexStatus are unrelated public model contracts.
@@ -26,8 +24,8 @@ TGu3I
 m3QGh
 # FFF and basic search limits describe different engine ceilings and defaults.
 2mW5h
-# AST preview/apply and FFF find declare different tool operations, schemas, and effects; WorkspaceResultTool owns common execution.
-a69uH
+# AST preview/apply, FFF find and basic glob declare different tool operations, schemas, and effects; WorkspaceResultTool owns common execution.
+Kavfz
 # Replace/patch are distinct typed mutation dispatchers; _WorkspaceEditTool owns common execution.
 CMvns
 # Glob/grep retain separate typed PyO3 exports over the shared request_operation.
@@ -39,6 +37,6 @@ l9Izy
 # Observation, directory-tree, and edit results preserve distinct fixed PyO3 tuple layouts.
 kwrt4
 # Declarative AST/basic-search toolsets select different typed tools; per-step binding is already shared.
-dwCw5
+1jbc7
 # AST search and basic glob/grep each pass a different native function and mapper to the shared run_native_translated helper.
 xkLa8

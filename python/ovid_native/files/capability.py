@@ -16,7 +16,7 @@ class WorkspaceFilesCapability[Deps](WorkspaceCapability[Deps]):
         default='Workspace text reading and mode-aware file mutation',
         init=False,
     )
-    defer_loading: bool = field(default=False, init=False)
+    defer_loading: bool = False
 
     def _required_operations(self) -> frozenset[WorkspaceOperation]:
         return frozenset((WorkspaceOperation.FILES, WorkspaceOperation.OBSERVATIONS, WorkspaceOperation.CHANGE_EVENTS))

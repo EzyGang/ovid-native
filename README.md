@@ -203,7 +203,7 @@ Pass the definition to an Ovid Core `AgentFactory`. Call `await workspace.close(
 
 Capabilities share the workspace root, native handle, observations, and lifecycle. Agent construction fails when a required service is missing.
 
-`FffCapability` and `AstCapability` defer their tools, including the optional `glob` tool of `FffCapability`. The model cannot see or call these tools before it loads the capability. To load a capability, the model calls `load_capability` with the capability ID: `native_fff` or `native_ast`.
+By default, `FffCapability` and `AstCapability` defer their tools, including the optional `glob` tool of `FffCapability`. The model cannot see or call these tools before it loads the capability. To load a capability, the model calls `load_capability` with the capability ID: `native_fff` or `native_ast`. Pass `defer_loading=False` to make the tools ready at the start of a run. `SearchCapability` and `WorkspaceFilesCapability` take the same field, with the default `False`.
 
 ## Safety and ownership
 

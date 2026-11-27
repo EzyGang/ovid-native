@@ -15,7 +15,7 @@ class AstCapability[Deps](WorkspaceCapability[Deps]):
         default='Syntax-aware source search and staged structural rewrites',
         init=False,
     )
-    defer_loading: bool = field(default=True, init=False)
+    defer_loading: bool = True
 
     def _required_operations(self) -> frozenset[WorkspaceOperation]:
         return frozenset((WorkspaceOperation.AST, WorkspaceOperation.FILES, WorkspaceOperation.OBSERVATIONS))

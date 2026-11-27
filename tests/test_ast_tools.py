@@ -49,7 +49,6 @@ def test_tool_contracts_and_approval(tmp_path: Path) -> None:
     assert apply.args_type is AstRewriteApplyRequest
     assert apply.result_type is AstRewriteApplyToolResult
     assert all(tool.timeout_seconds == 30.0 for tool in (grep, preview, apply))
-    assert all(tool.defer_loading for tool in (grep, preview, apply))
     assert grep.approval.required is False
     assert preview.approval.required is False
     assert apply.approval.required is True
