@@ -1,4 +1,4 @@
-from typing import Self
+from typing import Literal, Self
 
 from ovid_core.models import BaseModel
 from pydantic import Field, model_validator
@@ -25,4 +25,31 @@ class WorkspaceCommandResult(BaseModel):
     omitted_bytes: int = Field(ge=0)
     exit_code: int | None
     timed_out: bool
+    wall_time_ms: int = Field(ge=0)
+
+
+type CommandJobStatus = Literal['running', 'exited', 'failed', 'timed_out', 'killed']
+type CommandJobSignal = Literal['interrupt', 'terminate', 'kill']
+
+
+class WorkspaceCommandJobRequest(BaseModel):
+    command: str = Field(min_length=1, max_length=131_072)
+    cwd: str | None = Field(default=None, min_length=1, max_length=4_096)
+    env: dict[str, str] = Field(default_factory=dict)
+    timeout_seconds: int | None = Field(default=None, ge=1, le=86_400)
+    pty: bool = False
+    cols: int = Field(default=120, ge=1, le=1_000)
+    rows: int = Field(default=40, ge=1, le=1_000)
+    max_buffer_bytes: int = Field(default=1_048_576, ge=65_536, le=8_388_608)
+
+
+class WorkspaceCommandJobSnapshot(BaseModel):
+    job_id: int = Field(ge=1)
+    status: CommandJobStatus
+    exit_code: int | None
+    head: str
+    tail: str
+    omitted_bytes: int = Field(ge=0)
+    next_offset: int = Field(ge=0)
+    truncated_before: int = Field(ge=0)
     wall_time_ms: int = Field(ge=0)

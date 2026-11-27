@@ -18,7 +18,13 @@ if TYPE_CHECKING:
         AstSearchRequest,
         AstSearchResult,
     )
-    from ovid_native.command.models import WorkspaceCommandRequest, WorkspaceCommandResult
+    from ovid_native.command.models import (
+        CommandJobSignal,
+        WorkspaceCommandJobRequest,
+        WorkspaceCommandJobSnapshot,
+        WorkspaceCommandRequest,
+        WorkspaceCommandResult,
+    )
     from ovid_native.fff.models import (
         FffFindRequest,
         FffFindResult,
@@ -85,6 +91,18 @@ class WorkspaceMutation(Protocol):
 
 class WorkspaceCommandProvider(Protocol):
     async def execute(self, request: WorkspaceCommandRequest) -> WorkspaceCommandResult: ...
+
+
+class WorkspaceCommandJobsProvider(Protocol):
+    async def start(self, request: WorkspaceCommandJobRequest) -> WorkspaceCommandJobSnapshot: ...
+    async def poll(self, job_id: int, *, offset: int = 0, strip_ansi: bool = False) -> WorkspaceCommandJobSnapshot: ...
+    async def write(self, job_id: int, data: str) -> None: ...
+    async def resize(self, job_id: int, *, cols: int, rows: int) -> None: ...
+    async def signal(self, job_id: int, signal: CommandJobSignal) -> None: ...
+    async def wait(
+        self, job_id: int, *, timeout_seconds: float, offset: int = 0, strip_ansi: bool = False
+    ) -> WorkspaceCommandJobSnapshot: ...
+    async def list(self) -> tuple[WorkspaceCommandJobSnapshot, ...]: ...
 
 
 class WorkspaceFilesProvider(Protocol):
@@ -203,6 +221,9 @@ class WorkspaceSession(Protocol):
 
     @property
     def command(self) -> WorkspaceCommandProvider: ...
+
+    @property
+    def command_jobs(self) -> WorkspaceCommandJobsProvider: ...
 
     @property
     def files(self) -> WorkspaceFilesProvider: ...

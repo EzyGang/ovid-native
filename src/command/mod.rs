@@ -1,3 +1,4 @@
+mod jobs;
 mod launcher;
 mod output;
 mod python;
@@ -130,7 +131,8 @@ async fn run(
 ) -> Result<CommandOutcome, CommandError> {
     let scope = Arc::new(ProcessScope::default());
     let mut shell = create_shell(cwd, &request.env, Arc::clone(&scope)).await?;
-    let params = execution_parameters(&shell, stdout, stderr)?;
+    let stdin = openfiles::null().map_err(|error| CommandError::Output(error.to_string()))?;
+    let params = execution_parameters(&shell, stdin, stdout, stderr);
     let source = SourceInfo::from("ovid-native:command");
 
     let outcome = {
@@ -198,15 +200,15 @@ async fn create_shell(
 
 fn execution_parameters(
     shell: &CommandShell,
+    stdin: OpenFile,
     stdout: PipeWriter,
     stderr: PipeWriter,
-) -> Result<ExecutionParameters, CommandError> {
+) -> ExecutionParameters {
     let mut params = shell.default_exec_params();
-    let stdin = openfiles::null().map_err(|error| CommandError::Output(error.to_string()))?;
     params.set_fd(OpenFiles::STDIN_FD, stdin);
     params.set_fd(OpenFiles::STDOUT_FD, OpenFile::from(stdout));
     params.set_fd(OpenFiles::STDERR_FD, OpenFile::from(stderr));
-    Ok(params)
+    params
 }
 
 async fn wait_for_cancellation(cancellation: &CommandCancellation) {

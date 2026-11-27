@@ -5,14 +5,23 @@ use std::time::Duration;
 
 use tokio::process::Child;
 
+mod terminal;
 #[cfg(unix)]
 mod unix;
+#[cfg(unix)]
+mod unix_terminal;
 #[cfg(unix)]
 use unix as platform;
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
+mod windows_process;
+#[cfg(windows)]
+mod windows_terminal;
+#[cfg(windows)]
 use windows as platform;
+
+pub use terminal::{Terminal, TerminalChild, TerminalOutput, TerminalProcess, TerminalSize};
 
 /// Owns every process that one command starts.
 ///
@@ -47,11 +56,21 @@ impl ProcessScope {
     /// [`ProcessScope::terminate`]. If the scope cannot contain the child, it stops the child and
     /// returns the error.
     pub fn spawn(&self, command: Command, kill_on_drop: bool) -> io::Result<(Child, Option<i32>)> {
-        let mut state = self.state()?;
-        if state.terminated {
-            return Err(io::Error::other("process scope is terminated"));
-        }
-        platform::spawn(&mut state.members, command, kill_on_drop)
+        platform::spawn(&mut self.open_state()?.members, command, kill_on_drop)
+    }
+
+    /// Starts `command` attached to a new pseudoterminal inside the scope.
+    ///
+    /// The child joins the scope before it runs its program, so it cannot start a process outside
+    /// the scope first. On Unix, the child leads a new session whose controlling terminal is the
+    /// pseudoterminal, and the scope must not hold a process yet. On Windows, the command line is
+    /// the quoted program followed by each argument exactly as given.
+    pub fn spawn_terminal(
+        &self,
+        command: Command,
+        size: TerminalSize,
+    ) -> io::Result<TerminalProcess> {
+        platform::spawn_terminal(&mut self.open_state()?.members, command, size)
     }
 
     /// Stops every process in the scope and refuses later spawns.
@@ -63,6 +82,14 @@ impl ProcessScope {
         let mut state = self.state()?;
         state.terminated = true;
         platform::terminate(&mut state.members, grace)
+    }
+
+    fn open_state(&self) -> io::Result<MutexGuard<'_, ScopeState>> {
+        let state = self.state()?;
+        if state.terminated {
+            return Err(io::Error::other("process scope is terminated"));
+        }
+        Ok(state)
     }
 
     fn state(&self) -> io::Result<MutexGuard<'_, ScopeState>> {

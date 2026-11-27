@@ -14,6 +14,8 @@ use windows_sys::Win32::System::JobObjects::{
 };
 use windows_sys::Win32::System::Threading::CREATE_SUSPENDED;
 
+use crate::{TerminalProcess, TerminalSize, windows_terminal};
+
 #[derive(Default)]
 pub(crate) struct Members {
     job: Option<OwnedHandle>,
@@ -24,11 +26,7 @@ pub(crate) fn spawn(
     mut command: Command,
     kill_on_drop: bool,
 ) -> io::Result<(Child, Option<i32>)> {
-    let job = match members.job.take() {
-        Some(job) => job,
-        None => create_job()?,
-    };
-    let job = members.job.insert(job);
+    let job = job(members)?;
     // A suspended child cannot start a grandchild before the job contains it.
     command.creation_flags(CREATE_SUSPENDED);
     let mut command = tokio::process::Command::from(command);
@@ -40,6 +38,22 @@ pub(crate) fn spawn(
         return Err(error);
     }
     Ok((child, None))
+}
+
+pub(crate) fn spawn_terminal(
+    members: &mut Members,
+    command: Command,
+    size: TerminalSize,
+) -> io::Result<TerminalProcess> {
+    windows_terminal::spawn(job(members)?, &command, size)
+}
+
+fn job(members: &mut Members) -> io::Result<&OwnedHandle> {
+    let job = match members.job.take() {
+        Some(job) => job,
+        None => create_job()?,
+    };
+    Ok(members.job.insert(job))
 }
 
 pub(crate) fn terminate(members: &mut Members, _grace: Duration) -> io::Result<()> {

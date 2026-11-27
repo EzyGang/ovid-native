@@ -77,7 +77,8 @@ where
     }
 }
 
-fn head_end(bytes: &[u8]) -> usize {
+/// Returns the length of `bytes` without a trailing incomplete UTF-8 character.
+pub(super) fn head_end(bytes: &[u8]) -> usize {
     let Some((back, lead)) = bytes
         .iter()
         .rev()
@@ -99,7 +100,8 @@ fn head_end(bytes: &[u8]) -> usize {
     bytes.len()
 }
 
-fn tail_start(bytes: &[u8]) -> usize {
+/// Returns the number of leading UTF-8 continuation bytes that a cut left in `bytes`.
+pub(super) fn tail_start(bytes: &[u8]) -> usize {
     bytes
         .iter()
         .take(3)

@@ -126,7 +126,7 @@ The file layer supports plain lines, hashline edits, and exact patches. It prese
 
 [Read the file guide](https://github.com/EzyGang/ovid-core/blob/main/docs/content/native/files.md)
 
-### Workspace commands
+### Workspace commands and jobs
 
 `NativeWorkspaceSession.command` runs foreground commands through an embedded Bash-compatible shell from the shared workspace root.
 Requests support a contained initial working directory, environment overrides, a 1–3600 second timeout, and bounded output.
@@ -143,6 +143,20 @@ The scope has these limits:
 - On Unix, a process that calls `setsid` or `setpgid` leaves the scope.
 - On Windows, a process that another service starts, for example through WMI or the Task Scheduler, is outside the scope.
 - A builtin runs inside the host process, not in a separate process. The scope cannot stop it.
+
+`NativeWorkspaceSession.command_jobs` runs command jobs in the background.
+Start a job, then poll its output by offset, send input, resize its terminal, signal it, wait for it, or list all jobs.
+Each job keeps the first 64 KiB of its merged output and a rolling tail, and reports the bytes that it dropped.
+A job keeps its process scope after its command ends, so its background processes continue to run.
+A kill or terminate signal, the end of the 10-minute retention, and `session.close()` stop every process of the job.
+A session runs at most 8 jobs at the same time, and all its jobs keep at most 8 MiB of output.
+
+A job with `pty=True` runs on a pseudoterminal.
+It does not use the embedded shell: `cmd.exe /d /s /c` runs it on Windows, and `/bin/sh -c` runs it on Unix.
+The shell syntax of a PTY job therefore differs from a foreground command and from a job without a PTY.
+Jobs do not survive a restart of the host process.
+
+[Read the command guide](https://github.com/EzyGang/ovid-core/blob/main/docs/content/native/command.md)
 
 ### Standalone file discovery
 
