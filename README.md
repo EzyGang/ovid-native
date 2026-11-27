@@ -134,6 +134,16 @@ A result returns the first `max_head_bytes` as `head`, the last bytes as `tail`,
 The command itself is trusted host execution and can access paths outside the workspace. It is not a sandbox.
 The embedding application owns the model-facing tool, non-interactive environment defaults, approval policy, and result presentation.
 
+Commands run at the same time, in one session or in different sessions.
+Each command owns a process scope: a Job Object on Windows and one process group on Unix.
+When a command completes, times out, or is cancelled, Ovid Native stops every process in its scope.
+Other processes of the host continue to run.
+The scope has these limits:
+
+- On Unix, a process that calls `setsid` or `setpgid` leaves the scope.
+- On Windows, a process that another service starts, for example through WMI or the Task Scheduler, is outside the scope.
+- A builtin runs inside the host process, not in a separate process. The scope cannot stop it.
+
 ### Standalone file discovery
 
 Import `find_ancestor_entry()`, `read_text_files()`, and `discover_named_files()` from `ovid_native.discovery.operations`.

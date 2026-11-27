@@ -17,8 +17,8 @@ crate-type = ["cdylib"]
 [dependencies]
 pyo3 = { version = "0.29.0", features = ["abi3-py314"] }
 dunce = "=1.0.5"
-brush-builtins = "=0.2.0"
-brush-core = "=0.5.0"
+brush-builtins = "=0.3.0"
+brush-core = "=0.6.0"
 ovid-command-process = { path = "src/command/process_runtime" }
 ast-grep-core = "=0.45.1"
 ast-grep-language = "=0.45.1"
@@ -33,11 +33,12 @@ grep-searcher = "=0.1.17"
 sha2 = "=0.11.0"
 tempfile = "=3.23.0"
 fs2 = "=0.4.3"
-tokio = { version = "=1.53.1", features = ["rt", "time"] }
+tokio = { version = "=1.53.1", features = ["rt-multi-thread", "time"] }
 same-file = "=1.0.6"
 
-[target.'cfg(not(windows))'.dependencies]
-sysinfo = { version = "=0.39.6", default-features = false, features = ["system"] }
+[patch.crates-io]
+brush-core = { git = "https://github.com/EzyGang/brush", rev = "8cbadfe94ff09c6f1ab185b91826ff4f5519457f" }
+brush-parser = { git = "https://github.com/EzyGang/brush", rev = "8cbadfe94ff09c6f1ab185b91826ff4f5519457f" }
 
 [lints.rust]
 unsafe_code = "forbid"

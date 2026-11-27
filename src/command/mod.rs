@@ -1,33 +1,34 @@
+mod launcher;
 mod output;
-mod processes;
 mod python;
+#[cfg(test)]
+mod scope_tests;
 #[cfg(test)]
 mod tests;
 mod types;
 
 use std::io::{PipeReader, PipeWriter};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use brush_builtins::{BuiltinSet, default_builtins};
 use brush_core::{
-    ExecutionExitCode, ExecutionParameters, ExecutionResult, ProcessGroupPolicy,
-    ProfileLoadBehavior, RcLoadBehavior, Shell as BrushShell, ShellValue, ShellVariable,
-    SourceInfo,
+    ExecutionExitCode, ExecutionParameters, ExecutionResult, ProfileLoadBehavior, RcLoadBehavior,
+    Shell, ShellValue, ShellVariable, SourceInfo,
+    extensions::{DefaultErrorFormatter, ShellExtensionsImpl},
     openfiles::{self, OpenFile, OpenFiles},
-    traps::TrapSignal,
 };
+use ovid_command_process::ProcessScope;
+use tokio::runtime::Runtime;
 use tokio::time;
 
+use crate::command::launcher::ScopedLauncher;
 use crate::command::output::{CapturedOutput, capture};
-use crate::command::processes::SpawnRegistry;
 use crate::workspace::Workspace;
 
 pub(crate) use python::register;
 pub(crate) use types::{CommandCancellation, CommandError, CommandRequest, CommandResult};
-
-static COMMAND_EXECUTION_LOCK: Mutex<()> = Mutex::new(());
 
 pub(crate) fn execute(
     workspace: &Workspace,
@@ -37,18 +38,14 @@ pub(crate) fn execute(
     workspace
         .ensure_open()
         .map_err(CommandError::from_workspace)?;
-    let _execution_guard = COMMAND_EXECUTION_LOCK
-        .lock()
-        .map_err(|_| CommandError::Execution("command execution lock is unavailable".to_owned()))?;
     let cwd = resolve_cwd(workspace.root(), request.cwd.as_deref())?;
     let (reader, writer) =
         std::io::pipe().map_err(|error| CommandError::Output(error.to_string()))?;
     let stderr = writer
         .try_clone()
         .map_err(|error| CommandError::Output(error.to_string()))?;
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
+    let runtime = COMMAND_RUNTIME
+        .as_ref()
         .map_err(|error| CommandError::Execution(error.to_string()))?;
     let started = std::time::Instant::now();
     let (outcome, output) =
@@ -63,6 +60,15 @@ pub(crate) fn execute(
         wall_time_ms: started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
     })
 }
+
+type CommandShell = Shell<ShellExtensionsImpl<DefaultErrorFormatter, ScopedLauncher>>;
+
+static COMMAND_RUNTIME: LazyLock<std::io::Result<Runtime>> = LazyLock::new(|| {
+    tokio::runtime::Builder::new_multi_thread()
+        .thread_name("ovid-command")
+        .enable_all()
+        .build()
+});
 
 struct CommandOutcome {
     result: Option<ExecutionResult>,
@@ -122,10 +128,9 @@ async fn run(
     stdout: PipeWriter,
     stderr: PipeWriter,
 ) -> Result<CommandOutcome, CommandError> {
-    let spawns = Arc::new(SpawnRegistry::new());
-    let mut shell = create_shell(cwd, &request.env).await?;
-    let mut params = execution_parameters(&shell, stdout, stderr)?;
-    params.process_group_policy = ProcessGroupPolicy::NewProcessGroup;
+    let scope = Arc::new(ProcessScope::default());
+    let mut shell = create_shell(cwd, &request.env, Arc::clone(&scope)).await?;
+    let params = execution_parameters(&shell, stdout, stderr)?;
     let source = SourceInfo::from("ovid-native:command");
 
     let outcome = {
@@ -137,9 +142,12 @@ async fn run(
             () = time::sleep(request.timeout) => RunOutcome::TimedOut,
         }
     };
-    drop(params);
-    spawns.terminate().await;
-    terminate_jobs(&mut shell).await;
+    // Dropped child handles let the runtime reap the processes that termination stops.
+    drop((params, shell));
+    tokio::task::spawn_blocking(move || scope.terminate(Duration::from_millis(500)))
+        .await
+        .map_err(|error| CommandError::Execution(error.to_string()))?
+        .map_err(|error| CommandError::Execution(error.to_string()))?;
 
     match outcome {
         RunOutcome::Completed(result) => Ok(CommandOutcome {
@@ -154,21 +162,25 @@ async fn run(
     }
 }
 
-async fn create_shell(cwd: &Path, env: &[(String, String)]) -> Result<BrushShell, CommandError> {
-    let mut shell = BrushShell::builder()
+async fn create_shell(
+    cwd: &Path,
+    env: &[(String, String)],
+    scope: Arc<ProcessScope>,
+) -> Result<CommandShell, CommandError> {
+    let mut shell = Shell::builder_with_extensions()
         .do_not_inherit_env(true)
         .profile(ProfileLoadBehavior::Skip)
         .rc(RcLoadBehavior::Skip)
         .builtins(default_builtins(BuiltinSet::BashMode))
+        .process_launcher(ScopedLauncher { scope })
         .working_dir(cwd.to_path_buf())
         .build()
         .await
         .map_err(|error| CommandError::Execution(error.to_string()))?;
-    if let Some(exec_builtin) = shell.builtin_mut("exec") {
-        exec_builtin.disabled = true;
-    }
-    if let Some(suspend_builtin) = shell.builtin_mut("suspend") {
-        suspend_builtin.disabled = true;
+    for name in ["exec", "suspend"] {
+        if let Some(builtin) = shell.builtins_mut().get_mut(name) {
+            builtin.set_enabled(false);
+        }
     }
     for (name, value) in std::env::vars().chain(env.iter().cloned()) {
         let mut variable = ShellVariable::new(ShellValue::String(value));
@@ -185,7 +197,7 @@ async fn create_shell(cwd: &Path, env: &[(String, String)]) -> Result<BrushShell
 }
 
 fn execution_parameters(
-    shell: &BrushShell,
+    shell: &CommandShell,
     stdout: PipeWriter,
     stderr: PipeWriter,
 ) -> Result<ExecutionParameters, CommandError> {
@@ -200,18 +212,6 @@ fn execution_parameters(
 async fn wait_for_cancellation(cancellation: &CommandCancellation) {
     while !cancellation.is_cancelled() {
         time::sleep(Duration::from_millis(10)).await;
-    }
-}
-
-async fn terminate_jobs(shell: &mut BrushShell) {
-    let Ok(kill) = TrapSignal::try_from("KILL") else {
-        return;
-    };
-    for job in &mut shell.jobs_mut().jobs {
-        if job.representative_pid().is_some() {
-            let _ = job.kill(kill);
-            let _ = job.wait().await;
-        }
     }
 }
 
