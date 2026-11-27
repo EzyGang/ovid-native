@@ -11,8 +11,11 @@ use crate::workspace::Workspace;
 fn command_runs_in_workspace_with_environment_and_merged_output() {
     let temporary = TempDir::new().expect("temporary directory should exist");
     fs::create_dir(temporary.path().join("nested")).expect("nested directory should exist");
-    let workspace = Workspace::new(temporary.path().to_str().expect("path should be UTF-8"))
-        .expect("workspace should exist");
+    let workspace = Workspace::new(
+        temporary.path().to_str().expect("path should be UTF-8"),
+        None,
+    )
+    .expect("workspace should exist");
     let mut request = request("printf '%s|%s' \"$CUSTOM\" \"$PWD\"; printf '|error' >&2; exit 7");
     request.cwd = Some("nested".to_owned());
     request.env = vec![("CUSTOM".to_owned(), "value".to_owned())];
@@ -35,8 +38,11 @@ fn command_runs_in_workspace_with_environment_and_merged_output() {
 #[test]
 fn command_uses_embedded_bash_parsing_without_external_programs() {
     let temporary = TempDir::new().expect("temporary directory should exist");
-    let workspace = Workspace::new(temporary.path().to_str().expect("path should be UTF-8"))
-        .expect("workspace should exist");
+    let workspace = Workspace::new(
+        temporary.path().to_str().expect("path should be UTF-8"),
+        None,
+    )
+    .expect("workspace should exist");
     let mut request = request(
         "values=(one two); total=$((2 + 3)); \
          for value in \"${values[@]}\"; do printf '%s-' \"$value\"; done; \
@@ -53,8 +59,11 @@ fn command_uses_embedded_bash_parsing_without_external_programs() {
 #[test]
 fn command_handles_control_flow_and_redirection_inside_workspace() {
     let temporary = TempDir::new().expect("temporary directory should exist");
-    let workspace = Workspace::new(temporary.path().to_str().expect("path should be UTF-8"))
-        .expect("workspace should exist");
+    let workspace = Workspace::new(
+        temporary.path().to_str().expect("path should be UTF-8"),
+        None,
+    )
+    .expect("workspace should exist");
 
     let result = execute(
         &workspace,
@@ -73,8 +82,11 @@ fn command_handles_control_flow_and_redirection_inside_workspace() {
 #[test]
 fn command_accepts_contained_absolute_cwd_and_bounds_output() {
     let temporary = TempDir::new().expect("temporary directory should exist");
-    let workspace = Workspace::new(temporary.path().to_str().expect("path should be UTF-8"))
-        .expect("workspace should exist");
+    let workspace = Workspace::new(
+        temporary.path().to_str().expect("path should be UTF-8"),
+        None,
+    )
+    .expect("workspace should exist");
     let mut request = request("printf 1234567890123");
     request.cwd = Some(temporary.path().display().to_string());
     request.max_output_bytes = 10;
@@ -108,8 +120,11 @@ fn sleeping_command() -> String {
 #[test]
 fn command_timeout_kills_the_process_group() {
     let temporary = TempDir::new().expect("temporary directory should exist");
-    let workspace = Workspace::new(temporary.path().to_str().expect("path should be UTF-8"))
-        .expect("workspace should exist");
+    let workspace = Workspace::new(
+        temporary.path().to_str().expect("path should be UTF-8"),
+        None,
+    )
+    .expect("workspace should exist");
     let mut request = request(&sleeping_command());
     request.timeout = Duration::from_secs(1);
     let started = Instant::now();
@@ -124,8 +139,11 @@ fn command_timeout_kills_the_process_group() {
 #[test]
 fn command_cancellation_stops_the_process_scope_within_50_ms() {
     let temporary = TempDir::new().expect("temporary directory should exist");
-    let workspace = Workspace::new(temporary.path().to_str().expect("path should be UTF-8"))
-        .expect("workspace should exist");
+    let workspace = Workspace::new(
+        temporary.path().to_str().expect("path should be UTF-8"),
+        None,
+    )
+    .expect("workspace should exist");
     let request = request(&sleeping_command());
     let cancellation = request.cancellation.clone();
     let worker = thread::spawn(move || execute(&workspace, request));
@@ -143,8 +161,11 @@ fn command_cancellation_stops_the_process_scope_within_50_ms() {
 #[test]
 fn command_rejects_invalid_configuration_and_paths() {
     let temporary = TempDir::new().expect("temporary directory should exist");
-    let workspace = Workspace::new(temporary.path().to_str().expect("path should be UTF-8"))
-        .expect("workspace should exist");
+    let workspace = Workspace::new(
+        temporary.path().to_str().expect("path should be UTF-8"),
+        None,
+    )
+    .expect("workspace should exist");
     let outside = TempDir::new().expect("outside directory should exist");
 
     let mut invalid_timeout = request("true");

@@ -13,9 +13,13 @@ mod hashline_apply;
 mod hashline_block;
 mod hashline_locator;
 mod hashline_plan;
+mod hashline_stage;
 #[cfg(test)]
 mod hashline_tests;
 mod hashline_types;
+mod journal;
+#[cfg(test)]
+mod journal_tests;
 mod line_hash;
 #[cfg(test)]
 mod observation_tests;
@@ -46,7 +50,7 @@ mod write;
 
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, OpenOptions};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -82,7 +86,8 @@ pub(crate) struct Workspace {
 
 #[derive(Debug)]
 struct WorkspaceState {
-    canonical_root: std::path::PathBuf,
+    canonical_root: PathBuf,
+    state_dir: Option<PathBuf>,
     closed: AtomicBool,
     revision: AtomicU64,
     write_coordinator: Mutex<()>,
@@ -101,18 +106,19 @@ pub(crate) struct WorkspaceWriteGuard<'a> {
 }
 
 impl Workspace {
-    pub(crate) fn new(value: &str) -> Result<Self, WorkspaceError> {
-        Ok(Self::with_root(path::canonical_root(value)?))
+    pub(crate) fn new(value: &str, state_dir: Option<PathBuf>) -> Result<Self, WorkspaceError> {
+        Ok(Self::with_root(path::canonical_root(value)?, state_dir))
     }
 
     pub(crate) fn from_canonical(root: &Path) -> Self {
-        Self::with_root(root.to_path_buf())
+        Self::with_root(root.to_path_buf(), None)
     }
 
-    fn with_root(root: std::path::PathBuf) -> Self {
+    fn with_root(root: PathBuf, state_dir: Option<PathBuf>) -> Self {
         Self {
             state: Arc::new(WorkspaceState {
                 canonical_root: root,
+                state_dir,
                 closed: AtomicBool::new(false),
                 revision: AtomicU64::new(1),
                 write_coordinator: Mutex::new(()),

@@ -1,13 +1,14 @@
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::workspace::content::NormalizedText;
 use crate::workspace::hashline_plan::build_plan;
+use crate::workspace::hashline_stage::stage_hashline_file;
 use crate::workspace::hashline_types::{HashlineFilePlan, HashlineSection};
+use crate::workspace::journal::{JournalEntry, MutationJournal, finish_mutation, mark_landed};
 use crate::workspace::path::resolve_new_file;
 use crate::workspace::workflows::edit_result;
 use crate::workspace::{
-    EditResult, FileChange, FileIdentity, MutationContext, Workspace, WorkspaceError,
+    EditResult, FileChange, MutationContext, PostEditSource, Workspace, WorkspaceError,
     atomic_replace_path, ensure_current_file, sha256,
 };
 
@@ -21,18 +22,31 @@ impl Workspace {
         let _coordinator = self.write_guard()?;
         context.ensure_active()?;
         let mut plan = build_plan(self, sections, context)?;
-        let pending = plan
-            .files
+        let journal = self.begin_mutation(plan.files.iter().map(journal_entry))?;
+        let committed = self.commit_hashline_files(&mut plan.files, context, journal.as_ref());
+        let (changes, posts) = finish_mutation(journal, committed)?;
+        self.replace_named_registers(plan.named_registers)?;
+
+        Ok(edit_result(context, changes, posts, None, None))
+    }
+
+    fn commit_hashline_files(
+        &self,
+        files: &mut [HashlineFilePlan],
+        context: &MutationContext,
+        journal: Option<&MutationJournal>,
+    ) -> Result<(Vec<FileChange>, Vec<PostEditSource>), WorkspaceError> {
+        let pending = files
             .iter()
             .map(|file| file.path.clone())
             .collect::<Vec<_>>();
         let mut changes = Vec::new();
         let mut posts = Vec::new();
 
-        for (index, file) in plan.files.iter_mut().enumerate() {
+        for (index, file) in files.iter_mut().enumerate() {
             context.ensure_active()?;
-            let result = self.commit_hashline_file(file, context);
-            match result {
+            let staging = journal.map(|journal| journal.staging_name(index));
+            match self.commit_hashline_file(file, context, staging.as_deref()) {
                 Ok((change, post)) => {
                     changes.push(change);
                     posts.extend(post);
@@ -46,17 +60,18 @@ impl Workspace {
                     });
                 }
             }
+            mark_landed(journal, index);
         }
-        self.replace_named_registers(plan.named_registers)?;
 
-        Ok(edit_result(context, changes, posts, None, None))
+        Ok((changes, posts))
     }
 
     fn commit_hashline_file(
         &self,
         file: &mut HashlineFilePlan,
         context: &MutationContext,
-    ) -> Result<(FileChange, Option<crate::workspace::PostEditSource>), WorkspaceError> {
+        staging: Option<&str>,
+    ) -> Result<(FileChange, Option<PostEditSource>), WorkspaceError> {
         let before = sha256(file.current.source.as_bytes());
         let identity = file.identity.take().ok_or_else(|| {
             WorkspaceError::Stale(format!(
@@ -66,7 +81,7 @@ impl Workspace {
         })?;
         ensure_current_file(&file.target, &file.path, &before, &identity)?;
         if file.remove {
-            let staged = stage_hashline_file(file, &before, &identity)?;
+            let staged = stage_hashline_file(file, &before, &identity, staging)?;
             drop(identity);
             staged.remove()?;
             let (generation, revision) = self.mark_file_changed(&file.path)?;
@@ -80,7 +95,7 @@ impl Workspace {
         let final_path = match file.destination.as_deref() {
             Some(destination) => {
                 let destination_path = resolve_new_file(self.root(), destination, false)?;
-                let staged = stage_hashline_file(file, &before, &identity)?;
+                let staged = stage_hashline_file(file, &before, &identity, staging)?;
                 drop(identity);
                 staged.move_to(
                     &destination_path,
@@ -128,151 +143,25 @@ impl Workspace {
     }
 }
 
-struct StagedHashlineFile {
-    directory: tempfile::TempDir,
-    source: PathBuf,
-    original: PathBuf,
-    relative: String,
-}
-
-impl StagedHashlineFile {
-    fn remove(self) -> Result<(), WorkspaceError> {
-        match fs::remove_file(&self.source) {
-            Ok(()) => Ok(()),
-            Err(error) => {
-                let message =
-                    WorkspaceError::Write(format!("cannot delete {}: {error}", self.relative));
-                Err(self.restore_or(message))
-            }
-        }
-    }
-
-    fn move_to(
-        self,
-        destination: &Path,
-        destination_relative: &str,
-        replacement: Option<Vec<u8>>,
-    ) -> Result<(), WorkspaceError> {
-        let final_source = match replacement {
-            Some(bytes) => {
-                let final_source = self.directory.path().join("final");
-                if let Err(error) = fs::copy(&self.source, &final_source) {
-                    return Err(self.restore_or(WorkspaceError::Write(format!(
-                        "cannot prepare move to {destination_relative}: {error}"
-                    ))));
-                }
-                let before = fs::read(&final_source)
-                    .map(|source| {
-                        NormalizedText::decode(source).map(|text| sha256(text.source.as_bytes()))
-                    })
-                    .map_err(|error| {
-                        WorkspaceError::Write(format!(
-                            "cannot inspect move source for {destination_relative}: {error}"
-                        ))
-                    })
-                    .and_then(|result| result);
-                let before = match before {
-                    Ok(before) => before,
-                    Err(error) => return Err(self.restore_or(error)),
-                };
-                if let Err(error) =
-                    atomic_replace_path(&final_source, destination_relative, &before, &bytes)
-                {
-                    return Err(self.restore_or(error));
-                }
-                final_source
-            }
-            None => self.source.clone(),
-        };
-        if let Err(error) = fs::hard_link(&final_source, destination) {
-            let message = WorkspaceError::Write(format!(
-                "cannot move {} to {destination_relative}: {error}",
-                self.relative
-            ));
-            return Err(self.restore_or(message));
-        }
-        if let Err(error) = fs::remove_file(&self.source) {
-            let rollback = fs::remove_file(destination);
-            if rollback.is_ok() {
-                let message = WorkspaceError::Write(format!(
-                    "cannot remove move source {}: {error}",
-                    self.relative
-                ));
-                return Err(self.restore_or(message));
-            }
-            let pending = self.relative.clone();
-            let _ = self.directory.keep();
-            return Err(WorkspaceError::PartialCommit {
-                landed: vec![destination_relative.to_owned()],
-                pending: vec![pending],
-                changes: Vec::new(),
-            });
-        }
-        if final_source != self.source && fs::remove_file(&final_source).is_err() {
-            let _ = self.directory.keep();
-            return Err(WorkspaceError::PartialCommit {
-                landed: vec![destination_relative.to_owned()],
-                pending: Vec::new(),
-                changes: Vec::new(),
-            });
-        }
-        Ok(())
-    }
-
-    fn restore_or(self, error: WorkspaceError) -> WorkspaceError {
-        if fs::hard_link(&self.source, &self.original).is_ok() {
-            return error;
-        }
-        let pending = self.relative.clone();
-        let _ = self.directory.keep();
-        WorkspaceError::PartialCommit {
-            landed: Vec::new(),
-            pending: vec![pending],
-            changes: Vec::new(),
-        }
-    }
-}
-
-fn stage_hashline_file(
-    file: &HashlineFilePlan,
-    expected_sha256: &str,
-    expected_identity: &FileIdentity,
-) -> Result<StagedHashlineFile, WorkspaceError> {
-    let parent = file
-        .target
-        .parent()
-        .ok_or_else(|| WorkspaceError::Write(format!("path has no parent: {}", file.path)))?;
-    let directory = tempfile::Builder::new()
-        .prefix(".ovid-hashline-")
-        .tempdir_in(parent)
-        .map_err(|error| {
-            WorkspaceError::Write(format!(
-                "cannot stage Hashline source {}: {error}",
-                file.path
-            ))
-        })?;
-    let source = directory.path().join("source");
-    fs::rename(&file.target, &source).map_err(|error| {
-        WorkspaceError::Write(format!(
-            "cannot stage Hashline source {}: {error}",
-            file.path
-        ))
-    })?;
-    let staged = StagedHashlineFile {
-        directory,
-        source,
-        original: file.target.clone(),
-        relative: file.path.clone(),
+fn journal_entry(file: &HashlineFilePlan) -> (JournalEntry, Option<&Path>) {
+    let staged = file.remove || file.destination.is_some();
+    let touched = staged || file.final_source != file.current.source;
+    let operation = match (file.remove, file.destination.is_some()) {
+        (true, _) => "delete",
+        (false, true) => "move",
+        (false, false) => "update",
     };
-    if let Err(error) = ensure_current_file(
-        &staged.source,
-        &file.path,
-        expected_sha256,
-        expected_identity,
-    ) {
-        return Err(staged.restore_or(error));
-    }
-    Ok(staged)
+    let entry = JournalEntry {
+        staged,
+        ..JournalEntry::new(
+            operation,
+            &file.path,
+            file.destination.clone(),
+            Some(sha256(file.current.source.as_bytes())),
+            (!file.remove).then(|| sha256(file.final_source.as_bytes())),
+        )
+    };
+    (entry, touched.then_some(file.target.as_path()))
 }
 
 fn file_change(

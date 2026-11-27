@@ -12,7 +12,7 @@ use crate::workspace::Workspace;
 
 fn engine(root: &str) -> NativeFffEngine {
     NativeFffEngine::new(
-        Workspace::new(root).unwrap(),
+        Workspace::new(root, None).unwrap(),
         FffConfig {
             watch: false,
             enable_content_indexing: true,

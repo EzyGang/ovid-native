@@ -26,7 +26,7 @@ fn workspace_reads_normalized_source_and_guards_whole_file_writes() {
         b"\xef\xbb\xbfone\r\ntwo\r\n",
     )
     .expect("source");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
 
     let partial = workspace
         .read_file("source.txt", &[LineRange { start: 1, end: 1 }])
@@ -91,7 +91,7 @@ fn workspace_reads_normalized_source_and_guards_whole_file_writes() {
 fn replace_requires_current_seen_lines_and_respects_fuzzy_policy() {
     let root = tempfile::tempdir().expect("workspace");
     fs::write(root.path().join("source.txt"), "alpha\nbeta\ngamma\n").expect("source");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     workspace
         .read_file("source.txt", &[LineRange { start: 1, end: 1 }])
         .expect("partial read");
@@ -143,7 +143,7 @@ fn replace_requires_current_seen_lines_and_respects_fuzzy_policy() {
 fn mutations_retain_captured_mode_and_policy_contexts() {
     let root = tempfile::tempdir().expect("workspace");
     fs::write(root.path().join("source.txt"), "source\n").expect("source");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     workspace.read_file("source.txt", &[]).expect("observation");
     let captured_mode = context(&workspace, "replace");
     workspace.set_edit_mode("patch").expect("mode change");
@@ -196,7 +196,7 @@ fn mutations_retain_captured_mode_and_policy_contexts() {
 #[test]
 fn cancelled_mutation_does_not_create_a_file() {
     let root = tempfile::tempdir().expect("workspace");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     let mutation = context(&workspace, "apply_patch");
     mutation.cancellation.cancel();
 
@@ -212,7 +212,7 @@ fn structured_patch_preflights_every_operation_before_commit() {
     let root = tempfile::tempdir().expect("workspace");
     fs::write(root.path().join("source.txt"), "one\ntwo\n").expect("source");
     fs::write(root.path().join("existing.txt"), "existing\n").expect("existing");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     workspace
         .read_file("source.txt", &[])
         .expect("source observation");
@@ -252,7 +252,7 @@ fn structured_patch_preflights_every_operation_before_commit() {
 #[test]
 fn apply_patch_preserves_authored_order_and_requires_valid_envelope() {
     let root = tempfile::tempdir().expect("workspace");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     let operations = parse_apply_patch(
         "*** Begin Patch\n*** Add File: first.txt\n+first\n*** Add File: second.txt\n+second\n*** End Patch",
     )
@@ -279,7 +279,7 @@ fn apply_patch_preserves_authored_order_and_requires_valid_envelope() {
 fn patch_limits_and_destination_conflicts_fail_before_commit() {
     let root = tempfile::tempdir().expect("workspace");
     fs::write(root.path().join("source.txt"), "one\n").expect("source");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     workspace
         .read_file("source.txt", &[])
         .expect("source observation");

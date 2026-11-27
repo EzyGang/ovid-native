@@ -1,5 +1,6 @@
 use std::fs;
 
+use crate::workspace::journal::{MutationJournal, finish_mutation, mark_landed};
 use crate::workspace::patch_plan::PreparedOperation;
 use crate::workspace::workflows::edit_result;
 use crate::workspace::{
@@ -12,6 +13,17 @@ impl Workspace {
         &self,
         prepared: Vec<PreparedOperation>,
         context: &MutationContext,
+    ) -> Result<EditResult, WorkspaceError> {
+        let journal = self.begin_mutation(prepared.iter().map(PreparedOperation::journal_entry))?;
+        let committed = self.commit_patch_operations(prepared, context, journal.as_ref());
+        finish_mutation(journal, committed)
+    }
+
+    fn commit_patch_operations(
+        &self,
+        prepared: Vec<PreparedOperation>,
+        context: &MutationContext,
+        journal: Option<&MutationJournal>,
     ) -> Result<EditResult, WorkspaceError> {
         let pending = prepared
             .iter()
@@ -28,7 +40,10 @@ impl Workspace {
                 &mut post_edit_sources,
             );
             match result {
-                Ok(summary) => landed.push(summary),
+                Ok(summary) => {
+                    landed.push(summary);
+                    mark_landed(journal, index);
+                }
                 Err(WorkspaceError::PartialCommit {
                     landed: operation_landed,
                     pending: operation_pending,

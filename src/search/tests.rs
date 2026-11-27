@@ -65,7 +65,7 @@ fn glob_discovers_files_directories_and_deduplicates_selections() {
     let root = workspace();
     fs::create_dir(root.path().join("src")).expect("src directory");
     fs::write(root.path().join("src/lib.rs"), "fn main() {}\n").expect("source");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
 
     let result = glob(&workspace, glob_request(&["src", "src/**/*.rs"])).expect("glob");
     let paths = result
@@ -85,7 +85,7 @@ fn glob_respects_ignore_hidden_and_result_limits() {
     fs::write(root.path().join(".gitignore"), "ignored.txt\n").expect("ignore file");
     fs::write(root.path().join("ignored.txt"), "ignored\n").expect("ignored content");
     fs::write(root.path().join(".hidden.txt"), "hidden\n").expect("hidden content");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     let mut request = glob_request(&["."]);
     request.limit = 1;
 
@@ -104,7 +104,7 @@ fn glob_respects_ignore_hidden_and_result_limits() {
 #[test]
 fn grep_reports_positions_context_and_per_file_truncation() {
     let root = workspace();
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     let mut request = grep_request("needle");
     request.paths = vec!["a.txt".to_owned()];
     request.matches_per_file = 1;
@@ -128,7 +128,7 @@ fn grep_reports_positions_context_and_per_file_truncation() {
 #[test]
 fn grep_returns_every_complete_line_intersecting_a_multiline_match() {
     let root = workspace();
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     let mut request = grep_request("needle one.*needle two");
     request.paths = vec!["a.txt".to_owned()];
     request.multiline = true;
@@ -150,7 +150,7 @@ fn grep_returns_every_complete_line_intersecting_a_multiline_match() {
 fn grep_uses_pcre2_and_auto_literal_fallback() {
     let root = workspace();
     fs::write(root.path().join("pattern.txt"), "foobar\n(\n").expect("patterns");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     let mut pcre = grep_request("foo(?=bar)");
     pcre.paths = vec!["pattern.txt".to_owned()];
 
@@ -170,7 +170,7 @@ fn grep_uses_pcre2_and_auto_literal_fallback() {
 #[test]
 fn grep_rejects_invalid_strict_regex() {
     let root = workspace();
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
 
     let error = grep(&workspace, grep_request("(")).expect_err("invalid regex");
 
@@ -180,7 +180,7 @@ fn grep_rejects_invalid_strict_regex() {
 #[test]
 fn grep_paginates_matching_files_and_bounds_hot_files() {
     let root = workspace();
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     let mut first = grep_request("needle");
     first.file_limit = 1;
     first.matches_per_file = 1;
@@ -204,7 +204,7 @@ fn grep_reports_binary_encoding_and_large_file_coverage() {
     fs::write(root.path().join("encoding.txt"), b"nee\xFFdle").expect("encoding");
     fs::write(root.path().join("large.txt"), "needle trailing data").expect("large");
     fs::write(root.path().join("unicode.txt"), "needleé").expect("unicode");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     let mut request = grep_request("needle");
     request.max_file_bytes = 6;
 
@@ -232,7 +232,7 @@ fn grep_reports_binary_encoding_and_large_file_coverage() {
 fn grep_skips_large_files_when_requested() {
     let root = workspace();
     fs::write(root.path().join("large.txt"), "needle trailing data").expect("large");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     let mut request = grep_request("needle");
     request.max_file_bytes = 6;
     request.large_file_mode = "skip".to_owned();
@@ -247,7 +247,7 @@ fn grep_skips_large_files_when_requested() {
 fn grep_supports_case_insensitive_and_multiline_matching() {
     let root = workspace();
     fs::write(root.path().join("multi.txt"), "Alpha\nbeta\n").expect("multiline");
-    let workspace = Workspace::new(&root.path().to_string_lossy()).expect("workspace");
+    let workspace = Workspace::new(&root.path().to_string_lossy(), None).expect("workspace");
     let mut request = grep_request("alpha.*beta");
     request.paths = vec!["multi.txt".to_owned()];
     request.case_sensitive = false;
