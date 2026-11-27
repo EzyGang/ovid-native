@@ -20,7 +20,7 @@ class FffCapability[Deps](WorkspaceCapability[Deps]):
     include_multi_grep: bool = True
     id: str = field(default='native_fff', init=False)
     description: str = field(default='Warm typo-resistant path and content search', init=False)
-    defer_loading: bool = field(default=True, init=False)
+    defer_loading: bool = True
 
     def _required_operations(self) -> frozenset[WorkspaceOperation]:
         if not any((self.include_glob, self.include_find_files, self.include_grep, self.include_multi_grep)):

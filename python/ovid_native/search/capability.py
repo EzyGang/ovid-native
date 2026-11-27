@@ -15,7 +15,7 @@ class SearchCapability[Deps](WorkspaceCapability[Deps]):
         default='Fast workspace path discovery and bounded text search',
         init=False,
     )
-    defer_loading: bool = field(default=False, init=False)
+    defer_loading: bool = False
 
     def _required_operations(self) -> frozenset[WorkspaceOperation]:
         return frozenset((WorkspaceOperation.FILES, WorkspaceOperation.OBSERVATIONS, WorkspaceOperation.SEARCH))

@@ -54,7 +54,6 @@ class FffFindTool[Deps](WorkspaceResultTool[Deps, WorkspaceFffProvider, FffFindR
     result_type = FffFindToolResult
     effect = ToolEffect(kind='read', replay='safe')
     timeout_seconds = 10.0
-    defer_loading = True
 
     async def _content(self, arguments: FffFindRequest) -> FffFindToolContent:
         return FffFindToolContent(result=await self._provider.find(arguments))
@@ -66,7 +65,6 @@ class FffGrepTool[Deps](WorkspaceSourceTool[Deps, WorkspaceFffProvider, FffGrepR
     args_type = FffGrepRequest
     result_type = FffGrepToolResult
     timeout_seconds = 10.0
-    defer_loading = True
 
     async def execute(self, context: ToolExecutionContext[Deps], arguments: FffGrepRequest) -> FffGrepToolResult:
         del context
@@ -82,7 +80,6 @@ class FffMultiGrepTool[Deps](
     args_type = FffMultiGrepRequest
     result_type = FffMultiGrepToolResult
     timeout_seconds = 10.0
-    defer_loading = True
 
     async def execute(
         self,

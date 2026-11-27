@@ -53,7 +53,6 @@ class GlobTool[Deps](WorkspaceResultTool[Deps, WorkspaceSearchProvider, GlobRequ
     result_type = GlobToolResult
     effect = ToolEffect(kind='read', replay='safe')
     timeout_seconds = 5.0
-    defer_loading = False
 
     async def _content(self, arguments: GlobRequest) -> GlobToolContent:
         return GlobToolContent(result=await self._provider.glob(arguments))
@@ -65,7 +64,6 @@ class GrepTool[Deps](WorkspaceSourceTool[Deps, WorkspaceSearchProvider, GrepTool
     args_type = GrepToolRequest
     result_type = GrepToolResult
     timeout_seconds = 30.0
-    defer_loading = False
 
     async def execute(
         self,
