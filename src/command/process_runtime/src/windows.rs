@@ -6,10 +6,11 @@ use std::ptr;
 use std::time::Duration;
 
 use tokio::process::Child;
-use windows_sys::Win32::Foundation::{HANDLE, NTSTATUS};
+use windows_sys::Win32::Foundation::{ERROR_MORE_DATA, HANDLE, NTSTATUS};
 use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+    JOBOBJECT_BASIC_PROCESS_ID_LIST, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+    JobObjectBasicProcessIdList, JobObjectExtendedLimitInformation, QueryInformationJobObject,
     SetInformationJobObject, TerminateJobObject,
 };
 use windows_sys::Win32::System::Threading::CREATE_SUSPENDED;
@@ -65,6 +66,48 @@ pub(crate) fn terminate(members: &mut Members, _grace: Duration) -> io::Result<(
         return Err(io::Error::last_os_error());
     }
     Ok(())
+}
+
+/// Lists the process IDs in the job of the scope.
+pub(crate) fn job_pids(members: &Members) -> io::Result<Vec<u32>> {
+    let Some(job) = &members.job else {
+        return Ok(Vec::new());
+    };
+    let offset = std::mem::offset_of!(JOBOBJECT_BASIC_PROCESS_ID_LIST, ProcessIdList);
+    let mut capacity = 64;
+    loop {
+        let mut buffer = vec![0usize; offset / size_of::<usize>() + capacity];
+        let size = u32::try_from(buffer.len() * size_of::<usize>()).map_err(io::Error::other)?;
+        // SAFETY: The pointer and size describe `buffer`, which is aligned for the list.
+        let listed = unsafe {
+            QueryInformationJobObject(
+                job.as_raw_handle(),
+                JobObjectBasicProcessIdList,
+                buffer.as_mut_ptr().cast(),
+                size,
+                ptr::null_mut(),
+            )
+        };
+        if listed == 0 {
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == i32::try_from(ERROR_MORE_DATA).ok() {
+                capacity *= 4;
+                continue;
+            }
+            return Err(error);
+        }
+        // SAFETY: The call wrote a list header to the start of `buffer`.
+        let in_list = unsafe {
+            (*buffer.as_ptr().cast::<JOBOBJECT_BASIC_PROCESS_ID_LIST>()).NumberOfProcessIdsInList
+        };
+        let count = usize::try_from(in_list).map_or(0, |count| count.min(capacity));
+        // SAFETY: `buffer` holds `count` process IDs after the list header.
+        let pids = unsafe { std::slice::from_raw_parts(buffer.as_ptr().byte_add(offset), count) };
+        return Ok(pids
+            .iter()
+            .filter_map(|pid| u32::try_from(*pid).ok())
+            .collect());
+    }
 }
 
 #[link(name = "ntdll.dll", kind = "raw-dylib", modifiers = "+verbatim")]

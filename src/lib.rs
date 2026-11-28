@@ -8,7 +8,7 @@ mod workspace;
 
 use pyo3::prelude::*;
 
-const API_VERSION: u16 = 17;
+const API_VERSION: u16 = 18;
 
 #[pyfunction]
 #[must_use]

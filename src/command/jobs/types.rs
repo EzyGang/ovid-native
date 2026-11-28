@@ -16,6 +16,7 @@ pub(crate) struct CommandJobRequest {
     pub timeout: Option<Duration>,
     pub terminal: Option<TerminalSize>,
     pub max_buffer_bytes: usize,
+    pub owner_tag: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]

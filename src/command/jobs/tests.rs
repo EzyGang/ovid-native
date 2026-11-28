@@ -182,5 +182,6 @@ fn request() -> CommandJobRequest {
         timeout: None,
         terminal: None,
         max_buffer_bytes: 1_048_576,
+        owner_tag: None,
     }
 }

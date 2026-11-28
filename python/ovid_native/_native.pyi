@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Literal
 
 type NativeCommandResult = tuple[str, str, int, int | None, bool, int]
+type NativeCommandReapReport = tuple[list[tuple[int, str | None, str]], int]
 type NativeCommandJobSnapshot = tuple[
     int, Literal['running', 'exited', 'failed', 'timed_out', 'killed'], int | None, str, str, int, int, int, int
 ]
@@ -228,6 +229,7 @@ class NativeCommandRequest:
         max_output_bytes: int,
         max_head_bytes: int,
         cancellation: NativeCommandCancellation,
+        owner_tag: str | None,
     ) -> NativeCommandRequest: ...
 
 
@@ -240,6 +242,7 @@ class NativeCommandJobRequest:
         timeout_seconds: float | None,
         terminal: tuple[int, int] | None,
         max_buffer_bytes: int,
+        owner_tag: str | None,
     ) -> NativeCommandJobRequest: ...
 
 
@@ -549,6 +552,7 @@ def workspace_move_file(
     cancellation: NativeWorkspaceCancellation,
 ) -> NativeWorkspaceEditResult: ...
 def command_execute(workspace: NativeWorkspace, request: NativeCommandRequest) -> NativeCommandResult: ...
+def command_reap_orphans(workspace: NativeWorkspace) -> NativeCommandReapReport: ...
 def search_glob(workspace: NativeWorkspace, request: NativeGlobRequest) -> NativeGlobResult: ...
 def search_grep(workspace: NativeWorkspace, request: NativeGrepRequest) -> NativeGrepResult: ...
 def fff_create(workspace: NativeWorkspace, config: NativeFffConfig, limits: NativeFffLimits) -> NativeFffEngine: ...

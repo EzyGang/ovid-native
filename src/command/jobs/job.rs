@@ -7,7 +7,7 @@ use ovid_command_process::{ProcessScope, Terminal, TerminalSize};
 use crate::command::jobs::launch::JobEnd;
 use crate::command::jobs::ring::{OutputRing, render};
 use crate::command::jobs::{CommandJobSignal, CommandJobSnapshot, CommandJobStatus};
-use crate::command::{CommandCancellation, CommandError};
+use crate::command::{CommandCancellation, CommandError, records};
 
 /// One background command and every process that it starts.
 pub(super) struct CommandJob {
@@ -86,7 +86,7 @@ impl CommandJob {
             JobEnd::TimedOut => {
                 self.mark(CommandJobStatus::TimedOut, None);
                 self.cancellation.cancel();
-                if let Err(error) = self.scope.terminate(Duration::ZERO) {
+                if let Err(error) = records::terminate(&self.scope, Duration::ZERO) {
                     self.report(format_args!("cannot stop job processes: {error}"));
                 }
             }
@@ -113,8 +113,7 @@ impl CommandJob {
         self.mark(CommandJobStatus::Killed, None);
         self.cancellation.cancel();
         drop(self.stdin().take());
-        self.scope
-            .terminate(grace)
+        records::terminate(&self.scope, grace)
             .map_err(|error| CommandError::Execution(error.to_string()))
     }
 

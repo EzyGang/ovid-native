@@ -212,5 +212,6 @@ fn request(command: &str) -> CommandRequest {
         max_output_bytes: 65_536,
         max_head_bytes: 0,
         cancellation: CommandCancellation::new(),
+        owner_tag: None,
     }
 }

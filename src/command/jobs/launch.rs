@@ -2,16 +2,18 @@ use std::io::{self, PipeReader, PipeWriter};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
+use std::sync::mpsc::{self, SyncSender};
 use std::time::Instant;
 
 use brush_core::{SourceInfo, openfiles::OpenFile};
-use ovid_command_process::{TerminalProcess, TerminalSize};
+use ovid_command_process::{TerminalOutput, TerminalProcess, TerminalSize};
 use tokio::runtime::Runtime;
 use tokio::time;
 
 use crate::command::jobs::CommandJobRequest;
 use crate::command::jobs::job::CommandJob;
 use crate::command::jobs::ring::OutputRing;
+use crate::command::records::{self, ScopeKind};
 use crate::command::{
     COMMAND_RUNTIME, CommandError, create_shell, execution_parameters, exit_code,
     wait_for_cancellation,
@@ -31,12 +33,20 @@ pub(super) fn launch(
     request: CommandJobRequest,
     cwd: PathBuf,
     output: OutputRing,
+    state_dir: Option<&Path>,
 ) -> Result<Arc<CommandJob>, CommandError> {
     let runtime = COMMAND_RUNTIME
         .as_ref()
         .map_err(|error| CommandError::Execution(error.to_string()))?;
     let deadline = request.timeout.map(|timeout| Instant::now() + timeout);
     let job = Arc::new(CommandJob::new(id, output, deadline));
+    records::track(
+        state_dir,
+        &job.scope,
+        ScopeKind::Job,
+        request.owner_tag.as_deref(),
+        &request.command,
+    );
     match request.terminal {
         Some(size) => start_terminal(runtime, &job, &request, &cwd, size)?,
         None => start_shell(runtime, &job, request, cwd)?,
@@ -55,28 +65,49 @@ fn start_terminal(
     command
         .current_dir(cwd)
         .envs(request.env.iter().map(|(name, value)| (name, value)));
-    let TerminalProcess {
-        terminal,
-        input,
-        output,
-        child,
-    } = job
-        .scope
-        .spawn_terminal(command, size)
-        .map_err(|error| CommandError::Execution(error.to_string()))?;
-    job.attach(Box::new(input), Some(terminal));
-
-    start_thread(job, move |job| job.read_output(output))?;
+    let (started, spawned) = mpsc::sync_channel(1);
+    // A Linux child dies with its spawning thread, so the thread that waits for the child spawns it.
     start_thread(job, move |job| {
-        let exited = async move {
-            match tokio::task::spawn_blocking(move || child.wait()).await {
-                Ok(Ok(code)) => JobEnd::Exited(code),
-                Ok(Err(error)) => JobEnd::Failed(error.to_string()),
-                Err(error) => JobEnd::Failed(error.to_string()),
-            }
-        };
-        job.finish(runtime.block_on(supervise(job, exited)));
-    })
+        run_terminal(runtime, job, command, size, &started)
+    })?;
+    let output = spawned
+        .recv()
+        .unwrap_or_else(|error| Err(io::Error::other(error)))
+        .map_err(|error| CommandError::Execution(error.to_string()))?;
+    start_thread(job, move |job| job.read_output(output))
+}
+
+fn run_terminal(
+    runtime: &'static Runtime,
+    job: &CommandJob,
+    command: Command,
+    size: TerminalSize,
+    started: &SyncSender<io::Result<TerminalOutput>>,
+) {
+    let child = match job.scope.spawn_terminal(command, size) {
+        Ok(TerminalProcess {
+            terminal,
+            input,
+            output,
+            child,
+        }) => {
+            job.attach(Box::new(input), Some(terminal));
+            let _ = started.send(Ok(output));
+            child
+        }
+        Err(error) => {
+            let _ = started.send(Err(error));
+            return;
+        }
+    };
+    let exited = async move {
+        match tokio::task::spawn_blocking(move || child.wait()).await {
+            Ok(Ok(code)) => JobEnd::Exited(code),
+            Ok(Err(error)) => JobEnd::Failed(error.to_string()),
+            Err(error) => JobEnd::Failed(error.to_string()),
+        }
+    };
+    job.finish(runtime.block_on(supervise(job, exited)));
 }
 
 fn start_shell(
@@ -91,10 +122,14 @@ fn start_shell(
     job.attach(Box::new(input), None);
 
     start_thread(job, move |job| job.read_output(output))?;
-    start_thread(job, move |job| {
-        let end = runtime.block_on(run_shell(job, request, cwd, stdin, stdout, stderr));
+    let job = Arc::clone(job);
+    // Processes that the shell starts in the background outlive the shell, and a Linux child dies
+    // with its spawning thread. Runtime threads live as long as the host.
+    runtime.spawn(async move {
+        let end = run_shell(&job, request, cwd, stdin, stdout, stderr).await;
         job.finish(end);
-    })
+    });
+    Ok(())
 }
 
 fn start_thread<F>(job: &Arc<CommandJob>, work: F) -> Result<(), CommandError>

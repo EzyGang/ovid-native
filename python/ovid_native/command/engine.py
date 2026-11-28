@@ -14,10 +14,12 @@ from ovid_native.command.errors import (
 )
 from ovid_native.command.models import (
     CommandJobSignal,
+    ReapedProcess,
     WorkspaceCommandJobRequest,
     WorkspaceCommandJobSnapshot,
     WorkspaceCommandRequest,
     WorkspaceCommandResult,
+    WorkspaceReapReport,
 )
 
 
@@ -60,6 +62,7 @@ class CommandEngine:
                 request.max_output_bytes,
                 request.max_head_bytes,
                 cancellation,
+                request.owner_tag,
             )
             result = await run_native_translated(
                 lambda: _native.command_execute(self._workspace, native_request),
@@ -87,6 +90,7 @@ class CommandEngine:
             request.timeout_seconds,
             (request.cols, request.rows) if request.pty else None,
             request.max_buffer_bytes,
+            request.owner_tag,
         )
         return _snapshot(await self._job_operation(lambda: self._jobs.start(native_request)))
 
@@ -134,11 +138,32 @@ class CommandEngine:
             await self._condition.wait_for(lambda: not self._active)
         await run_native(self._jobs.close)
 
+    async def reap_orphans(self) -> WorkspaceReapReport:
+        return await reap_orphans(self._workspace)
+
     async def _job_operation[Result](self, operation: Callable[[], Result]) -> Result:
         return await run_native_translated(operation, translator=_ERROR_TRANSLATOR)
 
 
 _MAX_OFFSET = 2**64 - 1
+
+
+async def reap_orphans(workspace: _native.NativeWorkspace) -> WorkspaceReapReport:
+    """Stop the recorded processes of every dead host in the state directory of `workspace`.
+
+    Reaping is explicit. An application that wants processes to outlive a crashed host does not call it.
+    """
+    stopped, skipped_live_owners = await run_native_translated(
+        lambda: _native.command_reap_orphans(workspace),
+        translator=_ERROR_TRANSLATOR,
+    )
+    return WorkspaceReapReport(
+        stopped=tuple(
+            ReapedProcess(pid=pid, owner_tag=owner_tag, command_hash_prefix=prefix)
+            for pid, owner_tag, prefix in stopped
+        ),
+        skipped_live_owners=skipped_live_owners,
+    )
 
 
 def _require_range(name: str, value: float, low: float, high: float) -> None:
