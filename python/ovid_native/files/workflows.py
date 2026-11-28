@@ -2,7 +2,7 @@ from collections.abc import Callable
 from typing import cast
 
 from ovid_native import _native
-from ovid_native._native_execution import run_native
+from ovid_native.execution import run_native
 from ovid_native.files.hashline import parse_hashline
 from ovid_native.files.models import (
     ApplyPatchEditRequest,

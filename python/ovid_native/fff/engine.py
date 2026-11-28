@@ -4,7 +4,7 @@ from types import TracebackType
 from typing import Self
 
 from ovid_native import _native
-from ovid_native._native_execution import NativeErrorTranslator, create_native_workspace, run_native
+from ovid_native.execution import NativeErrorTranslator, run_native
 from ovid_native.fff import _mapping
 from ovid_native.fff.errors import (
     FffCancelledError,
@@ -29,6 +29,7 @@ from ovid_native.fff.models import (
     FffLimits,
     FffMultiGrepRequest,
 )
+from ovid_native.workspace._native_workspace import create_native_workspace
 from ovid_native.workspace.errors import WorkspaceClosedError
 
 

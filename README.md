@@ -33,6 +33,7 @@ Every wheel contains the full native API. The same package supports direct Pytho
 - [Quick start](#quick-start)
 - [Features](#features)
 - [Add tools to an agent](#add-tools-to-an-agent)
+- [Write your own capability](#write-your-own-capability)
 - [Safety and ownership](#safety-and-ownership)
 - [Platforms](#platforms)
 - [Development](#development)
@@ -239,6 +240,12 @@ Pass the definition to an Ovid Core `AgentFactory`. Call `await workspace.close(
 Capabilities share the workspace root, native handle, observations, and lifecycle. Agent construction fails when a required service is missing.
 
 By default, `FffCapability` and `AstCapability` defer their tools, including the optional `glob` tool of `FffCapability`. The model cannot see or call these tools before it loads the capability. To load a capability, the model calls `load_capability` with the capability ID: `native_fff` or `native_ast`. Pass `defer_loading=False` to make the tools ready at the start of a run. `SearchCapability` and `WorkspaceFilesCapability` take the same field, with the default `False`.
+
+## Write your own capability
+
+Subclass `WorkspaceCapability` from `ovid_native.workspace.capability` to add your own workspace tools. Base your tools on the classes in `ovid_native.workspace.toolsets`. Use `run_native` and `run_native_translated` from `ovid_native.execution` to run blocking work off the event loop. `session.root` gives the canonical workspace root, or `None` for a rootless session.
+
+The [extension guide](https://github.com/EzyGang/ovid-core/blob/main/docs/content/native/extend.md) lists the public modules and the versioning promise. Modules with a leading underscore are private.
 
 ## Safety and ownership
 

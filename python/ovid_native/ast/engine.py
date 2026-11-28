@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Self
 
 from ovid_native import _native
-from ovid_native._native_execution import NativeErrorTranslator, create_native_workspace, run_native_translated
 from ovid_native.ast import _mapping
 from ovid_native.ast.errors import (
     AstConfigurationError,
@@ -29,7 +28,9 @@ from ovid_native.ast.models import (
     AstSearchResult,
 )
 from ovid_native.ast.proposals import AstProposalStore
+from ovid_native.execution import NativeErrorTranslator, run_native_translated
 from ovid_native.runtime import ensure_native_compatibility
+from ovid_native.workspace._native_workspace import create_native_workspace
 from ovid_native.workspace.errors import WorkspaceClosedError
 
 

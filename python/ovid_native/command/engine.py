@@ -2,7 +2,6 @@ import asyncio
 from collections.abc import Callable
 
 from ovid_native import _native
-from ovid_native._native_execution import NativeErrorTranslator, run_native, run_native_translated
 from ovid_native.command.errors import (
     CommandCancelledError,
     CommandClosedError,
@@ -21,6 +20,7 @@ from ovid_native.command.models import (
     WorkspaceCommandResult,
     WorkspaceReapReport,
 )
+from ovid_native.execution import NativeErrorTranslator, run_native, run_native_translated
 
 
 _ERROR_TRANSLATOR = NativeErrorTranslator(

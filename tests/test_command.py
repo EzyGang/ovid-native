@@ -10,7 +10,6 @@ from pydantic import ValidationError
 from pytest_mock import MockerFixture
 
 from ovid_native import _native
-from ovid_native._native_execution import run_native_translated
 from ovid_native.command.engine import _ERROR_TRANSLATOR
 from ovid_native.command.errors import (
     CommandCancelledError,
@@ -21,6 +20,7 @@ from ovid_native.command.errors import (
     CommandPathError,
 )
 from ovid_native.command.models import WorkspaceCommandRequest
+from ovid_native.execution import run_native_translated
 from ovid_native.workspace.errors import WorkspaceOperationUnavailableError
 from ovid_native.workspace.operations import WorkspaceOperation
 from ovid_native.workspace.service import NativeWorkspaceSession

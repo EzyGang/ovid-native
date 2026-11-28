@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 WORKSPACE_SERVICE_KEY: AgentServiceKey[WorkspaceSession] = AgentServiceKey(
     id='ovid_native.workspace',
-    api_version=3,
+    api_version=4,
     value_type=None,
 )
 

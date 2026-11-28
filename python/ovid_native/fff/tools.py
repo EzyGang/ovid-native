@@ -17,12 +17,6 @@ from ovid_native.fff.models import (
     FffMultiGrepToolResult,
 )
 from ovid_native.files.edit_modes import EditModeState
-from ovid_native.workspace._toolsets import (
-    WorkspaceResultTool,
-    WorkspaceSourceTool,
-    WorkspaceSourceToolset,
-    file_page_notices,
-)
 from ovid_native.workspace.evidence import (
     EditableSourceGroup,
     WorkspaceSourcePresenter,
@@ -31,6 +25,12 @@ from ovid_native.workspace.evidence import (
 )
 from ovid_native.workspace.models import WorkspaceFffProvider
 from ovid_native.workspace.observations import WorkspaceObservationService, WorkspaceRenderedLine
+from ovid_native.workspace.toolsets import (
+    WorkspaceResultTool,
+    WorkspaceSourceTool,
+    WorkspaceSourceToolset,
+    file_page_notices,
+)
 
 
 FIND_DESCRIPTION = (

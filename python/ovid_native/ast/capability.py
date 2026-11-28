@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from ovid_core.capabilities.base import CapabilityContributions
 
 from ovid_native.ast.tools import AST_TOOL_INSTRUCTIONS, AstEditApplyTool, AstEditPreviewTool, AstSourceToolset
-from ovid_native.workspace._capability import WorkspaceCapability
+from ovid_native.workspace.capability import WorkspaceCapability
 from ovid_native.workspace.models import WorkspaceSession
 from ovid_native.workspace.operations import WorkspaceOperation
 

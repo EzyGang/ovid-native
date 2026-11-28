@@ -2,7 +2,6 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from ovid_native import _native
-from ovid_native._native_execution import NativeErrorTranslator, run_native_translated
 from ovid_native.discovery.errors import (
     FileDiscoveryCancelledError,
     FileDiscoveryConfigurationError,
@@ -11,6 +10,7 @@ from ovid_native.discovery.errors import (
     FileDiscoveryReadError,
 )
 from ovid_native.discovery.models import NamedFileDiscoveryRequest, NamedFileDiscoveryResult, TextFile
+from ovid_native.execution import NativeErrorTranslator, run_native_translated
 from ovid_native.runtime import ensure_native_compatibility
 
 

@@ -13,10 +13,10 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from ovid_native._native_execution import create_native_workspace
 from ovid_native.command.engine import CommandEngine
 from ovid_native.command.errors import CommandClosedError
 from ovid_native.command.models import WorkspaceCommandJobRequest, WorkspaceCommandRequest, WorkspaceReapReport
+from ovid_native.workspace._native_workspace import create_native_workspace
 from ovid_native.workspace.errors import WorkspaceConfigurationError
 from ovid_native.workspace.operations import WorkspaceOperation
 from ovid_native.workspace.service import NativeWorkspaceSession

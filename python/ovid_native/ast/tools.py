@@ -17,7 +17,6 @@ from ovid_native.ast.models import (
     AstSearchResult,
     AstSearchToolResult,
 )
-from ovid_native.workspace._toolsets import WorkspaceResultTool, WorkspaceSourceTool, WorkspaceSourceToolset
 from ovid_native.workspace.evidence import (
     EditableSourceGroup,
     WorkspaceSourcePresenter,
@@ -25,6 +24,7 @@ from ovid_native.workspace.evidence import (
     normalize_terminal_span_end,
 )
 from ovid_native.workspace.models import WorkspaceAstProvider
+from ovid_native.workspace.toolsets import WorkspaceResultTool, WorkspaceSourceTool, WorkspaceSourceToolset
 
 
 AST_GREP_DESCRIPTION = (

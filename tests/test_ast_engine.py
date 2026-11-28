@@ -8,7 +8,6 @@ import pytest
 from pytest_mock import MockerFixture
 
 from ovid_native import _native
-from ovid_native._native_execution import run_native_translated
 from ovid_native.ast import (
     AstConfigurationError,
     AstEngine,
@@ -28,6 +27,7 @@ from ovid_native.ast import (
     AstWriteError,
 )
 from ovid_native.ast.engine import _ERROR_TRANSLATOR
+from ovid_native.execution import run_native_translated
 
 
 def preview_request(*paths: str) -> AstRewritePreviewRequest:

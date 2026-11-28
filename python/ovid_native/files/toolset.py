@@ -7,9 +7,9 @@ from ovid_core.tools.models import ToolApproval
 
 from ovid_native.files.edit_modes import EditMode, EditModeProvider, EditModeSelection, EditModeState
 from ovid_native.files.edit_tools import ApplyPatchEditTool, HashlineEditTool, PatchEditTool, ReplaceEditTool
-from ovid_native.workspace._toolsets import BoundWorkspaceToolset, WorkspaceStepToolset
 from ovid_native.workspace.evidence import capture_source_presentation
 from ovid_native.workspace.models import WorkspaceFilesProvider, WorkspaceSession
+from ovid_native.workspace.toolsets import BoundWorkspaceToolset, WorkspaceStepToolset
 
 
 class EditModeToolset[Deps](WorkspaceStepToolset[Deps]):

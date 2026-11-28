@@ -14,12 +14,6 @@ from ovid_native.search.models import (
     GrepToolRequest,
     GrepToolResult,
 )
-from ovid_native.workspace._toolsets import (
-    WorkspaceResultTool,
-    WorkspaceSourceTool,
-    WorkspaceSourceToolset,
-    file_page_notices,
-)
 from ovid_native.workspace.evidence import (
     EditableSourceGroup,
     WorkspaceSourcePresenter,
@@ -27,6 +21,12 @@ from ovid_native.workspace.evidence import (
     normalize_terminal_span_end,
 )
 from ovid_native.workspace.models import WorkspaceSearchProvider
+from ovid_native.workspace.toolsets import (
+    WorkspaceResultTool,
+    WorkspaceSourceTool,
+    WorkspaceSourceToolset,
+    file_page_notices,
+)
 
 
 GLOB_DESCRIPTION = (
