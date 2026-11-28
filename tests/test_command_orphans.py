@@ -219,7 +219,7 @@ def _is_alive(pid: int) -> bool:
     if sys.platform == 'linux':
         try:
             state = Path(f'/proc/{pid}/stat').read_text().rpartition(')')[2].split()[0]
-        except FileNotFoundError:
+        except FileNotFoundError, ProcessLookupError:
             return False
         return state not in {'Z', 'X'}
     try:

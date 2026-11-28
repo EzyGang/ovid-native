@@ -54,19 +54,20 @@ pub(crate) const fn boot_id() -> Option<String> {
 }
 
 fn list(group: i32) -> Vec<u32> {
-    // SAFETY: A null buffer asks only for the size that the list needs.
+    // libproc returns a number of PIDs from proc_listpgrppids, not a number of bytes.
+    // SAFETY: A null buffer asks only for the number of PIDs that the list needs.
     let needed = unsafe { libc::proc_listpgrppids(group, ptr::null_mut(), 0) };
     let Ok(needed) = usize::try_from(needed) else {
         return Vec::new();
     };
     // The group can grow between the two calls.
-    let mut pids = vec![pid_t::default(); needed / size_of::<pid_t>() + 16];
+    let mut pids = vec![pid_t::default(); needed + 16];
     let Ok(capacity) = c_int::try_from(pids.len() * size_of::<pid_t>()) else {
         return Vec::new();
     };
     // SAFETY: The pointer and size describe `pids`, which lives for the whole call.
     let read = unsafe { libc::proc_listpgrppids(group, pids.as_mut_ptr().cast(), capacity) };
-    pids.truncate(usize::try_from(read).unwrap_or(0) / size_of::<pid_t>());
+    pids.truncate(usize::try_from(read).unwrap_or(0));
     pids.into_iter()
         .filter_map(|pid| u32::try_from(pid).ok())
         .filter(|pid| *pid > 0)
