@@ -142,6 +142,10 @@ impl Workspace {
         &self.state.canonical_root
     }
 
+    pub(crate) fn state_dir(&self) -> Option<&Path> {
+        self.state.state_dir.as_deref()
+    }
+
     pub(crate) fn ensure_open(&self) -> Result<(), WorkspaceError> {
         if self.state.closed.load(Ordering::Acquire) {
             return Err(WorkspaceError::Closed);

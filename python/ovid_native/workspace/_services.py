@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from ovid_native import _native
@@ -5,7 +6,7 @@ from ovid_native.ast.engine import AstEngine
 from ovid_native.ast.models import AstLimits
 from ovid_native.command.engine import CommandEngine
 from ovid_native.fff.engine import FffEngine
-from ovid_native.files.edit_modes import EditModeState
+from ovid_native.files.edit_modes import EditModeId, EditModeProvider, EditModeState
 from ovid_native.files.engine import WorkspaceFilesEngine
 from ovid_native.search.engine import SearchEngine
 from ovid_native.workspace.errors import WorkspaceConfigurationError
@@ -125,3 +126,30 @@ class NativeWorkspaceServices:
             assert self.files is not None
             return NativeObservationStore().bind(session_id=session_id, files=self.files)
         return NativeWorkspaceObservationService(workspace, session_id=session_id)
+
+
+def validate_edit_mode_providers(
+    providers: Sequence[EditModeProvider],
+    operations: frozenset[WorkspaceOperation],
+) -> tuple[EditModeProvider, ...]:
+    provider_by_id: dict[str, EditModeProvider] = {}
+    for provider in providers:
+        if provider.id in provider_by_id:
+            raise WorkspaceConfigurationError(f'Duplicate workspace edit mode provider: {provider.id}')
+        try:
+            EditModeId(provider.id)
+        except ValueError as error:
+            raise WorkspaceConfigurationError(str(error)) from error
+        required = provider.required_operations
+        if not isinstance(required, frozenset) or any(not isinstance(item, WorkspaceOperation) for item in required):
+            raise WorkspaceConfigurationError(
+                f'Workspace edit mode provider has invalid required operations: {provider.id}'
+            )
+        missing = required - operations
+        if missing:
+            names = ', '.join(sorted(operation.value for operation in missing))
+            raise WorkspaceConfigurationError(
+                f'Workspace edit mode provider requires unavailable operations: {provider.id}: {names}'
+            )
+        provider_by_id[provider.id] = provider
+    return tuple(provider_by_id.values())

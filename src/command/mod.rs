@@ -2,6 +2,7 @@ mod jobs;
 mod launcher;
 mod output;
 mod python;
+mod records;
 #[cfg(test)]
 mod scope_tests;
 #[cfg(test)]
@@ -15,8 +16,8 @@ use std::time::Duration;
 
 use brush_builtins::{BuiltinSet, default_builtins};
 use brush_core::{
-    ExecutionExitCode, ExecutionParameters, ExecutionResult, ProfileLoadBehavior, RcLoadBehavior,
-    Shell, ShellValue, ShellVariable, SourceInfo,
+    ExecutionParameters, ExecutionResult, ProfileLoadBehavior, RcLoadBehavior, Shell, ShellValue,
+    ShellVariable, SourceInfo,
     extensions::{DefaultErrorFormatter, ShellExtensionsImpl},
     openfiles::{self, OpenFile, OpenFiles},
 };
@@ -26,10 +27,13 @@ use tokio::time;
 
 use crate::command::launcher::ScopedLauncher;
 use crate::command::output::{CapturedOutput, capture};
+use crate::command::records::ScopeKind;
 use crate::workspace::Workspace;
 
 pub(crate) use python::register;
-pub(crate) use types::{CommandCancellation, CommandError, CommandRequest, CommandResult};
+pub(crate) use types::{
+    CommandCancellation, CommandError, CommandRequest, CommandResult, exit_code,
+};
 
 pub(crate) fn execute(
     workspace: &Workspace,
@@ -49,8 +53,14 @@ pub(crate) fn execute(
         .as_ref()
         .map_err(|error| CommandError::Execution(error.to_string()))?;
     let started = std::time::Instant::now();
-    let (outcome, output) =
-        runtime.block_on(execute_async(&request, &cwd, reader, writer, stderr))?;
+    let state_dir = workspace.state_dir().map(Path::to_path_buf);
+    // A Linux child dies with its spawning thread, so the shell runs on a runtime thread.
+    let execution = runtime.spawn(execute_async(
+        request, cwd, state_dir, reader, writer, stderr,
+    ));
+    let (outcome, output) = runtime
+        .block_on(execution)
+        .map_err(|error| CommandError::Execution(error.to_string()))??;
 
     Ok(CommandResult {
         head: output.head,
@@ -65,10 +75,13 @@ pub(crate) fn execute(
 type CommandShell = Shell<ShellExtensionsImpl<DefaultErrorFormatter, ScopedLauncher>>;
 
 static COMMAND_RUNTIME: LazyLock<std::io::Result<Runtime>> = LazyLock::new(|| {
-    tokio::runtime::Builder::new_multi_thread()
-        .thread_name("ovid-command")
-        .enable_all()
-        .build()
+    let mut builder = tokio::runtime::Builder::new_multi_thread();
+    builder.thread_name("ovid-command").enable_all();
+    // Linux only: the shell runs subshells on blocking threads, and a Linux child dies with its
+    // spawning thread. An idle blocking thread therefore never exits on Linux.
+    #[cfg(target_os = "linux")]
+    builder.thread_keep_alive(Duration::MAX);
+    builder.build()
 });
 
 struct CommandOutcome {
@@ -83,8 +96,9 @@ enum RunOutcome {
 }
 
 async fn execute_async(
-    request: &CommandRequest,
-    cwd: &Path,
+    request: CommandRequest,
+    cwd: PathBuf,
+    state_dir: Option<PathBuf>,
     reader: PipeReader,
     stdout: PipeWriter,
     stderr: PipeWriter,
@@ -93,7 +107,15 @@ async fn execute_async(
     let output_limit = request.max_output_bytes;
     let output_task =
         tokio::task::spawn_blocking(move || capture(reader, head_limit, output_limit));
-    let outcome = run(request, cwd, stdout, stderr).await;
+    let scope = Arc::new(ProcessScope::default());
+    records::track(
+        state_dir.as_deref(),
+        &scope,
+        ScopeKind::Command,
+        request.owner_tag.as_deref(),
+        &request.command,
+    );
+    let outcome = run(&request, &cwd, scope, stdout, stderr).await;
     let output = output_task
         .await
         .map_err(|error| CommandError::Output(error.to_string()))??;
@@ -126,10 +148,10 @@ fn resolve_cwd(root: &Path, requested: Option<&str>) -> Result<PathBuf, CommandE
 async fn run(
     request: &CommandRequest,
     cwd: &Path,
+    scope: Arc<ProcessScope>,
     stdout: PipeWriter,
     stderr: PipeWriter,
 ) -> Result<CommandOutcome, CommandError> {
-    let scope = Arc::new(ProcessScope::default());
     let mut shell = create_shell(cwd, &request.env, Arc::clone(&scope)).await?;
     let stdin = openfiles::null().map_err(|error| CommandError::Output(error.to_string()))?;
     let params = execution_parameters(&shell, stdin, stdout, stderr);
@@ -146,7 +168,7 @@ async fn run(
     };
     // Dropped child handles let the runtime reap the processes that termination stops.
     drop((params, shell));
-    tokio::task::spawn_blocking(move || scope.terminate(Duration::from_millis(500)))
+    tokio::task::spawn_blocking(move || records::terminate(&scope, Duration::from_millis(500)))
         .await
         .map_err(|error| CommandError::Execution(error.to_string()))?
         .map_err(|error| CommandError::Execution(error.to_string()))?;
@@ -214,19 +236,5 @@ fn execution_parameters(
 async fn wait_for_cancellation(cancellation: &CommandCancellation) {
     while !cancellation.is_cancelled() {
         time::sleep(Duration::from_millis(10)).await;
-    }
-}
-
-const fn exit_code(result: &ExecutionResult) -> i32 {
-    match result.exit_code {
-        ExecutionExitCode::Success => 0,
-        ExecutionExitCode::GeneralError => 1,
-        ExecutionExitCode::InvalidUsage => 2,
-        ExecutionExitCode::Unimplemented => 99,
-        ExecutionExitCode::CannotExecute => 126,
-        ExecutionExitCode::NotFound => 127,
-        ExecutionExitCode::Interrupted => 130,
-        ExecutionExitCode::BrokenPipe => 141,
-        ExecutionExitCode::Custom(code) => code as i32,
     }
 }

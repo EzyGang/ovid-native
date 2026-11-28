@@ -3,9 +3,12 @@ use std::time::Duration;
 use pyo3::prelude::*;
 
 use crate::command::jobs::{NativeCommandJobRequest, NativeCommandJobs};
+use crate::command::records::reap_orphans;
 use crate::command::{CommandCancellation, CommandError, CommandRequest, CommandResult, execute};
 use crate::python_boundary::{python_errors, register_exports};
 use crate::workspace::NativeWorkspace;
+
+type NativeReapedProcess = (u32, Option<String>, String);
 
 python_errors! {
     CommandError;
@@ -46,6 +49,7 @@ struct NativeCommandRequest {
 #[pymethods]
 impl NativeCommandRequest {
     #[new]
+    #[allow(clippy::too_many_arguments)]
     fn new(
         command: String,
         cwd: Option<String>,
@@ -54,6 +58,7 @@ impl NativeCommandRequest {
         max_output_bytes: usize,
         max_head_bytes: usize,
         cancellation: PyRef<'_, NativeCommandCancellation>,
+        owner_tag: Option<String>,
     ) -> PyResult<Self> {
         if !timeout_seconds.is_finite() || !(1.0..=3_600.0).contains(&timeout_seconds) {
             return Err(NativeCommandConfigurationError::new_err(
@@ -69,6 +74,7 @@ impl NativeCommandRequest {
                 max_output_bytes,
                 max_head_bytes,
                 cancellation: cancellation.inner.clone(),
+                owner_tag,
             },
         })
     }
@@ -87,6 +93,22 @@ fn command_execute(
         .map_err(to_python_error)
 }
 
+#[pyfunction]
+fn command_reap_orphans(
+    py: Python<'_>,
+    workspace: PyRef<'_, NativeWorkspace>,
+) -> PyResult<(Vec<NativeReapedProcess>, u64)> {
+    let workspace = workspace.inner.clone();
+    py.detach(move || reap_orphans(&workspace))
+        .map(|report| {
+            let stopped = report.stopped.into_iter();
+            let stopped = stopped
+                .map(|process| (process.pid, process.owner_tag, process.command_hash_prefix));
+            (stopped.collect(), report.skipped_live_owners)
+        })
+        .map_err(to_python_error)
+}
+
 pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     register_exports!(module,
         classes [
@@ -95,7 +117,7 @@ pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
             NativeCommandJobRequest,
             NativeCommandJobs,
         ],
-        functions [command_execute]
+        functions [command_execute, command_reap_orphans]
     );
     add_exceptions(module)
 }

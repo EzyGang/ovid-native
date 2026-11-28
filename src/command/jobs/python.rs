@@ -37,6 +37,7 @@ impl NativeCommandJobRequest {
         timeout_seconds: Option<f64>,
         terminal: Option<(u16, u16)>,
         max_buffer_bytes: usize,
+        owner_tag: Option<String>,
     ) -> PyResult<Self> {
         let timeout = timeout_seconds
             .map(Duration::try_from_secs_f64)
@@ -50,6 +51,7 @@ impl NativeCommandJobRequest {
                 timeout,
                 terminal: terminal.map(|(cols, rows)| TerminalSize { cols, rows }),
                 max_buffer_bytes,
+                owner_tag,
             },
         })
     }

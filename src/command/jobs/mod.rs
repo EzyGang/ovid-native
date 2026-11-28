@@ -80,7 +80,7 @@ impl CommandJobRegistry {
             request.max_buffer_bytes,
             Arc::clone(&self.budget),
         );
-        let job = launch(id, request, cwd, output)?;
+        let job = launch(id, request, cwd, output, self.workspace.state_dir())?;
         state.next_id = id;
         state.jobs.insert(id, Arc::clone(&job));
         Ok(job.snapshot(0, false))

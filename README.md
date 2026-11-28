@@ -158,6 +158,15 @@ It does not use the embedded shell: `cmd.exe /d /s /c` runs it on Windows, and `
 The shell syntax of a PTY job therefore differs from a foreground command and from a job without a PTY.
 Jobs do not survive a restart of the host process.
 
+A host that dies without cleanup can leave command processes running.
+With a `state_dir`, each host records the processes of its command and job scopes in `processes/<host pid>-<host start time>.record`.
+One sampler reads only the scope members each 500 ms and writes the file only when they change.
+A record keeps an optional `owner_tag` and a SHA-256 digest of the command, never the command text.
+Call `await session.reap_orphans()` once at open to stop the recorded processes of dead hosts.
+Reap skips the records of a host that still runs, and it never signals a process whose start time differs from the record.
+On Windows, the Job Object stops the processes when the host dies.
+On Linux, `PR_SET_PDEATHSIG` stops the direct children of the host. macOS relies on the records only.
+
 [Read the command guide](https://github.com/EzyGang/ovid-core/blob/main/docs/content/native/command.md)
 
 ### Standalone file discovery

@@ -8,8 +8,14 @@ from ovid_core.services import AgentServiceBinding
 from ovid_native import _native
 from ovid_native._native_execution import create_native_workspace, run_native_translated
 from ovid_native.ast.models import AstLimits
+from ovid_native.command.engine import reap_orphans
+from ovid_native.command.models import WorkspaceReapReport
 from ovid_native.files.edit_modes import EditMode, EditModeId, EditModeProvider, EditModeState
-from ovid_native.workspace._services import NativeWorkspaceServices, WorkspaceProviderOverrides
+from ovid_native.workspace._services import (
+    NativeWorkspaceServices,
+    WorkspaceProviderOverrides,
+    validate_edit_mode_providers,
+)
 from ovid_native.workspace.errors import (
     _ERROR_TRANSLATOR,
     WorkspaceClosedError,
@@ -78,7 +84,7 @@ class NativeWorkspaceSession:
             if enabled_operations is not None
             else WorkspaceOperation.native_defaults(has_view=view_provider is not None)
         )
-        providers = _validate_edit_mode_providers(edit_mode_providers, self._operations)
+        providers = validate_edit_mode_providers(edit_mode_providers, self._operations)
 
         self._native = create_native_workspace(root, error=WorkspaceConfigurationError, state_dir=state_dir)
 
@@ -180,6 +186,10 @@ class NativeWorkspaceSession:
             for mutation_id, restored, conflicts in reports
         )
 
+    async def reap_orphans(self) -> WorkspaceReapReport:
+        """Stop the recorded processes of dead hosts in the state directory. Call it once at open, after recover()."""
+        return await reap_orphans(self._native)
+
     async def close(self) -> None:
         async with self._close_lock:
             if self._closed:
@@ -220,30 +230,3 @@ class NativeWorkspaceSession:
             raise WorkspaceClosedError('Workspace session is closed')
         if operation not in self._operations:
             raise WorkspaceOperationUnavailableError(f'Workspace operation is unavailable: {operation.value}')
-
-
-def _validate_edit_mode_providers(
-    providers: Sequence[EditModeProvider],
-    operations: frozenset[WorkspaceOperation],
-) -> tuple[EditModeProvider, ...]:
-    provider_by_id: dict[str, EditModeProvider] = {}
-    for provider in providers:
-        if provider.id in provider_by_id:
-            raise WorkspaceConfigurationError(f'Duplicate workspace edit mode provider: {provider.id}')
-        try:
-            EditModeId(provider.id)
-        except ValueError as error:
-            raise WorkspaceConfigurationError(str(error)) from error
-        required = provider.required_operations
-        if not isinstance(required, frozenset) or any(not isinstance(item, WorkspaceOperation) for item in required):
-            raise WorkspaceConfigurationError(
-                f'Workspace edit mode provider has invalid required operations: {provider.id}'
-            )
-        missing = required - operations
-        if missing:
-            names = ', '.join(sorted(operation.value for operation in missing))
-            raise WorkspaceConfigurationError(
-                f'Workspace edit mode provider requires unavailable operations: {provider.id}: {names}'
-            )
-        provider_by_id[provider.id] = provider
-    return tuple(provider_by_id.values())

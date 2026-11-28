@@ -5,9 +5,16 @@ use std::time::Duration;
 
 use tokio::process::Child;
 
+#[cfg(target_os = "linux")]
+mod linux_processes;
+#[cfg(target_os = "macos")]
+mod macos_processes;
+mod orphans;
 mod terminal;
 #[cfg(unix)]
 mod unix;
+#[cfg(unix)]
+mod unix_orphans;
 #[cfg(unix)]
 mod unix_terminal;
 #[cfg(unix)]
@@ -15,12 +22,15 @@ use unix as platform;
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
+mod windows_orphans;
+#[cfg(windows)]
 mod windows_process;
 #[cfg(windows)]
 mod windows_terminal;
 #[cfg(windows)]
 use windows as platform;
 
+pub use orphans::{ProcessIdentity, ScopeMembers, boot_id, sample_scopes, stop_orphans};
 pub use terminal::{Terminal, TerminalChild, TerminalOutput, TerminalProcess, TerminalSize};
 
 /// Owns every process that one command starts.
@@ -55,6 +65,9 @@ impl ProcessScope {
     /// The process group ID is `None` on Windows. The scope refuses to start a process after
     /// [`ProcessScope::terminate`]. If the scope cannot contain the child, it stops the child and
     /// returns the error.
+    ///
+    /// On Linux, the child gets `SIGKILL` when the thread that calls this method exits, and it
+    /// exits at once if the host is already gone. Call it from a thread that outlives the child.
     pub fn spawn(&self, command: Command, kill_on_drop: bool) -> io::Result<(Child, Option<i32>)> {
         platform::spawn(&mut self.open_state()?.members, command, kill_on_drop)
     }
@@ -64,7 +77,8 @@ impl ProcessScope {
     /// The child joins the scope before it runs its program, so it cannot start a process outside
     /// the scope first. On Unix, the child leads a new session whose controlling terminal is the
     /// pseudoterminal, and the scope must not hold a process yet. On Windows, the command line is
-    /// the quoted program followed by each argument exactly as given.
+    /// the quoted program followed by each argument exactly as given. On Linux, the child dies
+    /// with the calling thread, as with [`ProcessScope::spawn`].
     pub fn spawn_terminal(
         &self,
         command: Command,
@@ -90,6 +104,13 @@ impl ProcessScope {
             return Err(io::Error::other("process scope is terminated"));
         }
         Ok(state)
+    }
+
+    fn read_members<T, F>(&self, read: F) -> Option<T>
+    where
+        F: FnOnce(&platform::Members) -> T,
+    {
+        self.state().ok().map(|state| read(&state.members))
     }
 
     fn state(&self) -> io::Result<MutexGuard<'_, ScopeState>> {

@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use brush_core::{ExecutionExitCode, ExecutionResult};
+
 use crate::workspace::{Cancellation, WorkspaceError};
 
 #[derive(Clone, Debug)]
@@ -11,6 +13,7 @@ pub(crate) struct CommandRequest {
     pub max_output_bytes: usize,
     pub max_head_bytes: usize,
     pub cancellation: CommandCancellation,
+    pub owner_tag: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -81,6 +84,20 @@ pub(crate) fn validate_input(command: &str, env: &[(String, String)]) -> Result<
         }
     }
     Ok(())
+}
+
+pub(crate) const fn exit_code(result: &ExecutionResult) -> i32 {
+    match result.exit_code {
+        ExecutionExitCode::Success => 0,
+        ExecutionExitCode::GeneralError => 1,
+        ExecutionExitCode::InvalidUsage => 2,
+        ExecutionExitCode::Unimplemented => 99,
+        ExecutionExitCode::CannotExecute => 126,
+        ExecutionExitCode::NotFound => 127,
+        ExecutionExitCode::Interrupted => 130,
+        ExecutionExitCode::BrokenPipe => 141,
+        ExecutionExitCode::Custom(code) => code as i32,
+    }
 }
 
 #[derive(Debug)]
