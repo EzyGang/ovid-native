@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Self
 
 from ovid_native import _native
-from ovid_native._native_execution import NativeErrorTranslator, create_native_workspace, run_native_translated
+from ovid_native.execution import NativeErrorTranslator, run_native_translated
 from ovid_native.search import _mapping
 from ovid_native.search.errors import (
     SearchCancelledError,
@@ -13,6 +13,7 @@ from ovid_native.search.errors import (
     SearchReadError,
 )
 from ovid_native.search.models import GlobRequest, GlobResult, GrepRequest, GrepResult, SearchLimits
+from ovid_native.workspace._native_workspace import create_native_workspace
 from ovid_native.workspace.errors import WorkspaceClosedError
 
 

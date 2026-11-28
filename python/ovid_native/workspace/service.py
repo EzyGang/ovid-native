@@ -6,11 +6,12 @@ from pathlib import Path
 from ovid_core.services import AgentServiceBinding
 
 from ovid_native import _native
-from ovid_native._native_execution import create_native_workspace, run_native_translated
 from ovid_native.ast.models import AstLimits
 from ovid_native.command.engine import reap_orphans
 from ovid_native.command.models import WorkspaceReapReport
+from ovid_native.execution import run_native_translated
 from ovid_native.files.edit_modes import EditMode, EditModeId, EditModeProvider, EditModeState
+from ovid_native.workspace._native_workspace import create_native_workspace
 from ovid_native.workspace._services import (
     NativeWorkspaceServices,
     WorkspaceProviderOverrides,
@@ -78,6 +79,7 @@ class NativeWorkspaceSession:
         cleanup: Callable[[], None] | None = None,
         enabled_operations: frozenset[WorkspaceOperation] | None = None,
         state_dir: Path | None = None,
+        rootless: bool = False,
     ) -> None:
         self._operations = (
             enabled_operations
@@ -87,6 +89,7 @@ class NativeWorkspaceSession:
         providers = validate_edit_mode_providers(edit_mode_providers, self._operations)
 
         self._native = create_native_workspace(root, error=WorkspaceConfigurationError, state_dir=state_dir)
+        self._root = None if rootless else root.resolve(strict=True)
 
         self._id = WorkspaceSessionId(secrets.token_urlsafe(24))
         self._change_events = NativeWorkspaceChangeEvents(session_id=self._id)
@@ -122,6 +125,10 @@ class NativeWorkspaceSession:
     @property
     def operations(self) -> frozenset[WorkspaceOperation]:
         return self._operations
+
+    @property
+    def root(self) -> Path | None:
+        return self._root
 
     @property
     def edit_mode(self) -> EditModeState:

@@ -7,7 +7,7 @@ from ovid_core.tools.base import BaseTool
 from ovid_native.fff.errors import FffConfigurationError
 from ovid_native.fff.tools import FffFindTool, FffSourceToolset
 from ovid_native.search.tools import GlobTool
-from ovid_native.workspace._capability import WorkspaceCapability
+from ovid_native.workspace.capability import WorkspaceCapability
 from ovid_native.workspace.models import WorkspaceSession
 from ovid_native.workspace.operations import WorkspaceOperation
 

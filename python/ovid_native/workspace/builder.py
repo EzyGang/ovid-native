@@ -170,6 +170,7 @@ class WorkspaceSessionBuilder:
             policy=self._policy,
             cleanup=cleanup,
             enabled_operations=self._rootless_operations() if rootless else None,
+            rootless=rootless,
         )
 
     def _control_root(self) -> tuple[Path, Callable[[], None] | None]:

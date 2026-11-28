@@ -5,7 +5,7 @@ from ovid_core.models import BaseModel
 from pydantic import Field
 
 from ovid_native import _native
-from ovid_native._native_execution import run_native
+from ovid_native.execution import run_native
 from ovid_native.workspace.errors import _ERROR_TRANSLATOR, WorkspaceStaleError, translate_native_workspace_error
 from ovid_native.workspace.events import NativeWorkspaceChangeEvents as NativeWorkspaceChangeEvents
 from ovid_native.workspace.events import WorkspaceChangeEvent as WorkspaceChangeEvent

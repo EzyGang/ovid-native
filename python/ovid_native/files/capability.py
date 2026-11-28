@@ -4,7 +4,7 @@ from ovid_core.capabilities.base import CapabilityContributions
 
 from ovid_native.files.tools import FILES_TOOL_INSTRUCTIONS, ReadTool, WriteTool
 from ovid_native.files.toolset import EditModeToolset
-from ovid_native.workspace._capability import WorkspaceCapability
+from ovid_native.workspace.capability import WorkspaceCapability
 from ovid_native.workspace.models import WorkspaceSession
 from ovid_native.workspace.operations import WorkspaceOperation
 

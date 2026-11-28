@@ -1,5 +1,5 @@
 from ovid_native import _native
-from ovid_native._native_execution import NativeErrorTranslator
+from ovid_native.execution import NativeErrorTranslator
 
 
 class WorkspaceError(Exception):

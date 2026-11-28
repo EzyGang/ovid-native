@@ -47,7 +47,7 @@ src/
 python/ovid_native/
 ├── <domain>/                         Models, engines, tools, and capabilities
 ├── _native.pyi                       Type declarations for Rust exports
-├── _native_execution.py              Shared boundary execution
+├── execution.py                     Public shared boundary execution
 └── __init__.py                       Empty by design
 tests/
 └── test_<domain>_*.py                Python and installed-extension contracts
@@ -71,7 +71,7 @@ tests/test_search_*.py
 
 Organize code by domain, not by language-level type or release stage. Do not create generic `schemas`, `dto`, `interfaces`, `utils`, or `helpers` packages. Add shared code only after more than one domain needs it.
 
-Keep cross-domain boundary code at the nearest shared package level. `python/ovid_native/_native_execution.py` is one example.
+Keep cross-domain boundary code at the nearest shared package level. `python/ovid_native/execution.py` is one example.
 
 Generated extensions, Python caches, `target/`, `dist/`, coverage output, and documentation site output are build state. Do not edit or commit them.
 

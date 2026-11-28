@@ -219,6 +219,9 @@ class WorkspaceSession(Protocol):
     def operations(self) -> frozenset[WorkspaceOperation]: ...
 
     @property
+    def root(self) -> Path | None: ...
+
+    @property
     def edit_mode(self) -> EditModeState: ...
 
     @property
